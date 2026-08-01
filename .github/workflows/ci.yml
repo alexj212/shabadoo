@@ -8,6 +8,16 @@ on:
 permissions:
   contents: read
 
+# Supersede a run when another push lands on the same ref.
+#
+# Several pushes in quick succession — or a force-push after a history
+# rewrite — otherwise queue a full run each, and GitHub emails about every
+# failure. The interesting answer is always the newest commit's; the ones it
+# overtook are just noise and burned minutes.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     runs-on: ubuntu-latest
