@@ -227,18 +227,28 @@ machines that have tmux and dial out to it.
 - **Agents:** `shabadoo-node.service` (wsl) and
   `dev.shabadoo.node.plist` (mac), each authenticating with
   `~/.config/shabadoo/agent_key`
-- **Image:** built from this repo and shipped with
-  `docker save | ssh user@coordinator 'docker load'`; tag pinned in `.env`. Compose
-  source of truth is `deploy/docker-compose.yml` here
+- **Image:** `ghcr.io/alexj212/shabadoo`, built and pushed by CI on every `v*`
+  tag; tag pinned in `.env`. Compose source of truth is
+  `deploy/docker-compose.yml` here
+
+Since the image is published, upgrading is a pull rather than a build:
+
+```bash
+ssh user@coordinator "cd /srv/shabadoo && sed -i 's/^SHABADOO_IMAGE_TAG=.*/SHABADOO_IMAGE_TAG=0.1.1/' .env && docker compose pull && docker compose up -d"
+
+make install                   # rebuild the local binary + ~/bin (agents, CLI)
+ssh user@coordinator 'docker logs shabadoo-hub -f'
+```
+
+The build-and-ship path still works and is what you want for an **untagged**
+build — a fix you have not cut a release for, or a coordinator with no route to
+ghcr.io:
 
 ```bash
 V=$(git describe --tags --always --dirty)
 docker build --load --build-arg VERSION=$V -t shabadoo:$V .
 docker save shabadoo:$V | gzip -1 | ssh user@coordinator 'gunzip | docker load'
 ssh user@coordinator "cd /srv/shabadoo && sed -i 's/^SHABADOO_IMAGE_TAG=.*/SHABADOO_IMAGE_TAG=$V/' .env && docker compose up -d"
-
-make install                   # rebuild the local binary + ~/bin (agents, CLI)
-ssh user@coordinator 'docker logs shabadoo-hub -f'
 ```
 
 **Moved off the WSL workstation 2026-07-30**, along with `make deploy` and
@@ -324,3 +334,7 @@ one inherits.
 Also open: the cross-host NATS `CLAUDE_PRESENCE` view that `claude-sessions
 list` shows, and — before the write surface grows further — moving off
 onto one of the two real auth planes.
+
+## License
+
+[MIT](LICENSE).

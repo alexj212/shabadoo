@@ -1,0 +1,102 @@
+# The coordinator behind Traefik, with TLS.
+#
+# Start from `docker-compose.yml` — it has no proxy and therefore nothing that
+# can silently break. Come here when you want the dashboard on a real hostname
+# with a real certificate, which you need anyway for two things:
+#
+#   * Web Push (a browser will not register a service worker without a secure
+#     context), and
+#   * the iOS app, which will not talk to a plaintext origin.
+#
+# Assumes an existing Traefik on an external `proxy` network with a cert
+# resolver configured. Adjust the entrypoint and resolver names to match yours.
+
+name: shabadoo
+
+networks:
+  proxy:
+    external: true
+
+services:
+  hub:
+    image: ghcr.io/alexj212/shabadoo:0.1.1
+    container_name: shabadoo-hub
+    restart: unless-stopped
+
+    # 0.0.0.0 here is the CONTAINER's namespace, not the host's: no ports are
+    # published, so the only route in is Traefik on the proxy network. The
+    # binary's "never bind 0.0.0.0" rule is about host interfaces, where it
+    # means every interface including the LAN.
+    command:
+      - hub
+      - --addr=0.0.0.0:8787
+      - --db=/data/hub.db
+      - --agents=/data/authorized_agents
+      - --device-tokens
+      # Add --bootstrap for the FIRST start only, take the code out of the log,
+      # then remove it and restart. It mints a fresh code on every start.
+      # - --bootstrap
+      # - --apprise-url=http://apprise:8000/notify/all
+      # - --releases=/data/releases
+
+    volumes:
+      # A bind mount rather than a named volume, so an existing backup job that
+      # sweeps a directory picks it up. hub.db holds every enrolled device token
+      # and the whole audit log — losing it signs out every paired client.
+      - ./data:/data
+
+    networks:
+      - proxy
+
+    healthcheck:
+      # Unauthenticated on purpose: a healthcheck has nowhere to keep a token.
+      # It pings the DATABASE, not just the port — a process serving HTTP with
+      # its storage gone is the failure a port check calls healthy.
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8787/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=proxy
+
+      - traefik.http.routers.shabadoo.rule=Host(`coordinator.example`)
+      - traefik.http.routers.shabadoo.entrypoints=https
+      - traefik.http.routers.shabadoo.tls=true
+      - traefik.http.routers.shabadoo.tls.certresolver=myresolver
+      - traefik.http.routers.shabadoo.service=shabadoo-svc
+
+      - traefik.http.services.shabadoo-svc.loadbalancer.server.port=8787
+      - traefik.http.services.shabadoo-svc.loadbalancer.passhostheader=true
+
+      # ---------------------------------------------------------------------
+      # THE ONE THAT MATTERS
+      #
+      # There is deliberately NO compression middleware on this router, and no
+      # buffering one either.
+      #
+      # Every agent holds a long-lived text/event-stream open to receive its
+      # commands, and the dashboard holds another for /api/events. Middleware
+      # that buffers or compresses those routes presents as "agents connected,
+      # commands never arrive" — and as a dashboard that paints once and then
+      # never updates. No error, no log line. It is indistinguishable from every
+      # agent having gone away, which is the worst possible disguise for a proxy
+      # misconfiguration.
+      #
+      # If your Traefik has a GLOBAL middleware chain (compress, buffering),
+      # this service must opt out of it. Adding `traefik.http.routers.shabadoo
+      # .middlewares=` with the chain minus compression is the usual shape.
+      #
+      # Verify rather than assume — this should stream and never exit:
+      #   curl -N -H "Authorization: Bearer $TOKEN" \
+      #        https://coordinator.example/api/events
+      # ---------------------------------------------------------------------
+
+# Why no `ports:` here
+# --------------------
+# Publishing 8787 alongside a proxy quietly creates a second, unencrypted route
+# to the same coordinator that bypasses whatever the proxy enforces. Reaching
+# this service with a credential means driving panes that run
+# `claude --dangerously-skip-permissions`; one way in is enough.

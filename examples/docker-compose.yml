@@ -15,7 +15,12 @@ name: shabadoo
 
 services:
   shabadoo:
-    image: ghcr.io/alexj212/shabadoo:latest
+    # Pinned, not `latest`. Reaching this container with a credential means
+    # driving panes that run `claude --dangerously-skip-permissions`, so
+    # "whatever was pushed most recently" is not something a restart should pick
+    # up on its own. Bump it deliberately; the tags published per release are
+    # {major}.{minor}.{patch}, {major}.{minor}, and latest.
+    image: ghcr.io/alexj212/shabadoo:0.1.1
     container_name: shabadoo
     restart: unless-stopped
 
