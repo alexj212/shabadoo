@@ -15,7 +15,7 @@ name: shabadoo
 
 services:
   shabadoo:
-    image: ghcr.io/OWNER/shabadoo:latest
+    image: ghcr.io/alexj212/shabadoo:latest
     container_name: shabadoo
     restart: unless-stopped
 
