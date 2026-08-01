@@ -19,7 +19,14 @@ networks:
 
 services:
   hub:
-    image: shabadoo:${SHABADOO_IMAGE_TAG}
+    # Defaults to the image CI publishes on every v* tag, so an upgrade is
+    # `docker compose pull && up -d` rather than build-save-ssh.
+    #
+    # The local path is still there when you need it — an untagged build, or a
+    # host with no route to ghcr.io. Set SHABADOO_IMAGE=shabadoo in .env and
+    # SHABADOO_IMAGE_TAG to whatever `docker load` brought in; nothing else
+    # changes.
+    image: ${SHABADOO_IMAGE:-ghcr.io/alexj212/shabadoo}:${SHABADOO_IMAGE_TAG}
     container_name: shabadoo-hub
     restart: unless-stopped
 

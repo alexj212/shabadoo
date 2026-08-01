@@ -1,0 +1,68 @@
+# A per-host agent (node) as a systemd unit.
+#
+# `shabadoo setup --service --coord <URL>` writes this file for you, resolved
+# for the host it runs on. This copy is here for the case where you would
+# rather see the unit than run an installer that writes one — and so the shape
+# is reviewable without installing anything.
+#
+# Install:
+#   sudo cp node.service /etc/systemd/system/shabadoo-node.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now shabadoo-node
+#
+# Replace `operator` and the paths below. The agent runs as a normal user, not
+# root: it drives that user's tmux, and a root agent would find no sessions.
+
+[Unit]
+Description=shabadoo node (per-host agent)
+# Against a REMOTE coordinator there is no local unit to order after, and the
+# agent reconnects on its own anyway. If the hub also runs on this host, use
+# `After=shabadoo-hub.service` / `Wants=shabadoo-hub.service` instead.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=operator
+Group=operator
+Environment=HOME=/home/operator
+
+# The agent is the half that shells out — it needs `tmux` and `claude` on PATH,
+# and a systemd unit does NOT inherit a login shell's. ~/bin is where `setup`
+# puts the binary.
+Environment=PATH=/home/operator/bin:/usr/local/bin:/usr/bin:/bin
+
+# Names this node in the dashboard, the tmux windows, and the remote-control
+# alias. Keep it short and machine-distinctive (`wsl`, `mac`, `dm`) — the
+# default is the short hostname, which is usually something like
+# `alexs-macbook-pro`. The unit does not source ~/.config/claude/env, so if you
+# set a label there, set the same one here or windows opened by the service get
+# a different name than the ones you open by hand.
+Environment=CLAUDE_HOST_LABEL=laptop
+
+# tmux reports pane titles in the locale's encoding; a C locale mangles any
+# non-ASCII in a window name. Defence in depth, not load-bearing.
+Environment=LANG=en_US.UTF-8
+
+WorkingDirectory=/home/operator
+
+# --key is an ed25519 private key you generate; the agent signs a challenge with
+# it (SSHSIG) and never sends it. `setup` reports this file, never generates it:
+#   ssh-keygen -t ed25519 -N "" -C laptop -f ~/.config/shabadoo/agent_key
+# Then append the .pub (keytype + key + node name as the comment) to
+# `authorized_agents` ON THE COORDINATOR. No restart needed there — that file is
+# re-read when it changes, because restarting to admit one agent would
+# disconnect every other.
+ExecStart=/home/operator/bin/shabadoo node \
+    --coord https://coordinator.example \
+    --node laptop \
+    --key /home/operator/.config/shabadoo/agent_key
+
+# `shabadoo upgrade` restarts a node by exiting NON-ZERO (code 70), which is
+# what makes on-failure the correct policy: a clean exit would satisfy
+# `Restart=on-failure` and leave the node simply gone after an upgrade.
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
