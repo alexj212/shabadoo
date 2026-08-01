@@ -1,0 +1,118 @@
+# shabadoo hub — the coordinator for Claude Code sessions across hosts.
+#
+# Deployed to dm at /srv/shabadoo/. This file is the source of truth; copy it
+# up rather than editing it in place, the same way the image is built here and
+# shipped with `docker save | ssh dm docker load`.
+#
+# Only the HUB runs here. Agents (nodes) run on machines that actually have
+# tmux, and they dial OUT to this container, so no node needs an inbound port —
+# only dm, which Traefik already fronts.
+#
+# Moved off the WSL workstation 2026-07-30: the hub is a single point of failure
+# for every node's dashboard, and there it inherited a workstation's uptime.
+
+name: shabadoo
+
+networks:
+  proxy:
+    external: true
+
+services:
+  hub:
+    image: shabadoo:${SHABADOO_IMAGE_TAG}
+    container_name: shabadoo-hub
+    restart: unless-stopped
+
+    # 0.0.0.0 here is the container's own namespace, not the host's: no ports
+    # are published, so the only way in is Traefik on the proxy network. The
+    # binary's "never 0.0.0.0" convention is about binding a host interface,
+    # where it means every interface including the LAN.
+    #
+    # --device-tokens: every human client (browser, CLI, phone) presents a token
+    # it was enrolled with.
+    #
+    # This host is always on, behind a wildcard cert, and reachable by every
+    # tailnet device — including tag:family phones, which already hold dm:* — so
+    # the posture had to change with the move rather than after it. The WSL
+    # deployment ran --trust-network, which was not authentication at all;
+    # tolerable on a workstation port, not here. That flag no longer exists: once
+    # enrolment became a closed loop its only remaining effect would have been to
+    # disable scopes, device attribution and revocation in one move.
+    #
+    # ENROLLING THE FIRST DEVICE: minting a pairing code requires an already
+    # enrolled credential, so a fresh database cannot bootstrap itself. Add
+    # --bootstrap temporarily, restart, take the code from `docker logs
+    # shabadoo-hub`, redeem it with `shabadoo pair --code <CODE> --coord
+    # https://coordinator.example`, then remove the flag and restart. It is
+    # deliberately not left on: it prints a usable pairing code to the container
+    # log on every start.
+    command:
+      - hub
+      - --addr=0.0.0.0:8787
+      - --db=/data/hub.db
+      - --agents=/data/authorized_agents
+      - --device-tokens
+      # The notification relay lives on the coordinator, not on each agent: the
+      # routing config is one thing in one place, and a node able to notify
+      # directly would need this URL — and the ability to spam it — on every
+      # host. Reached over the proxy network, so it never leaves dm.
+      - --apprise-url=http://apprise:8000/notify/homelab
+      # Binaries an operator published, for `shabadoo upgrade`. Under the
+      # bind-mounted data dir so borg already covers it, and so a container
+      # rebuild does not discard what was published.
+      - --releases=/data/releases
+
+    volumes:
+      # A bind mount, not a named volume, so dm's nightly borg run (03:00 —
+      # homelab docs/backups.md) sweeps it up with the rest of /docker. Holds
+      # hub.db (every enrolled device token, the audit log) and
+      # authorized_agents (the trust decision about which machines may connect).
+      - /srv/shabadoo/data:/data
+
+    networks:
+      - proxy
+
+    # /healthz is unauthenticated on purpose — a healthcheck has nowhere to keep
+    # a device token. It checks the database is reachable, not just that the
+    # port is open, which is the failure a port check would miss.
+    # busybox wget is what alpine ships; --spider would not fail on a 503 body.
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8787/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=proxy
+
+      # Priority is deliberately unset: an unset router is ranked by rule
+      # length, which comfortably beats the catch-all redirect (priority=1)
+      # that bounces unknown *.apps.example.com hosts to the homepage.
+      - traefik.http.routers.shabadoo.rule=Host(`coordinator.example`)
+      - traefik.http.routers.shabadoo.entrypoints=https
+      - traefik.http.routers.shabadoo.tls=true
+      - traefik.http.routers.shabadoo.tls.certresolver=cloudflare
+      - traefik.http.routers.shabadoo.tls.domains[0].main=apps.example.com
+      - traefik.http.routers.shabadoo.tls.domains[0].sans=*.apps.example.com
+      - traefik.http.routers.shabadoo.service=shabadoo-svc
+
+      - traefik.http.services.shabadoo-svc.loadbalancer.server.port=8787
+      - traefik.http.services.shabadoo-svc.loadbalancer.passhostheader=true
+
+      # There is deliberately NO compression middleware. Every agent holds a
+      # long-lived SSE stream open to receive its commands, and a buffering or
+      # compressing middleware on text/event-stream would present as "agents
+      # connected, commands never arrive" — do not add one without excluding
+      # that content type. dm's Traefik has no global middleware chain today
+      # (checked 2026-07-30), which is why this works unadorned.
+
+      - homepage.group=Infrastructure
+      - homepage.name=Shabadoo
+      - homepage.icon=mdi-console-network
+      - homepage.href=https://coordinator.example
+      # /healthz, not / — the dashboard requires a device token, so monitoring
+      # the root made the tile permanently red on a perfectly healthy service.
+      - homepage.siteMonitor=http://shabadoo-hub:8787/healthz
+      - homepage.description=Claude Code session coordinator (tmux across hosts)

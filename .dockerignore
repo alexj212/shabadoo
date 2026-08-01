@@ -1,0 +1,6 @@
+# The build context is the repo; keep host-specific and irrelevant things out
+# so an edit to them does not invalidate the build cache.
+.git
+dist/
+shabadoo
+*.bak.*

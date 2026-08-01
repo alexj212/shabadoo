@@ -1,0 +1,60 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The build stamps its version from `git describe`, so a shallow
+          # clone produces a binary that cannot say what it is.
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # tmux is a real dependency of the test suite: the fallback server's
+      # handlers shell out to it. The suite is written so no fixture resolves
+      # to a live session, but the binary must exist for the calls to fail the
+      # way the tests expect.
+      - name: Install tmux
+        run: sudo apt-get update && sudo apt-get install -y tmux qrencode
+
+      - run: make vet
+      - run: make test
+
+      # The QR encoder is checked against libqrencode mask-by-mask. Without
+      # qrencode installed those cases skip silently, which is how a QR that
+      # renders beautifully and scans as nothing gets shipped.
+      - name: Confirm the QR reference test actually ran
+        run: go test ./ -run QRMatchesReference -v | grep -q "PASS: TestQRMatchesReferenceEncoder"
+
+      - name: Publish check
+        run: ./scripts_publish_check.sh
+
+  build:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: make dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shabadoo-binaries
+          path: dist/
+          retention-days: 7

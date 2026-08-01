@@ -1,0 +1,70 @@
+# A coordinator you can actually run, in about a minute.
+#
+#   1. mkdir -p data && touch data/authorized_agents
+#   2. docker compose up -d
+#   3. docker compose logs | grep 'pairing code'      <- for the first device
+#   4. shabadoo pair --code <CODE> --coord http://<this-host>:8787
+#   5. remove --bootstrap below and `docker compose up -d` again
+#
+# There is no reverse proxy here on purpose: the fewer moving parts between you
+# and a working coordinator the better, and the one that usually breaks is a
+# proxy that buffers the agent event-stream. Put one in front later if you want
+# TLS — see the note at the bottom.
+
+name: shabadoo
+
+services:
+  shabadoo:
+    image: ghcr.io/OWNER/shabadoo:latest
+    container_name: shabadoo
+    restart: unless-stopped
+
+    command:
+      - hub
+      - --addr=0.0.0.0:8787
+      - --db=/data/hub.db
+      - --agents=/data/authorized_agents
+      # Every human client presents an enrolled token. The coordinator refuses
+      # to start without an auth posture, deliberately — the one that would
+      # "just work" is the absence of authentication.
+      - --device-tokens
+      # Prints a one-time pairing code to the log so the first device can
+      # enrol. REMOVE IT once you have paired: it mints a fresh code on every
+      # start.
+      - --bootstrap
+      # Where a stuck-session notification goes. Optional; without it the
+      # watcher is disabled rather than computing alerts nobody receives.
+      # - --apprise-url=http://apprise:8000/notify/all
+      # Binaries published with `shabadoo publish`, so nodes can upgrade
+      # themselves. Optional.
+      # - --releases=/data/releases
+
+    ports:
+      # Bind to a PRIVATE interface. Reaching this port with a credential means
+      # driving every Claude pane on every connected machine, and those panes
+      # run with permissions disabled. Never expose it to the internet.
+      - "127.0.0.1:8787:8787"
+
+    volumes:
+      # hub.db holds every enrolled device token and the whole audit log. Back
+      # it up: losing it signs out every paired client.
+      - ./data:/data
+
+    healthcheck:
+      # /healthz is unauthenticated on purpose — a healthcheck has nowhere to
+      # keep a token. It pings the DATABASE, not just the port: a process
+      # serving HTTP with its storage gone is the failure a port check calls
+      # healthy. busybox wget is what the alpine base ships.
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8787/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+# Putting a reverse proxy in front
+# -------------------------------
+# Agents hold a long-lived text/event-stream open to receive commands. Any
+# buffering or compressing middleware on that route presents as "agents
+# connected, commands never arrive" — a silent failure rather than an error.
+# Exclude the proxy's compression/buffering from this service, and verify with
+# a long-running curl before trusting it.

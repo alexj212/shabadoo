@@ -1,0 +1,205 @@
+# shabadoo — build, vendor, deploy.
+
+BIN      := shabadoo
+BIN_DIR  ?= $(HOME)/bin
+CLAUDE_DIR ?= $(HOME)/.claude
+
+# The personal payload overlay. Gitignored: `make vendor` fills it from this
+# machine's live ~/.claude, and a fresh clone has only .gitkeep, so a public
+# build ships the portable payload in config/ and nothing else.
+LOCAL_DIR := config.local
+
+# Stamped into the binary and reported by every node at login, so the dashboard
+# can show which build each host is running. A hand-edited constant cannot do
+# that job: the hazard it exists to catch is a *stale binary*, and a stale
+# binary carries a stale constant that looks current.
+VERSION  := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+
+# The COMMIT date, not the build date: it stays identical for a given commit, so
+# rebuilding the same source twice produces the same stamp and Docker layers
+# still cache. `setup --service` compares this to decide whether it is about to
+# replace a newer binary with an older one — git-describe output cannot be
+# ordered, a timestamp can.
+BUILT    := $(shell git log -1 --format=%cI 2>/dev/null || date -u +%Y-%m-%dT%H:%M:%SZ)
+LDFLAGS  := -X main.version=$(VERSION) -X main.buildTime=$(BUILT)
+GOBUILD   = go build -ldflags "$(LDFLAGS)"
+
+.PHONY: build vet test install vendor vendor-check vendor-diff deploy dist clean version
+
+build:
+	$(GOBUILD) -o $(BIN) .
+
+version:
+	@echo $(VERSION)
+
+vet:
+	go vet ./...
+
+# Depends on build so the repo binary is never stale when a test run passes.
+# Verifying behaviour against a binary built before the change under test wasted
+# real time three times in one evening, each time looking like a bug in the
+# thing being tested.
+test: build
+	go test ./...
+
+# Build straight into ~/bin (what the systemd unit runs), and refresh the repo
+# binary alongside it. Both, because `setup --service` installs whatever binary
+# is *running* — a stale ./shabadoo would silently downgrade the deployed one.
+install: vet
+	$(GOBUILD) -o $(BIN) .
+	$(GOBUILD) -o $(BIN_DIR)/$(BIN) .
+
+# The hub is a container on dm now, so there is no local hub unit to restart.
+# `install` refreshes this host's agent and CLI; the hub is upgraded by building
+# an image and shipping it (see README / homelab docs/shabadoo.md).
+deploy: install
+	sudo systemctl restart shabadoo-node
+	systemctl --no-pager status shabadoo-node | grep -E 'Active|●' | head -2
+	@echo
+	@echo "note: this restarted THIS HOST'S AGENT only."
+	@echo "      the hub runs on dm — upgrade it with:"
+	@echo "        V=\$$(git describe --tags --always --dirty)"
+	@echo "        docker build --load --build-arg VERSION=\$$V -t shabadoo:\$$V ."
+	@echo "        docker save shabadoo:\$$V | gzip -1 | ssh user@coordinator 'gunzip | docker load'"
+	@echo "        ssh user@coordinator \"cd /srv/shabadoo && sed -i 's/^SHABADOO_IMAGE_TAG=.*/SHABADOO_IMAGE_TAG=\$$V/' .env && docker compose up -d\""
+
+# ---------------------------------------------------------------------------
+# vendor: refresh the embedded payload from this machine's live config.
+#
+# The binary ships whatever is in scripts/ and config/ at BUILD time, so those
+# trees are the source of truth for what `shabadoo setup` installs. This
+# target pulls them back from the live ~/.claude + ~/bin so the repo can be
+# updated after tweaking config in place. Review `make vendor-diff` first —
+# vendoring is deliberate, never automatic, because it snapshots a host's
+# personal config into the repo.
+#
+# Deliberately NOT vendored (per-machine / non-portable / private):
+#   settings.local.json  mcp_settings.json  projects/  stats-cache.json
+#   .credentials.json    history.jsonl      todos/     shell-snapshots/
+#   CLAUDE.local.md      commands/
+#
+# CLAUDE.local.md is the machine overlay that CLAUDE.md imports: the project
+# registry, the find whitelist, work toolchains. Keeping it out of VENDOR_FILES
+# is what lets the shipped CLAUDE.md stay portable while the live one stays
+# complete. commands/ is work-specific slash commands, same reasoning.
+#
+# rsync flags that matter:
+#   -L         dereference symlinks. Several skills are symlinks into
+#              ~/.agents/skills; copied as links they dangle in the repo and
+#              go:embed skips symlinks *silently*, so those skills would be
+#              missing from the binary with no error anywhere.
+#   --exclude '*.bak.*'  setup leaves backups beside the files it replaces;
+#              vendoring them would embed stale copies in the binary.
+#   --exclude .git   skills/watch is its own git checkout; its .git has no
+#              business in this repo or in the embedded payload.
+# ---------------------------------------------------------------------------
+VENDOR_EXCLUDES := --exclude='.git' --exclude='.gitmodules' --exclude='*.bak.*' \
+                   --exclude='__pycache__' --exclude='*.pyc' --exclude='.venv' \
+                   --exclude='node_modules' --exclude='.DS_Store'
+VENDOR_FILES := CLAUDE.md settings.json claude-powerline.json \
+                statusline-powerline.sh session-bridge-prompts.md
+VENDOR_DIRS  := skills agents hooks plans
+
+# Tokens that must never reach the embedded payload. The payload ships to other
+# machines and the binary is copied around, so client and product names have no
+# business in it. `commands/` is excluded from VENDOR_DIRS above for the same
+# reason: that whole tree is work-specific tooling, kept in ~/.claude only.
+#
+# This is a guard, not a filter — it fails the build rather than quietly
+# stripping, because the fix belongs in the live config, not in a sed here.
+# Read from a gitignored file, because the list is itself a list of client and
+# product names — a denylist committed to a public repo publishes exactly what
+# it exists to withhold. One token per line; absent means no tokens denied.
+VENDOR_DENY := $(shell cat .vendor-deny 2>/dev/null)
+
+# vendor fills config.local/ — the PERSONAL overlay, which git never sees.
+#
+# It used to write config/, which is why this repo could not be published: the
+# committed payload was one operator's ~/.claude, hostnames and all. Scrubbing
+# config/ would not have held, because this target is a straight copy and would
+# have undone the scrub on the next run. Writing somewhere git ignores is what
+# makes it stick.
+vendor:
+	@echo "vendoring config.local/ from $(CLAUDE_DIR)  (personal overlay, never committed)"
+	@mkdir -p $(LOCAL_DIR)
+	@for f in $(VENDOR_FILES); do \
+	  if [ -f "$(CLAUDE_DIR)/$$f" ]; then cp -p "$(CLAUDE_DIR)/$$f" "$(LOCAL_DIR)/$$f"; echo "  $(LOCAL_DIR)/$$f"; \
+	  else echo "  SKIP $$f (absent)"; fi; \
+	done
+	@for d in $(VENDOR_DIRS); do \
+	  if [ -d "$(CLAUDE_DIR)/$$d" ]; then \
+	    rm -rf "$(LOCAL_DIR)/$$d"; mkdir -p "$(LOCAL_DIR)/$$d"; \
+	    rsync -aL $(VENDOR_EXCLUDES) "$(CLAUDE_DIR)/$$d/" "$(LOCAL_DIR)/$$d/"; \
+	    echo "  $(LOCAL_DIR)/$$d/"; \
+	  else echo "  SKIP $$d/ (absent)"; fi; \
+	done
+	@touch $(LOCAL_DIR)/.gitkeep
+	@$(MAKE) --no-print-directory vendor-check
+	@echo "vendor complete — rebuild to embed: make build"
+
+# Fail if a denied token reached the payload. Runs after every vendor, and
+# stands alone so CI (or a paranoid moment) can check the tree as it is.
+# The usual cause is work-specific content drifting back into ~/.claude/CLAUDE.md
+# that belongs in the un-vendored ~/.claude/CLAUDE.local.md overlay instead.
+# Two checks, and only the PUBLIC tree is scanned for tokens.
+#
+# config.local/ is deliberately exempt: it is the operator's own ~/.claude,
+# untracked, embedded only into their own builds. Denying client names there
+# would be denying them their own config. What matters is that nothing under it
+# is tracked — which is the second check.
+vendor-check:
+	@fail=0; \
+	for t in $(VENDOR_DENY); do \
+	  hits=$$(grep -ril "$$t" config/ 2>/dev/null); \
+	  if [ -n "$$hits" ]; then \
+	    echo "DENIED token '$$t' in the embedded payload:"; \
+	    echo "$$hits" | sed 's/^/    /'; \
+	    fail=1; \
+	  fi; \
+	done; \
+	if [ $$fail -eq 1 ]; then \
+	  echo ""; \
+	  echo "Move that content to ~/.claude/CLAUDE.local.md (imported, never vendored)."; \
+	  exit 1; \
+	fi; \
+	echo "payload clean (no denied tokens)"
+	@hits=$$(git ls-files $(LOCAL_DIR) | grep -v '^$(LOCAL_DIR)/.gitkeep$$' || true); \
+	if [ -n "$$hits" ]; then \
+	  echo "TRACKED files in the personal overlay — these would be published:"; \
+	  echo "$$hits" | sed 's/^/    /'; \
+	  echo ""; \
+	  echo "git rm --cached them. Only .gitkeep belongs in git under $(LOCAL_DIR)/."; \
+	  exit 1; \
+	fi; \
+	echo "overlay untracked (nothing personal would be published)"
+
+# Show what vendoring would change, without changing it.
+vendor-diff:
+	@for f in $(VENDOR_FILES); do \
+	  [ -f "$(CLAUDE_DIR)/$$f" ] || continue; \
+	  diff -q "$(LOCAL_DIR)/$$f" "$(CLAUDE_DIR)/$$f" >/dev/null 2>&1 || echo "differs: $$f"; \
+	done
+
+# ---------------------------------------------------------------------------
+# dist: cross-compiled binaries for bootstrapping other machines.
+#
+# This replaces the old `claude-install.sh` rsync-over-SSH bootstrap: instead
+# of pulling files from this host, copy one self-contained binary and run
+# `setup`. The payload is whatever was vendored here at build time, so a
+# darwin binary built on WSL carries WSL's config — the same direction the
+# rsync installer synced.
+#
+#   make dist
+#   scp dist/shabadoo-darwin-arm64 mac:bin/shabadoo
+#   ssh mac 'chmod +x bin/shabadoo && bin/shabadoo setup'
+# ---------------------------------------------------------------------------
+dist: vet
+	@mkdir -p dist
+	@for target in linux/amd64 linux/arm64 darwin/arm64 darwin/amd64; do \
+	  os=$${target%/*}; arch=$${target#*/}; \
+	  GOOS=$$os GOARCH=$$arch $(GOBUILD) -o dist/$(BIN)-$$os-$$arch . || exit 1; \
+	  echo "  dist/$(BIN)-$$os-$$arch"; \
+	done
+
+clean:
+	rm -rf $(BIN) dist

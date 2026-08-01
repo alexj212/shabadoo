@@ -1,0 +1,559 @@
+package hub
+
+// The agent plane's transport.
+//
+// Agents dial the coordinator and hold a long-lived Server-Sent Events stream
+// open to receive commands; results and reports come back as ordinary POSTs.
+// The coordinator never dials an agent — that inversion is what removes the
+// peer list, works from a laptop on hotel wifi, and needs no inbound port on
+// any machine.
+//
+// SSE rather than WebSocket: it is stdlib-only, it passes through Cloudflare
+// Tunnel with no upgrade negotiation, and reconnect is just re-issuing the GET.
+// The cost is one extra connection per agent, which at a handful of hosts is
+// not worth a dependency.
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
+	"strings"
+	"sync"
+	"time"
+
+	"golang.org/x/crypto/ssh"
+)
+
+const (
+	// tokenTTL bounds an agent session. An agent re-signs a challenge to renew;
+	// a stolen token stops working within a day even if nobody notices.
+	tokenTTL = 24 * time.Hour
+
+	// callTimeout bounds one command's round trip. A capture on a slow host or
+	// a `reopen` that shells out to the launcher takes seconds, not minutes.
+	callTimeout = 30 * time.Second
+
+	// sendQueue is how many commands may be in flight to one agent before the
+	// hub starts refusing. A wedged agent must not let the coordinator buffer
+	// without limit.
+	sendQueue = 64
+)
+
+// Version is the coordinator's own build, set by main at startup from the
+// link-time stamp. It rides along in /api/sessions so the dashboard can show
+// the hub's build next to each node's, which is the comparison that matters:
+// the two are installed by the same command from the same binary, so a
+// mismatch means one of them was installed from a different checkout.
+var Version = "dev (unstamped)"
+
+var (
+	ErrAgentOffline = errors.New("agent is not connected")
+	ErrAgentBusy    = errors.New("agent command queue is full")
+	ErrBadToken     = errors.New("unknown or expired agent token")
+)
+
+// command is one instruction sent down an agent's stream.
+type command struct {
+	ID      string          `json:"id"`
+	Op      string          `json:"op"`
+	Payload json.RawMessage `json:"payload,omitempty"`
+}
+
+// result is an agent's reply, posted back up.
+type result struct {
+	ID      string          `json:"id"`
+	OK      bool            `json:"ok"`
+	Error   string          `json:"error,omitempty"`
+	Payload json.RawMessage `json:"payload,omitempty"`
+}
+
+// conn is one connected agent.
+type conn struct {
+	tenant   string
+	node     string
+	token    string
+	platform string // GOOS/GOARCH, reported at login — see NodePlatform
+	expires  time.Time
+	out     chan command
+	closed  chan struct{}
+	once    sync.Once
+}
+
+func (c *conn) close() {
+	c.once.Do(func() { close(c.closed) })
+}
+
+// Hub tracks connected agents and correlates commands with their results.
+type Hub struct {
+	auth  *Authorizer
+	store *Store
+	now   func() time.Time
+
+	mu      sync.Mutex
+	byNode  map[string]*conn // keyed tenant\x00node — two tenants may both have a "wsl"
+	byToken map[string]*conn
+	pending map[string]chan result
+
+	// releases holds binaries an operator published, for pushing to nodes.
+	// nil until a release directory is configured.
+	releases *ReleaseStore
+
+	// watchers are browsers streaming the session view. nil is fine — it means
+	// nobody is subscribed and SessionsChanged is a no-op.
+	watchers *subscribers
+
+	// blocked notices sessions stuck at a prompt. nil until a notifier is
+	// configured — see EnableBlockedNotifications.
+	blocked *blockedWatcher
+}
+
+func New(auth *Authorizer, store *Store) *Hub {
+	return &Hub{
+		auth:    auth,
+		store:   store,
+		now:     time.Now,
+		byNode:   map[string]*conn{},
+		byToken:  map[string]*conn{},
+		pending:  map[string]chan result{},
+		watchers: newSubscribers(),
+	}
+}
+
+// SetReleases gives the coordinator a place to keep published binaries.
+func (h *Hub) SetReleases(r *ReleaseStore) { h.releases = r }
+
+// Releases exposes the store for the human API.
+func (h *Hub) Releases() *ReleaseStore { return h.releases }
+
+// EnableBlockedNotifications starts telling a human when a session has been
+// stuck at a prompt. Called only when a notifier is configured: without one
+// there is nowhere to send, and a watcher that computed notifications and
+// dropped them would be pure overhead.
+func (h *Hub) EnableBlockedNotifications() {
+	w := newBlockedWatcher(h.now)
+	w.send = func(ctx context.Context, tenant, title, body, tag string) error {
+		return postApprise(ctx, title, body, tag, "warning")
+	}
+	w.audit = func(ctx context.Context, tenant, target, detail string) {
+		h.store.Tenant(tenant).Audit(ctx, AuditEntry{
+			Actor: "coordinator", Action: "notify.blocked", Target: target, Detail: detail,
+		}, h.now())
+	}
+	h.blocked = w
+}
+
+// nodeKey scopes a node name to its tenant. Two tenants may each run a node
+// called "wsl"; without this they would share one connection slot.
+func nodeKey(tenant, node string) string { return tenant + "\x00" + node }
+
+// Online reports which of a tenant's agents currently hold a stream open. This
+// is the whole of presence — there is no heartbeat and no TTL to tune, because
+// a dropped TCP connection is the signal.
+func (h *Hub) Online(tenant string) []string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	out := []string{}
+	for _, c := range h.byNode {
+		if c.tenant == tenant {
+			out = append(out, c.node)
+		}
+	}
+	return out
+}
+
+// IsOnline reports whether one agent is connected.
+func (h *Hub) IsOnline(tenant, node string) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	_, ok := h.byNode[nodeKey(tenant, node)]
+	return ok
+}
+
+// Call sends a command to an agent and waits for its result.
+func (h *Hub) Call(ctx context.Context, tenant, node, op string, payload any) (json.RawMessage, error) {
+	var raw json.RawMessage
+	if payload != nil {
+		b, err := json.Marshal(payload)
+		if err != nil {
+			return nil, err
+		}
+		raw = b
+	}
+
+	h.mu.Lock()
+	c, ok := h.byNode[nodeKey(tenant, node)]
+	if !ok {
+		h.mu.Unlock()
+		return nil, fmt.Errorf("%w: %s", ErrAgentOffline, node)
+	}
+	cmd := command{ID: newID(), Op: op, Payload: raw}
+	reply := make(chan result, 1)
+	h.pending[cmd.ID] = reply
+	h.mu.Unlock()
+
+	defer func() {
+		h.mu.Lock()
+		delete(h.pending, cmd.ID)
+		h.mu.Unlock()
+	}()
+
+	select {
+	case c.out <- cmd:
+	default:
+		return nil, fmt.Errorf("%w: %s", ErrAgentBusy, node)
+	case <-c.closed:
+		return nil, fmt.Errorf("%w: %s", ErrAgentOffline, node)
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, callTimeout)
+	defer cancel()
+
+	select {
+	case r := <-reply:
+		if !r.OK {
+			return nil, errors.New(r.Error)
+		}
+		return r.Payload, nil
+	case <-c.closed:
+		return nil, fmt.Errorf("%w: %s (disconnected mid-call)", ErrAgentOffline, node)
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+// ---------------------------------------------------------------------------
+// HTTP surface (agent side)
+// ---------------------------------------------------------------------------
+
+// Routes registers the agent-plane endpoints.
+//
+// These are NOT behind the Access middleware: agents authenticate with SSH
+// keys, not browser SSO. They are a separate authenticated surface on the same
+// origin, and each one verifies its own credential.
+// startedAt is process start, for the uptime the health endpoint reports.
+var startedAt = time.Now()
+
+// HealthRoutes registers the liveness endpoint.
+//
+// **Unauthenticated, and outside the identity middleware** — a monitor that
+// needs a credential is a monitor nobody sets up, and under Cloudflare Access
+// or device tokens there is no credential a container healthcheck could hold.
+// That is the same reason /api/devices/redeem sits outside it.
+//
+// What it deliberately does NOT report: node names, project paths, session
+// names, or anything else that would let an unauthenticated caller learn what
+// this machine is working on. Counts and a build stamp only — enough to answer
+// "is it up, is it the build I shipped, and can it reach its database", which
+// is all a healthcheck is for.
+func (h *Hub) HealthRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+		defer cancel()
+
+		// Proving the port is open proves almost nothing: the interesting
+		// failure is a process that still answers while its database has gone
+		// away underneath it.
+		status, code := "ok", http.StatusOK
+		if err := h.store.Ping(ctx); err != nil {
+			status, code = "database unreachable", http.StatusServiceUnavailable
+		}
+
+		h.mu.Lock()
+		agents := len(h.byNode)
+		h.mu.Unlock()
+
+		w.Header().Set("Cache-Control", "no-store")
+		w.WriteHeader(code)
+		json.NewEncoder(w).Encode(map[string]any{
+			"status":  status,
+			"version": Version,
+			"uptime":  int(time.Since(startedAt).Seconds()),
+			"agents":  agents,
+		})
+	})
+}
+
+func (h *Hub) Routes(mux *http.ServeMux) {
+	mux.HandleFunc("POST /agent/hello", h.handleHello)
+	mux.HandleFunc("POST /agent/login", h.handleLogin)
+	mux.HandleFunc("GET /agent/stream", h.handleStream)
+	mux.HandleFunc("POST /agent/result", h.handleResult)
+	mux.HandleFunc("POST /agent/report", h.handleReport)
+}
+
+// handleHello issues a challenge. Unauthenticated by necessity — this is how
+// an agent starts. It reveals nothing: a random nonce and the server's clock.
+func (h *Hub) handleHello(w http.ResponseWriter, r *http.Request) {
+	c, err := h.auth.Issue(h.now())
+	if err != nil {
+		http.Error(w, "challenge unavailable", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, c)
+}
+
+type loginReq struct {
+	Challenge Challenge `json:"challenge"`
+	PubKey    []byte    `json:"pubkey"`    // ssh wire format
+	Signature []byte    `json:"signature"` // ssh.Marshal(ssh.Signature)
+	Version   string    `json:"version"`
+
+	// Platform is GOOS/GOARCH. Reported so the coordinator can pick the right
+	// binary when asked to upgrade this node — sending a Mac a Linux build
+	// would leave a host that cannot start and therefore cannot be told
+	// anything again.
+	Platform string `json:"platform,omitempty"`
+}
+
+type loginResp struct {
+	Node    string `json:"node"`
+	Token   string `json:"token"`
+	Expires int64  `json:"expires"`
+}
+
+func (h *Hub) handleLogin(w http.ResponseWriter, r *http.Request) {
+	var req loginReq
+	if !readJSON(w, r, &req) {
+		return
+	}
+	now := h.now()
+
+	agent, err := h.auth.Verify(req.Challenge, req.PubKey, req.Signature, now)
+	if err != nil {
+		// Deliberately uniform: which of "unknown key", "bad signature" and
+		// "stale nonce" failed is useful to an attacker probing the key set.
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	c := &conn{
+		tenant:   agent.Tenant,
+		node:     agent.Name,
+		token:    newToken(),
+		platform: req.Platform,
+		expires:  now.Add(tokenTTL),
+		out:     make(chan command, sendQueue),
+		closed:  make(chan struct{}),
+	}
+
+	h.mu.Lock()
+	// One connection per node. A reconnecting agent (or a replaced host)
+	// supersedes the old one rather than both receiving half the commands.
+	key := nodeKey(agent.Tenant, agent.Name)
+	if old, ok := h.byNode[key]; ok {
+		old.close()
+		delete(h.byToken, old.token)
+	}
+	h.byNode[key] = c
+	h.byToken[c.token] = c
+	h.mu.Unlock()
+
+	fp := ssh.FingerprintSHA256(agent.Key)
+	tn := h.store.Tenant(agent.Tenant)
+	if err := h.store.EnsureTenant(r.Context(), agent.Tenant, "", now); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if err := tn.SeenAgent(r.Context(), agent.Name, fp, req.Version, now); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	tn.Audit(r.Context(), AuditEntry{
+		Actor: "agent:" + agent.Name, Action: "login", Target: agent.Name, Detail: fp,
+	}, now)
+	// A node appearing is a change to the view, and it is not a report — without
+	// this a browser would show a reconnected agent as offline until its first
+	// report five seconds later.
+	h.SessionsChanged(agent.Tenant)
+
+	writeJSON(w, loginResp{Node: agent.Name, Token: c.token, Expires: c.expires.Unix()})
+}
+
+// handleStream is the long-lived downstream: commands as SSE events.
+func (h *Hub) handleStream(w http.ResponseWriter, r *http.Request) {
+	c, ok := h.authed(r)
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	// Proxies that buffer would defeat the whole point of a live stream.
+	w.Header().Set("X-Accel-Buffering", "no")
+	w.WriteHeader(http.StatusOK)
+	fmt.Fprint(w, ": connected\n\n")
+	flusher.Flush()
+
+	// The stream *is* the presence signal, so its lifetime is the agent's.
+	defer func() {
+		h.disconnect(c)
+		h.store.Tenant(c.tenant).DropAgentSessions(context.WithoutCancel(r.Context()), c.node)
+	}()
+
+	// Keepalives stop an idle connection being reaped by an intermediary. SSE
+	// comments are ignored by the client but keep bytes flowing.
+	ping := time.NewTicker(20 * time.Second)
+	defer ping.Stop()
+
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case <-c.closed:
+			return
+		case <-ping.C:
+			fmt.Fprint(w, ": ping\n\n")
+			flusher.Flush()
+		case cmd := <-c.out:
+			b, err := json.Marshal(cmd)
+			if err != nil {
+				continue
+			}
+			fmt.Fprintf(w, "data: %s\n\n", b)
+			flusher.Flush()
+		}
+	}
+}
+
+// handleResult receives one command's reply and hands it to the waiting Call.
+func (h *Hub) handleResult(w http.ResponseWriter, r *http.Request) {
+	if _, ok := h.authed(r); !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	var res result
+	if !readJSON(w, r, &res) {
+		return
+	}
+
+	h.mu.Lock()
+	reply, waiting := h.pending[res.ID]
+	h.mu.Unlock()
+
+	if waiting {
+		// Buffered, so a Call that has already timed out cannot block the agent.
+		select {
+		case reply <- res:
+		default:
+		}
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// reportReq is an agent's unsolicited push: its current window list.
+type reportReq struct {
+	Sessions []Session `json:"sessions"`
+}
+
+func (h *Hub) handleReport(w http.ResponseWriter, r *http.Request) {
+	c, ok := h.authed(r)
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	var req reportReq
+	if !readJSON(w, r, &req) {
+		return
+	}
+	now := h.now()
+	ctx := r.Context()
+
+	// Replace this agent's view wholesale: a window that vanished must vanish
+	// here too, and the agent is the authority on its own tmux server.
+	tn := h.store.Tenant(c.tenant)
+	if err := tn.DropAgentSessions(ctx, c.node); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	for i := range req.Sessions {
+		req.Sessions[i].Agent = c.node // never trust an agent's claim about which node it is
+		if err := tn.UpsertSession(ctx, req.Sessions[i], now); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+
+	// After the store is consistent, so neither a notification nor a pushed
+	// frame can arrive before the dashboard it points at can show the session.
+	h.blocked.observe(ctx, c.tenant, c.node, req.Sessions)
+	h.SessionsChanged(c.tenant)
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// authed resolves a bearer token to its connection.
+func (h *Hub) authed(r *http.Request) (*conn, bool) {
+	tok := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+	if tok == "" {
+		return nil, false
+	}
+	h.mu.Lock()
+	c, ok := h.byToken[tok]
+	h.mu.Unlock()
+	if !ok || h.now().After(c.expires) {
+		return nil, false
+	}
+	return c, true
+}
+
+func (h *Hub) disconnect(c *conn) {
+	h.mu.Lock()
+	key := nodeKey(c.tenant, c.node)
+	if cur, ok := h.byNode[key]; ok && cur == c {
+		delete(h.byNode, key)
+	}
+	delete(h.byToken, c.token)
+	h.mu.Unlock()
+	c.close()
+}
+
+// Disconnect drops a node's live session: its stream closes and its bearer
+// token stops working immediately.
+//
+// This is the half of revocation that `authorized_agents` cannot do. Removing a
+// key from that file stops the NEXT login, so an agent already holding a token
+// keeps driving every pane on its host until it happens to reconnect — which
+// could be days. Removing the key and calling this is immediate and complete.
+//
+// It is deliberately not a permanent block: the file remains the single source
+// of truth for who may connect, because two places to look is how a host nobody
+// meant to authorize stays authorized. The agent WILL dial back in, and will be
+// refused only if its key is gone.
+func (h *Hub) Disconnect(tenant, node string) bool {
+	h.mu.Lock()
+	c, ok := h.byNode[nodeKey(tenant, node)]
+	h.mu.Unlock()
+	if !ok {
+		return false
+	}
+	h.disconnect(c)
+	h.SessionsChanged(tenant)
+	return true
+}
+
+func newToken() string { return newID() + newID() }
+
+func writeJSON(w http.ResponseWriter, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(v)
+}
+
+// readJSON decodes a request body, rejecting anything oversized or unexpected.
+func readJSON(w http.ResponseWriter, r *http.Request, v any) bool {
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<20))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(v); err != nil {
+		http.Error(w, "bad request: "+err.Error(), http.StatusBadRequest)
+		return false
+	}
+	return true
+}

@@ -1,0 +1,22 @@
+shabadoo
+dist/
+
+# The PERSONAL payload overlay: one operator's real ~/.claude, embedded into
+# their own builds by `make vendor`. Never committed — it carries host names,
+# addresses and infrastructure skills, and it is the single reason this repo
+# could not be published. Only .gitkeep is tracked, so a fresh clone still
+# builds and ships the portable payload in config/.
+/config.local/*
+!/config.local/.gitkeep
+
+# Client and product names the embedded payload must never contain. The list
+# is itself sensitive, so it lives outside git — see VENDOR_DENY in the Makefile.
+.vendor-deny
+
+# Internal strategy: adoption analysis and product criticism, not documentation
+# anyone installing this needs. Kept locally.
+docs/positioning.md
+
+# Specific private names for the publish check. Git-ignored for the same reason
+# .vendor-deny is: a denylist committed publicly publishes what it withholds.
+.publish-deny

@@ -1,0 +1,1687 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>shabadoo</title>
+<style>
+  :root {
+    --bg: #080a0f; --bg2: #0b0e15; --panel: #10131c; --elev: #151926;
+    --line: #222836; --line2: #2e3646;
+    --fg: #e7eaf1; --dim: #808a9b; --faint: #545e6f;
+    --accent: #5b9dff; --accent2: #8bb8ff; --accent-glow: rgba(91,157,255,.35);
+    --ok: #4fd18b; --ok-glow: rgba(79,209,139,.55);
+    --warn: #e6b850; --danger: #ff6b6b; --danger-glow: rgba(255,107,107,.4);
+    --term-bg: #080a0f; --term-fg: #e7eaf1;
+    --radius: 9px;
+  }
+  * { box-sizing: border-box; }
+  html { color-scheme: dark; }
+  body {
+    margin: 0 auto; max-width: 1200px; padding: 1.15rem 1.15rem 1.6rem;
+    font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: var(--fg);
+    background:
+      radial-gradient(1100px 480px at 50% -260px, #12203a 0%, rgba(18,32,58,0) 70%),
+      var(--bg);
+    background-attachment: fixed;
+  }
+
+  /* ---- header / status bar ---- */
+  header {
+    display: flex; align-items: center; gap: 0.7rem; margin-bottom: 1.1rem;
+    padding: 0.65rem 0.9rem; border: 1px solid var(--line); border-radius: var(--radius);
+    background: linear-gradient(180deg, var(--elev), var(--panel));
+    box-shadow: 0 1px 0 rgba(255,255,255,.02) inset, 0 8px 24px rgba(0,0,0,.35);
+  }
+  h1 {
+    font-size: 0.95rem; margin: 0; font-weight: 700; letter-spacing: .02em;
+    display: flex; align-items: baseline; gap: 0.5rem;
+  }
+  h1 .sub { color: var(--dim); font-weight: 400; font-size: 0.72rem; letter-spacing: .12em; text-transform: uppercase; }
+  #meta { color: var(--dim); font-size: 0.76rem; }
+  #meta.err { color: var(--danger); }
+  header .spacer { flex: 1; }
+
+  /* ---- status LEDs ---- */
+  .led {
+    width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto;
+    background: var(--faint); box-shadow: 0 0 0 rgba(0,0,0,0); transition: all .2s ease;
+  }
+  .led.on { background: var(--ok); box-shadow: 0 0 7px var(--ok-glow); animation: pulse 2.4s ease-in-out infinite; }
+  .led.err { background: var(--danger); box-shadow: 0 0 7px var(--danger-glow); }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .55; } }
+
+  /* ---- session panels ---- */
+  .session {
+    margin-bottom: 1rem; border: 1px solid var(--line); border-radius: var(--radius);
+    background: var(--panel); overflow: hidden;
+    box-shadow: 0 6px 18px rgba(0,0,0,.28);
+  }
+  .panel-head {
+    display: flex; align-items: center; gap: 0.55rem;
+    padding: 0.5rem 0.8rem; border-bottom: 1px solid var(--line);
+    background: linear-gradient(180deg, rgba(255,255,255,.02), transparent);
+  }
+  .panel-head .ptitle { font-weight: 700; letter-spacing: .01em; }
+  .panel-head .spacer { flex: 1; }
+  .badge {
+    font-size: 0.66rem; color: var(--dim); border: 1px solid var(--line2);
+    padding: 0.08rem 0.45rem; border-radius: 999px; letter-spacing: .03em;
+    text-transform: uppercase;
+  }
+  .badge.attached { color: var(--ok); border-color: rgba(79,209,139,.45); background: rgba(79,209,139,.08); }
+  .badge.err { color: var(--danger); border-color: rgba(255,107,107,.45); background: rgba(255,107,107,.08); }
+  /* A node running a different build from the coordinator: both are installed
+     by the same command from the same binary, so a mismatch is a downgrade
+     until proven otherwise. */
+  .badge.skew { color: var(--warn); border-color: rgba(230,184,80,.45); background: rgba(230,184,80,.08); }
+  .badge.ver { text-transform: none; font-family: var(--mono, ui-monospace, monospace); }
+
+  /* ---- audit: who drove which pane. The only record that survives a pane. ---- */
+  #audit { margin: 1.2rem 0 0; }
+  #audit .panel-head { cursor: pointer; }
+  #audit table { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
+  #audit td {
+    padding: 0.22rem 0.8rem; border-bottom: 1px solid var(--line);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  #audit td.aat { color: var(--dim); width: 5.5rem; }
+  #audit td.aactor { color: var(--fg); width: 12rem; }
+  #audit td.aaction { width: 6rem; }
+  #audit td.atarget { color: var(--dim); width: 14rem; }
+  #audit td.adetail { color: var(--dim); max-width: 0; width: 100%; }
+  #audit td.adetail.failed { color: var(--danger); }
+  /* ---- mail: the durable inbox that replaced NATS ---- */
+  #mail { margin: 1.2rem 0 0; }
+  #mail .panel-head { cursor: pointer; }
+  #mail table { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
+  #mail td {
+    padding: 0.28rem 0.55rem; border-top: 1px solid var(--line);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  #mail td.mat { color: var(--dim); width: 5.5rem; }
+  #mail td.mwho { color: var(--fg); width: 22rem; }
+  #mail td.mbody { color: var(--dim); max-width: 0; width: 100%; }
+  #mail td.mbody b { color: var(--fg); font-weight: 600; }
+  #mail .arrow { color: var(--dim); }
+  /* ---- devices: who may drive these panes ---- */
+  #devices { margin: 1.2rem 0 0; }
+  #devices table { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
+  #devices td { padding: 0.32rem 0.55rem; border-top: 1px solid var(--line); }
+  #devices td.dlabel { color: var(--fg); }
+  #devices td.dmeta { color: var(--dim); white-space: nowrap; }
+  #devices td.dact { text-align: right; width: 1%; white-space: nowrap; }
+  #devices tr.self td.dlabel { color: var(--accent2); }
+  .tag {
+    font-size: 0.62rem; letter-spacing: .06em; text-transform: uppercase;
+    border-radius: 999px; padding: 0.04rem 0.4rem; margin-left: 0.35rem;
+    border: 1px solid var(--line2); color: var(--dim);
+  }
+  .tag.read { border-color: var(--accent2); color: var(--accent2); }
+  .tag.push { border-color: var(--ok); color: var(--ok); }
+  .tag.you  { border-color: var(--accent2); color: var(--accent2); }
+  .tag.soon { border-color: var(--warn); color: var(--warn); }
+  button.danger { border-color: var(--danger); color: var(--danger); }
+  /* The pairing result. Deliberately large: the QR is meant to be scanned off
+     this screen by a phone held at arm's length, not admired. */
+  #pairout { padding: 0 0.7rem 0.8rem; }
+  #pairout[hidden] { display: none; }
+  #pairout .qrwrap {
+    background: #fff; padding: 0.6rem; border-radius: var(--radius);
+    display: inline-block; line-height: 0;
+  }
+  #pairout .qrwrap img { width: 216px; height: 216px; display: block; }
+  #pairout .pcode {
+    font-family: var(--mono); font-size: 1.5rem; letter-spacing: .18em;
+    color: var(--accent2); user-select: all;
+  }
+  #pairout .plink { word-break: break-all; font-size: 0.76rem; }
+  #pairout .pexp { color: var(--warn); font-size: 0.76rem; }
+  #pairform { display: flex; gap: 0.5rem; flex-wrap: wrap; padding: 0.6rem 0.7rem; }
+  #pairform input { flex: 1 1 12rem; }
+
+  /* ---- flock: one group per node, only rendered when peers exist ---- */
+  .node { margin-bottom: 1.4rem; }
+  .node-head {
+    display: flex; align-items: center; gap: 0.55rem;
+    margin: 0 0 0.5rem; padding-bottom: 0.35rem;
+    border-bottom: 1px dashed var(--line2);
+  }
+  .node-head .nodename {
+    font-weight: 700; font-size: 0.95rem; letter-spacing: .02em;
+  }
+  .node-head .nodeurl {
+    margin-left: auto; color: var(--dim); font-size: 0.7rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 45%;
+  }
+  .node .session { margin-bottom: 0.6rem; }
+
+  /* ---- window table ---- */
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 0.42rem 0.8rem; }
+  tbody td { border-top: 1px solid var(--line); }
+  th {
+    color: var(--faint); font-weight: 600; font-size: 0.66rem;
+    text-transform: uppercase; letter-spacing: .09em; padding-top: 0.45rem; padding-bottom: 0.45rem;
+  }
+  tbody tr { cursor: pointer; transition: background .1s ease; }
+  tbody tr:hover td { background: rgba(91,157,255,.06); }
+  tr.active td { background: rgba(255,255,255,.025); }
+  tr.selected td { background: rgba(91,157,255,.1); }
+  tr.selected td:first-child { box-shadow: inset 2px 0 0 var(--accent); }
+  td.name { font-weight: 600; }
+  td.idx { color: var(--faint); }
+  td.path { color: var(--dim); max-width: 32ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pled { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--faint); }
+  tr.active .pled { background: var(--ok); box-shadow: 0 0 6px var(--ok-glow); }
+  .cmd { color: var(--accent2); }
+  .idle { color: var(--dim); }
+  .empty { color: var(--dim); padding: 1.2rem; text-align: center; }
+
+  /* ---- control deck ---- */
+  #compose {
+    position: sticky; bottom: 0.6rem; margin-top: 1rem;
+    background: linear-gradient(180deg, var(--elev), var(--panel));
+    border: 1px solid var(--line2); border-radius: var(--radius);
+    padding: 0.7rem 0.85rem; display: flex; flex-direction: column; gap: 0.6rem;
+    box-shadow: 0 -2px 30px rgba(0,0,0,.45), 0 0 0 1px rgba(91,157,255,.04);
+  }
+  #compose::before {
+    content: ""; position: absolute; inset: -1px -1px auto -1px; height: 2px;
+    border-radius: var(--radius) var(--radius) 0 0;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent); opacity: .5;
+  }
+  #compose[hidden] { display: none; }
+  .bar { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+  .bar-label {
+    font-size: 0.6rem; letter-spacing: .13em; text-transform: uppercase;
+    color: var(--faint); width: 3.6rem; flex: 0 0 auto;
+  }
+  .bar-label.warn { color: var(--warn); }
+  tr.waiting td { background: rgba(230,184,80,.10); }
+  tr.waiting .pled { background: var(--warn); box-shadow: 0 0 7px rgba(230,184,80,.6); }
+  /* What a session says it is doing. Its own words, so it gets the emphasis a
+     machine-derived column does not. */
+  .note {
+    color: var(--accent2); font-size: 0.74rem; font-style: italic;
+    margin-left: 0.4rem;
+  }
+  .prompt {
+    font-size: 0.62rem; letter-spacing: .08em; text-transform: uppercase;
+    color: #05101f; background: var(--warn); border-radius: 999px;
+    padding: 0.04rem 0.4rem; margin-left: 0.35rem; font-weight: 700;
+  }
+  #meta.waiting { color: var(--warn); }
+  /* The waiting queue. Rendered only when something is in it: a panel that is
+     usually empty teaches people to skip that part of the page, which is the
+     one habit this must not create. */
+  .queue {
+    border: 1px solid var(--warn); border-radius: var(--radius);
+    background: rgba(230,184,80,.07); margin-bottom: 1rem;
+  }
+  .queue .panel-head { color: var(--warn); }
+  .queue tr td { cursor: pointer; }
+  .queue .qwhere { color: var(--dim); font-size: 0.76rem; }
+  .queue .qhint {
+    color: var(--dim); font-size: 0.74rem; padding: 0 0.7rem 0.6rem; margin: 0;
+  }
+  .dialoghint { color: var(--warn); font-size: 0.76rem; flex: 1 1 auto; }
+  #target {
+    color: var(--accent2); white-space: nowrap; font-weight: 700;
+    padding: 0.2rem 0.55rem; border: 1px solid var(--line2); border-radius: 6px;
+    background: rgba(91,157,255,.07); font-size: 0.8rem;
+  }
+  #target .none { color: var(--dim); font-weight: 400; }
+  input[type=text], select {
+    background: var(--bg2); color: var(--fg);
+    border: 1px solid var(--line2); border-radius: 6px; padding: 0.42rem 0.6rem;
+    font: inherit; transition: border-color .12s ease, box-shadow .12s ease;
+  }
+  input[type=text]:focus, select:focus {
+    outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow);
+  }
+  #text { flex: 1; min-width: 8rem; }
+  #openpath { flex: 1; min-width: 8rem; }
+  #slash { flex: 0 1 14rem; min-width: 8rem; }
+  #compose label { color: var(--dim); font-size: 0.76rem; white-space: nowrap; display: inline-flex; align-items: center; gap: 0.3rem; }
+  button {
+    background: linear-gradient(180deg, var(--accent2), var(--accent));
+    color: #05101f; border: 0; border-radius: 6px;
+    padding: 0.42rem 0.95rem; font: inherit; font-weight: 700; cursor: pointer;
+    transition: filter .12s ease, transform .05s ease;
+  }
+  button:hover:not(:disabled) { filter: brightness(1.1); }
+  button:active:not(:disabled) { transform: translateY(1px); }
+  button:disabled { opacity: 0.38; cursor: default; }
+  button.ghost {
+    background: var(--elev); color: var(--fg); border: 1px solid var(--line2);
+    font-weight: 500;
+  }
+  button.ghost:not(:disabled):hover { border-color: var(--accent); color: var(--accent2); background: var(--accent-glow); filter: none; }
+  button.danger { background: transparent; color: var(--danger); border: 1px solid rgba(255,107,107,.5); font-weight: 500; }
+  button.danger:not(:disabled):hover { background: var(--danger); color: #1a0505; filter: none; }
+  .sep { color: var(--line2); user-select: none; }
+  .spacer { flex: 1; }
+  #toast { color: var(--dim); font-size: 0.78rem; white-space: nowrap; min-height: 1.1em; }
+  #toast.ok { color: var(--ok); }
+  #toast.bad { color: var(--danger); }
+
+  /* ---- transcript viewer (terminal window) ---- */
+  #viewer {
+    margin-top: 1rem; border: 1px solid var(--line2); border-radius: var(--radius);
+    background: var(--term-bg); overflow: hidden;
+    box-shadow: 0 10px 30px rgba(0,0,0,.4);
+  }
+  #viewer[hidden] { display: none; }
+  .vhead {
+    display: flex; gap: 0.55rem; align-items: center; flex-wrap: wrap;
+    padding: 0.45rem 0.75rem; border-bottom: 1px solid var(--line);
+    background: linear-gradient(180deg, var(--elev), var(--panel));
+    font-size: 0.76rem; color: var(--dim);
+  }
+  .vhead .dots { display: flex; gap: 5px; margin-right: 0.35rem; }
+  .vhead .dots i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+  .vhead .dots i:nth-child(1) { background: #ff5f57; }
+  .vhead .dots i:nth-child(2) { background: #febc2e; }
+  .vhead .dots i:nth-child(3) { background: #28c840; }
+  .vhead .vname { color: var(--accent2); font-weight: 700; }
+  .vhead .spacer { flex: 1; }
+  #vstatus { font-size: 0.72rem; }
+  #vstatus.live { color: var(--ok); }
+  button.x { background: transparent; color: var(--dim); border: 0; padding: 0.15rem 0.5rem; font-weight: 700; cursor: pointer; border-radius: 4px; }
+  button.x:hover { color: var(--fg); background: var(--elev); }
+  #buffer {
+    margin: 0; padding: 0.7rem 0.9rem; max-height: 62vh; overflow: auto;
+    white-space: pre; font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: var(--term-fg);
+  }
+  #buffer[hidden] { display: none; }
+  #buffer::-webkit-scrollbar { width: 10px; height: 10px; }
+  #buffer::-webkit-scrollbar-thumb { background: var(--line2); border-radius: 6px; }
+  #buffer::-webkit-scrollbar-track { background: transparent; }
+
+  /* ---- viewer tabs: Pane (tmux scrape) vs Session (claude's own record) ---- */
+  .vtab {
+    background: transparent; color: var(--dim); border: 1px solid transparent;
+    border-radius: 6px; padding: 0.22rem 0.7rem; font: inherit; font-size: 0.76rem;
+    font-weight: 600; cursor: pointer; letter-spacing: .04em;
+  }
+  .vtab:hover:not(.on) { color: var(--fg); background: var(--elev); filter: none; }
+  .vtab.on {
+    color: var(--accent2); border-color: rgba(91,157,255,.4);
+    background: rgba(91,157,255,.12); filter: none;
+  }
+
+  /* ---- session detail ---- */
+  #session { padding: 0.85rem 0.9rem; max-height: 62vh; overflow: auto; }
+  #session[hidden] { display: none; }
+  #session .stitle { font-size: 0.95rem; font-weight: 700; color: var(--accent2); }
+  #session .scwd { color: var(--dim); font-size: 0.76rem; margin: 0.15rem 0 0.8rem; word-break: break-all; }
+  #session .snote { color: var(--dim); text-align: center; padding: 1.4rem 0.5rem; }
+  #session .snote.bad { color: var(--danger); }
+
+  /* metric tiles: the numbers that answer "what is this session costing me" */
+  .tiles {
+    display: grid; gap: 0.5rem; margin-bottom: 0.85rem;
+    grid-template-columns: repeat(auto-fit, minmax(7.5rem, 1fr));
+  }
+  .tile {
+    border: 1px solid var(--line); border-radius: 7px; padding: 0.45rem 0.6rem;
+    background: linear-gradient(180deg, rgba(255,255,255,.02), transparent);
+  }
+  .tile .k {
+    color: var(--faint); font-size: 0.6rem; letter-spacing: .11em;
+    text-transform: uppercase; display: block; margin-bottom: 0.15rem;
+  }
+  .tile .v { font-size: 1.05rem; font-weight: 700; }
+  .tile .v small { font-size: 0.68rem; font-weight: 400; color: var(--dim); margin-left: 0.25rem; }
+
+  /* key/value facts */
+  .facts { display: grid; grid-template-columns: auto 1fr; gap: 0.28rem 0.8rem; margin-bottom: 0.85rem; }
+  .facts dt {
+    color: var(--faint); font-size: 0.66rem; text-transform: uppercase;
+    letter-spacing: .09em; padding-top: 0.12rem;
+  }
+  .facts dd { margin: 0; word-break: break-all; }
+  .facts dd .muted { color: var(--dim); }
+
+  .stools { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-bottom: 0.85rem; }
+  .stool {
+    border: 1px solid var(--line2); border-radius: 999px; padding: 0.15rem 0.6rem;
+    font-size: 0.72rem; color: var(--fg); background: var(--elev);
+  }
+  .stool b { color: var(--accent2); font-weight: 700; margin-left: 0.3rem; }
+
+  .sprompt {
+    border-left: 2px solid var(--line2); padding: 0.1rem 0 0.1rem 0.7rem;
+    color: var(--dim); font-size: 0.8rem; white-space: pre-wrap; word-break: break-word;
+  }
+  .sprompt .k {
+    display: block; color: var(--faint); font-size: 0.6rem;
+    letter-spacing: .11em; text-transform: uppercase; margin-bottom: 0.2rem;
+  }
+
+  /* ---- quick-command chips ---- */
+  button.chip {
+    background: var(--elev); color: var(--fg); border: 1px solid var(--line2);
+    border-radius: 999px; padding: 0.4rem 0.85rem; font-weight: 500; font-size: 0.82rem;
+  }
+  button.chip:not(:disabled):hover { border-color: var(--accent); color: var(--accent2); background: var(--accent-glow); filter: none; }
+  button.chip.primary {
+    border-color: rgba(91,157,255,.5); color: var(--accent2);
+    background: rgba(91,157,255,.12);
+  }
+  button.chip.primary:not(:disabled):hover { background: var(--accent-glow); }
+
+  /* ---- mobile / touch ---- */
+  @media (max-width: 640px) {
+    body { padding: 0.6rem 0.6rem 1.2rem; }
+    header { flex-wrap: wrap; padding: 0.55rem 0.7rem; gap: 0.5rem; }
+    h1 .sub { display: none; }
+    #meta { width: 100%; order: 3; }
+    th, td { padding: 0.5rem 0.5rem; }
+    .hide-sm { display: none; }
+    td.path { max-width: 20ch; }
+    .bar-label { width: 100%; }
+    #compose { bottom: 0; padding: 0.6rem; gap: 0.5rem; border-radius: 8px; }
+    /* bigger tap targets on touch */
+    button, .chip, input[type=text], select { min-height: 42px; }
+    button.chip { font-size: 0.9rem; padding: 0.5rem 1rem; }
+    #target { min-height: 42px; display: inline-flex; align-items: center; }
+    #text, #slash, #openpath { flex: 1 1 100%; }
+    #send, #run, #open { flex: 1 1 auto; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <span id="led" class="led"></span>
+  <h1>shabadoo <span class="sub">control</span></h1>
+  <span id="meta">loading…</span>
+  <span class="spacer"></span>
+</header>
+<div id="root"></div>
+
+<!-- Audit: hidden until the first successful fetch, because `shabadoo serve`
+     has no database and therefore no audit log. An empty panel in fallback mode
+     would read as "nothing has happened" rather than "not recorded here". -->
+<section id="audit" class="session" hidden>
+  <div class="panel-head" id="audit-head">
+    <span class="ptitle">Audit</span>
+    <span class="badge" id="audit-count">0</span>
+    <span class="spacer"></span>
+    <span class="badge" id="audit-toggle">show</span>
+  </div>
+  <table hidden id="audit-table"><tbody id="audit-rows"></tbody></table>
+</section>
+
+<!-- Mail: session-to-session messages. Hidden until the first successful
+     fetch, for the same reason as Audit — `shabadoo serve` has no store, and an
+     empty panel there would read as "no mail" rather than "not kept here". -->
+<section id="mail" class="session" hidden>
+  <div class="panel-head" id="mail-head">
+    <span class="ptitle">Mail</span>
+    <span class="badge" id="mail-count">0</span>
+    <span class="spacer"></span>
+    <span class="badge" id="mail-toggle">show</span>
+  </div>
+  <table hidden id="mail-table"><tbody id="mail-rows"></tbody></table>
+</section>
+
+<!-- Devices: who holds a credential for this coordinator. Hidden until the
+     first successful fetch, like Audit and Mail — `serve` has no enrolment and
+     an empty list there would read as "nobody is paired" rather than "not a
+     thing here". -->
+<section id="devices" class="session" hidden>
+  <div class="panel-head" id="devices-head" role="button" tabindex="0"
+       aria-expanded="false" aria-controls="devices-body">
+    <span class="ptitle">Devices</span>
+    <span class="badge" id="devices-count">0</span>
+    <span class="spacer"></span>
+    <span class="badge" id="devices-toggle">show</span>
+  </div>
+  <div id="devices-body" hidden>
+    <table><tbody id="devices-rows"></tbody></table>
+    <div id="pairform">
+      <input id="pairlabel" type="text" placeholder="name the device — e.g. Alex's iPhone" autocomplete="off">
+      <label><input id="pairread" type="checkbox"> read-only</label>
+      <button id="pairbtn">Create pairing code</button>
+    </div>
+    <div id="pairout" hidden></div>
+  </div>
+</section>
+
+<div id="viewer" hidden>
+  <div class="vhead">
+    <span class="dots"><i></i><i></i><i></i></span>
+    <button class="vtab on" id="tab-pane" data-tab="pane">Pane</button>
+    <button class="vtab" id="tab-session" data-tab="session">Session</button>
+    <span class="vname" id="vname">—</span>
+    <span class="spacer"></span>
+    <label id="vlineswrap">lines
+      <select id="vlines">
+        <option value="0">screen</option>
+        <option value="200">200</option>
+        <option value="1000" selected>1000</option>
+        <option value="5000">5000</option>
+      </select>
+    </label>
+    <span id="vstatus"></span>
+    <button class="x" id="vclose" title="close">✕</button>
+  </div>
+  <pre id="buffer"></pre>
+  <div id="session" hidden></div>
+</div>
+
+<div id="compose" hidden>
+  <div class="bar">
+    <span class="bar-label">Send</span>
+    <span id="target"><span class="none">click a pane to select</span></span>
+    <input id="text" type="text" placeholder="type text to send…  (↑/↓ history)" autocomplete="off" list="history">
+    <datalist id="history"></datalist>
+    <label><input id="enter" type="checkbox" checked> append Enter</label>
+    <button id="send" disabled>Send</button>
+  </div>
+  <!-- Shown only when a modal owns the pane's keyboard. Text sent then is
+       swallowed by the dialog, so the composer is useless until it is answered
+       — these send the keypress itself. -->
+  <div class="bar" id="dialogbar" hidden>
+    <span class="bar-label warn">Prompt</span>
+    <span class="dialoghint">this pane has a dialog open — text would be swallowed</span>
+    <button class="chip" data-keys="1">1</button>
+    <button class="chip" data-keys="2">2</button>
+    <button class="chip" data-keys="3">3</button>
+    <button class="chip" data-keys="Up">↑</button>
+    <button class="chip" data-keys="Down">↓</button>
+    <button class="chip primary" data-keys="Enter">Enter</button>
+    <button class="chip" data-keys="Escape">Esc</button>
+  </div>
+  <div class="bar">
+    <span class="bar-label">Quick</span>
+    <button class="chip primary" data-cmd="/remote-control" disabled>/remote-control</button>
+    <button class="chip" data-cmd="/clear" disabled>/clear</button>
+    <button class="chip" data-cmd="/compact" disabled>/compact</button>
+    <button class="chip" data-cmd="/status" disabled>/status</button>
+  </div>
+  <div class="bar">
+    <span class="bar-label">Control</span>
+    <input id="slash" list="cmds" type="text" placeholder="/command…" autocomplete="off">
+    <button class="ghost" id="run" disabled>Run</button>
+    <datalist id="cmds">
+      <option value="/clear"></option>
+      <option value="/compact"></option>
+      <option value="/remote-control"></option>
+      <option value="/rc"></option>
+      <option value="/model"></option>
+      <option value="/fast"></option>
+      <option value="/status"></option>
+      <option value="/cost"></option>
+      <option value="/config"></option>
+      <option value="/mcp"></option>
+      <option value="/memory"></option>
+      <option value="/permissions"></option>
+      <option value="/review"></option>
+      <option value="/resume"></option>
+      <option value="/doctor"></option>
+      <option value="/help"></option>
+    </datalist>
+    <span class="sep">│</span>
+    <button class="ghost" id="transcript" disabled>Transcript</button>
+    <button class="ghost" id="reopen" disabled>Reopen</button>
+    <button class="danger" id="kill" disabled>Kill</button>
+    <span class="spacer"></span>
+    <input id="openpath" type="text" placeholder="pick or type a folder…" autocomplete="off" list="folders">
+    <datalist id="folders"></datalist>
+    <button class="ghost" id="open">Open window</button>
+  </div>
+  <div class="bar"><span id="toast"></span></div>
+</div>
+
+<script>
+const root = document.getElementById("root");
+const meta = document.getElementById("meta");
+const led = document.getElementById("led");
+const compose = document.getElementById("compose");
+const targetEl = document.getElementById("target");
+const textEl = document.getElementById("text");
+const enterEl = document.getElementById("enter");
+const sendBtn = document.getElementById("send");
+const historyEl = document.getElementById("history");
+const dialogBarEl = document.getElementById("dialogbar");
+const foldersEl = document.getElementById("folders");
+const toast = document.getElementById("toast");
+const reopenBtn = document.getElementById("reopen");
+const killBtn = document.getElementById("kill");
+const openPath = document.getElementById("openpath");
+const openBtn = document.getElementById("open");
+const slashEl = document.getElementById("slash");
+const runBtn = document.getElementById("run");
+const transcriptBtn = document.getElementById("transcript");
+const viewer = document.getElementById("viewer");
+const vname = document.getElementById("vname");
+const vlines = document.getElementById("vlines");
+const vstatus = document.getElementById("vstatus");
+const vclose = document.getElementById("vclose");
+const buffer = document.getElementById("buffer");
+const sessionEl = document.getElementById("session");
+const tabPane = document.getElementById("tab-pane");
+const tabSession = document.getElementById("tab-session");
+const vlineswrap = document.getElementById("vlineswrap");
+// Quick-command chips only. The dialog-answer buttons share the .chip look
+// but carry data-keys, not data-cmd — selecting on .chip alone would wire
+// them to the slash-command handler and send `undefined`.
+const chips = [...document.querySelectorAll(".chip[data-cmd]")];
+
+// Selected pane persists across the 3s auto-refresh.
+let selected = null; // { node, session, window, name, rawname, path }
+let bufferTimer = null; // poll handle while the transcript viewer is open
+let vtab = "pane";      // which viewer tab is showing: "pane" | "session"
+
+function ago(now, then) {
+  if (!then) return "";
+  const s = Math.max(0, now - then);
+  if (s < 60) return s + "s";
+  if (s < 3600) return Math.floor(s / 60) + "m";
+  if (s < 86400) return Math.floor(s / 3600) + "h";
+  return Math.floor(s / 86400) + "d";
+}
+
+function esc(s) {
+  return String(s).replace(/[&<>"]/g, c => (
+    { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+}
+
+// One agent's block. The coordinator returns a flat list of Claude sessions per
+// agent, where the flock returned tmux sessions with nested windows.
+function renderAgent(n, now, hubVersion) {
+  const sessions = n.sessions || [];
+  // A node reports its build at login, so this is the build it authenticated
+  // with — an agent that has not reconnected since an upgrade still shows the
+  // old one, which is the honest answer to "what is it running".
+  const skew = n.version && hubVersion && n.version !== hubVersion;
+  const ver = n.version
+    ? `<span class="badge ver ${skew ? "skew" : ""}"
+             title="${skew ? `coordinator is on ${esc(hubVersion)} — this node was installed from a different build`
+                           : "build reported at last login"}">${esc(n.version)}</span>`
+    : "";
+  return `
+    <section class="session">
+      <div class="panel-head">
+        <span class="led ${n.online ? "on" : ""}"></span>
+        <span class="ptitle">${esc(n.node)}</span>
+        <span class="badge ${n.online ? "attached" : "err"}">${n.online ? "online" : "offline"}</span>
+        <span class="badge">${sessions.length} session${sessions.length === 1 ? "" : "s"}</span>
+        ${ver}
+        <span class="spacer"></span>
+      </div>
+      <table>
+        <thead><tr>
+          <th></th><th>#</th><th>session</th><th>cmd</th><th>idle</th>
+          <th class="hide-sm">mail</th><th class="hide-sm">cwd</th>
+        </tr></thead>
+        <tbody>
+          ${sessions.map(w => {
+            const sel = selected && selected.node === n.node && selected.sessionId === w.session_id;
+            const waiting = w.input_state === "dialog";
+            return `
+            <tr class="${w.status === "active" ? "active" : ""} ${sel ? "selected" : ""} ${waiting ? "waiting" : ""}"
+                data-node="${esc(n.node)}" data-session="${esc(w.tmux_session)}"
+                data-window="${w.index}" data-name="${esc(w.alias)}"
+                data-rawname="${esc(w.name)}" data-path="${esc(w.cwd)}"
+                data-sessionid="${esc(w.session_id)}">
+              <td><span class="pled"></span></td>
+              <td class="idx">${w.index}</td>
+              <td class="name" title="${esc(w.name)}">${esc(w.alias)}${
+                waiting ? ` <span class="prompt" title="waiting on a prompt">prompt</span>` : ""}${
+                w.note ? ` <span class="note" title="what this session says it is doing">${esc(w.note)}</span>` : ""}</td>
+              <td class="cmd">${esc(w.command || "")}</td>
+              <td class="idle">${ago(now, w.activity)}</td>
+              <td class="hide-sm">${w.pending ? `<b>${w.pending}</b>` : ""}</td>
+              <td class="path hide-sm">${esc(w.cwd)}</td>
+            </tr>`;
+          }).join("")}
+        </tbody>
+      </table>
+    </section>`;
+}
+
+// The waiting queue: every session blocked on a prompt, longest first.
+//
+// The per-row badge already marks a blocked session, but finding it means
+// scanning every agent's table — and the notification that brought someone here
+// gave them one sentence, not a location. This is where a phone lands: the
+// list is short, it is at the top, and tapping an entry selects that pane so
+// the answer keys appear.
+//
+// Deliberately NOT an answer button per row. Answering without seeing the
+// question is how "yes" gets sent to a prompt that was asking about deleting
+// something; selecting from here opens the pane so the dialog is on screen
+// before any key is sent.
+function renderQueue(nodes, now) {
+  const waiting = [];
+  for (const n of nodes) {
+    for (const w of n.sessions || []) {
+      if (w.input_state === "dialog") waiting.push({ node: n.node, w });
+    }
+  }
+  if (!waiting.length) return "";
+  // Longest wait first, with an explicit tiebreak: equal timestamps are common
+  // (agents report on the same tick) and without one the order falls back to
+  // input order, which is the instability this is trying to avoid.
+  waiting.sort((a, b) => (a.w.activity || 0) - (b.w.activity || 0)
+    || (a.w.session_id || "").localeCompare(b.w.session_id || ""));
+
+  return `
+    <section class="session queue">
+      <div class="panel-head">
+        <span class="pled"></span>
+        <span class="ptitle">Waiting on you</span>
+        <span class="badge">${waiting.length}</span>
+        <span class="spacer"></span>
+      </div>
+      <table>
+        <tbody>
+          ${waiting.map(({ node, w }) => `
+            <tr class="${selected && selected.node === node
+                  && selected.sessionId === w.session_id ? "selected" : ""}"
+                data-node="${esc(node)}" data-session="${esc(w.tmux_session)}"
+                data-window="${w.index}" data-name="${esc(w.alias)}"
+                data-rawname="${esc(w.name)}" data-path="${esc(w.cwd)}"
+                data-sessionid="${esc(w.session_id)}" data-queued="1">
+              <td class="name">${esc(w.alias)}
+                <span class="prompt">prompt</span>${
+                w.note ? `<span class="note">${esc(w.note)}</span>` : ""}</td>
+              <td class="qwhere">${esc(node)}</td>
+              <td class="idle">${ago(now, w.activity)}</td>
+            </tr>`).join("")}
+        </tbody>
+      </table>
+      <p class="qhint">Tap one to open the pane and answer it.</p>
+    </section>`;
+}
+
+function render(data) {
+  const now = data.now;
+  const nodes = data.nodes || [];
+  const total = nodes.reduce((n, x) => n + (x.sessions || []).length, 0);
+  const down = nodes.filter(x => !x.online).length;
+
+  const waiting = nodes.reduce((n, x) =>
+    n + (x.sessions || []).filter(w => w.input_state === "dialog").length, 0);
+
+  meta.textContent = `${total} session(s) across ${nodes.length} agent(s)`
+    + (down ? ` · ${down} offline` : "")
+    + (waiting ? ` · ${waiting} waiting on a prompt` : "")
+    + (data.version ? ` · hub ${data.version}` : "")
+    + ` · updated ${new Date().toLocaleTimeString()}`;
+  meta.classList.toggle("err", down > 0);
+  meta.classList.toggle("waiting", waiting > 0 && down === 0);
+
+  // The tab title is the only signal that reaches someone who isn't looking at
+  // the page — no permission prompt, no service worker, works on a phone.
+  document.title = waiting ? `(${waiting}) shabadoo` : "shabadoo";
+
+  // The selected pane's state comes from the same report, so the answer keys
+  // appear without a separate probe.
+  if (selected) {
+    const cur = (nodes.find(x => x.node === selected.node)?.sessions || [])
+      .find(w => w.session_id === selected.sessionId);
+    if (cur) setDialogBar(cur.input_state === "dialog");
+  }
+
+  if (!nodes.length) {
+    root.innerHTML = `<p class="empty">No agents connected.</p>`;
+    compose.hidden = true;
+    return;
+  }
+  compose.hidden = false;
+  root.innerHTML = renderQueue(nodes, now)
+    + nodes.map(n => renderAgent(n, now, data.version)).join("");
+}
+
+function updateTarget() {
+  const has = !!selected;
+  if (has) {
+    const where = selected.node && !selected.isLocal ? esc(selected.node) + " · " : "";
+    targetEl.innerHTML = "→ " + where + esc(selected.name);
+  } else {
+    targetEl.innerHTML = `<span class="none">click a pane to select</span>`;
+  }
+  sendBtn.disabled = !has;
+  reopenBtn.disabled = !has;
+  killBtn.disabled = !has;
+  runBtn.disabled = !has;
+  transcriptBtn.disabled = !has;
+  chips.forEach(b => b.disabled = !has);
+}
+
+// One-tap quick-command chips (e.g. /remote-control). Sends via /api/command,
+// which clears the input line (C-u) then types the command + Enter.
+chips.forEach(b => b.addEventListener("click", async () => {
+  if (!selected) return;
+  const command = b.dataset.cmd;
+  try {
+    await post("/api/command", { node: selected.node, session: selected.session, window: selected.window, command });
+    flash(command + " → " + selected.name, "ok");
+  } catch (err) {
+    flash(err.message, "bad");
+    if (/dialog/i.test(err.message)) setDialogBar(true);
+  }
+}));
+
+function flash(msg, cls) {
+  toast.textContent = msg;
+  toast.className = cls || "";
+}
+
+async function post(url, body) {
+  const r = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error("HTTP " + r.status + ": " + (await r.text()).trim());
+}
+
+// Click a row → select that pane (and switch tmux to it).
+root.addEventListener("click", async (e) => {
+  const tr = e.target.closest("tr[data-session]");
+  if (!tr) return;
+  const node = tr.dataset.node || "";
+  const session = tr.dataset.session;
+  const window = parseInt(tr.dataset.window, 10);
+  selected = { node, session, window, name: tr.dataset.name, rawname: tr.dataset.rawname,
+               path: tr.dataset.path, sessionId: tr.dataset.sessionid };
+  updateTarget();
+  document.querySelectorAll("tr.selected").forEach(x => x.classList.remove("selected"));
+  tr.classList.add("selected");
+  // Coming from the queue, show the pane unasked: the point of that list is to
+  // answer a prompt, and a prompt must be read before it is answered.
+  if (tr.dataset.queued && viewer.hidden) openViewer();
+  else if (!viewer.hidden) refreshViewer(true);
+  textEl.focus();
+  pollInputState();
+  loadFolders(node);
+  try {
+    await post("/api/select", { node, session, window });
+    flash("selected", "ok");
+  } catch (err) {
+    flash(err.message, "bad");
+  }
+});
+
+// ---- entry history -------------------------------------------------------
+// Kept in localStorage so it survives the reload this page does constantly,
+// and shared across panes on purpose: the same few prompts get sent to
+// whichever session is in front of you.
+const HIST_KEY = "shabadoo.sendHistory";
+const HIST_MAX = 50;
+let sendHistory = [];
+let histPos = -1;    // -1 = editing a fresh line, 0 = most recent entry
+let histDraft = "";  // the in-progress line, restored on ↓ past the newest
+
+// A browser's stored history cannot be migrated by hand the way a state
+// directory can, so the pre-rename key is read once and carried across.
+try {
+  const stored = localStorage.getItem(HIST_KEY) ?? localStorage.getItem("phalanx.sendHistory");
+  sendHistory = JSON.parse(stored) || [];
+} catch { sendHistory = []; }
+
+function renderHistory() {
+  // The datalist gives the browser's own dropdown/typeahead for free, which is
+  // the only history affordance a phone gets — there are no arrow keys there.
+  historyEl.innerHTML = "";
+  for (const h of sendHistory) {
+    const o = document.createElement("option");
+    o.value = h;
+    historyEl.appendChild(o);
+  }
+}
+
+function remember(text) {
+  if (!text.trim()) return;
+  // Re-sending the same thing shouldn't push a duplicate; move it to the front.
+  sendHistory = [text, ...sendHistory.filter((h) => h !== text)].slice(0, HIST_MAX);
+  try { localStorage.setItem(HIST_KEY, JSON.stringify(sendHistory)); } catch {}
+  renderHistory();
+}
+
+function recall(delta) {
+  if (!sendHistory.length) return;
+  if (histPos === -1) histDraft = textEl.value;
+  const next = histPos + delta;
+  if (next < -1) return;
+  if (next >= sendHistory.length) return;
+  histPos = next;
+  textEl.value = histPos === -1 ? histDraft : sendHistory[histPos];
+  // Caret to the end, so ↑ then typing appends rather than inserting mid-line.
+  requestAnimationFrame(() => textEl.setSelectionRange(textEl.value.length, textEl.value.length));
+}
+
+renderHistory();
+
+async function send() {
+  if (!selected) return;
+  const text = textEl.value;
+  if (!text && !enterEl.checked) return;
+  sendBtn.disabled = true;
+  try {
+    await post("/api/send", {
+      node: selected.node, session: selected.session, window: selected.window,
+      text, enter: enterEl.checked,
+    });
+    remember(text);
+    textEl.value = "";
+    histPos = -1;
+    histDraft = "";
+    flash("sent → " + selected.name, "ok");
+  } catch (err) {
+    // A refusal from the dialog guard means the text was never delivered —
+    // keep it in the box so it isn't lost, and show the answer keys.
+    flash(err.message, "bad");
+    if (/dialog/i.test(err.message)) setDialogBar(true);
+  } finally {
+    sendBtn.disabled = !selected;
+    textEl.focus();
+  }
+}
+
+sendBtn.addEventListener("click", send);
+textEl.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") { e.preventDefault(); send(); return; }
+  if (e.key === "ArrowUp") { e.preventDefault(); recall(+1); return; }
+  if (e.key === "ArrowDown") { e.preventDefault(); recall(-1); return; }
+  histPos = -1; // any other edit starts a fresh line
+});
+
+// ---- dialog answering ----------------------------------------------------
+// A modal in the pane (permission prompt, /status, plan approval) owns the
+// keyboard: typed text is discarded and Enter is consumed by the dialog. The
+// agent refuses text sends in that state, and these buttons send the keypress
+// the dialog is actually waiting for.
+function setDialogBar(on) { dialogBarEl.hidden = !on; }
+
+// On-demand probe. The periodic signal now rides the agent's report (every
+// session, one capture per window per cycle), so this is only for the two
+// moments that must not wait for the next report: selecting a pane, and the
+// instant after answering a prompt.
+async function pollInputState() {
+  if (!selected) { setDialogBar(false); return; }
+  try {
+    const q = new URLSearchParams({
+      node: selected.node, session: selected.session, window: String(selected.window),
+    });
+    const r = await fetch("/api/input-state?" + q);
+    if (!r.ok) return;
+    const { state } = await r.json();
+    setDialogBar(state === "dialog");
+  } catch {
+    // A failed probe is not evidence either way — leave the bar as it is.
+  }
+}
+
+dialogBarEl.addEventListener("click", async (e) => {
+  const btn = e.target.closest("button[data-keys]");
+  if (!btn || !selected) return;
+  const keys = btn.dataset.keys.split(" ");
+  try {
+    await post("/api/keys", {
+      node: selected.node, session: selected.session, window: selected.window, keys,
+    });
+    flash(btn.dataset.keys + " → " + selected.name, "ok");
+    setTimeout(pollInputState, 400); // the dialog usually closes on the answer
+  } catch (err) {
+    flash(err.message, "bad");
+  }
+});
+
+// Slash-command box with autocomplete (datalist #cmds). Runs via /api/command,
+// which clears the input line (C-u) then types the command + Enter.
+async function runSlash() {
+  if (!selected) return;
+  let command = slashEl.value.trim();
+  if (!command) return;
+  if (!command.startsWith("/")) command = "/" + command;
+  try {
+    await post("/api/command", { node: selected.node, session: selected.session, window: selected.window, command });
+    slashEl.value = "";
+    flash(command + " → " + selected.name, "ok");
+  } catch (err) {
+    flash(err.message, "bad");
+    if (/dialog/i.test(err.message)) setDialogBar(true);
+  }
+}
+runBtn.addEventListener("click", runSlash);
+slashEl.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") { e.preventDefault(); runSlash(); }
+});
+
+reopenBtn.addEventListener("click", async () => {
+  if (!selected) return;
+  if (!confirm(`Reopen "${selected.name}"?\nThis kills the window and relaunches claude --continue in the same directory.`)) return;
+  flash("reopening " + selected.name + "…");
+  try {
+    await post("/api/reopen", { node: selected.node, name: selected.rawname });
+    flash("reopened " + selected.name, "ok");
+    selected = null; updateTarget(); tick();
+  } catch (err) {
+    flash(err.message, "bad");
+  }
+});
+
+killBtn.addEventListener("click", async () => {
+  if (!selected) return;
+  if (!confirm(`Kill window "${selected.name}"?\nThe claude process in it will be terminated.`)) return;
+  try {
+    await post("/api/kill", { node: selected.node, session: selected.session, window: selected.window });
+    flash("killed " + selected.name, "ok");
+    selected = null; updateTarget(); tick();
+  } catch (err) {
+    flash(err.message, "bad");
+  }
+});
+
+// ---- folder picker -------------------------------------------------------
+// Typing an absolute path is fine on a keyboard and hopeless on a phone, so the
+// node offers its own list: the boot folders it is configured to run, plus
+// anywhere a session has actually run. Refreshed per node, not per tick — the
+// list changes when someone edits a config file, not every 3 seconds.
+let foldersNode = null;
+
+async function loadFolders(node) {
+  if (node === foldersNode) return;
+  foldersNode = node;
+  try {
+    const r = await fetch("/api/folders?node=" + encodeURIComponent(node || ""));
+    if (!r.ok) return;
+    const list = await r.json();
+    foldersEl.innerHTML = "";
+    for (const f of list || []) {
+      const o = document.createElement("option");
+      o.value = f.path;
+      // The label is the only hint that opening this would duplicate a window.
+      o.label = f.name + (f.open ? "  · already open" : "") +
+                (f.source === "configured" ? "  · configured" : "");
+      foldersEl.appendChild(o);
+    }
+  } catch {
+    foldersNode = null; // let the next selection retry
+  }
+}
+
+async function openWindow() {
+  const path = openPath.value.trim();
+  if (!path) return;
+  const node = selected ? selected.node : "";
+  flash("opening " + path + (node ? " on " + node : "") + "…");
+  try {
+    await post("/api/open", { node, path });
+    openPath.value = "";
+    flash("opened " + path + (node ? " on " + node : ""), "ok");
+    tick();
+  } catch (err) {
+    flash(err.message, "bad");
+  }
+}
+openBtn.addEventListener("click", openWindow);
+openPath.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") { e.preventDefault(); openWindow(); }
+});
+
+// ---- ANSI → HTML (renders capture-pane -e output with terminal colors) ----
+// xterm 16-color base, tuned to the panel palette; 216-cube and grayscale ramp
+// are computed. Text is HTML-escaped; styles are palette/rgb only, so the
+// resulting innerHTML is safe.
+const ANSI16 = [
+  "#080a0f","#ff6b6b","#4fd18b","#e6b850","#5b9dff","#c792ea","#56d4dd","#c7ccd6",
+  "#545e6f","#ff8a8a","#7ee0a8","#f0cd7b","#8bb8ff","#dbb0f2","#8ee6ee","#ffffff",
+];
+function ansi256(n) {
+  if (n < 16) return ANSI16[n];
+  if (n < 232) { n -= 16; const r = (n/36|0), g = ((n%36)/6|0), b = n%6, c = v => v ? 55 + v*40 : 0;
+    return `rgb(${c(r)},${c(g)},${c(b)})`; }
+  const v = 8 + (n-232)*10; return `rgb(${v},${v},${v})`;
+}
+function ansiToHtml(s) {
+  let fg = null, bg = null, bold = false, dim = false, ul = false, it = false, rev = false;
+  const escHtml = t => t.replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+  const style = () => {
+    let f = fg, b = bg; if (rev) { const t = f; f = b || "var(--term-bg)"; b = t || "var(--term-fg)"; }
+    let out = "";
+    if (f) out += "color:" + f + ";"; if (b) out += "background:" + b + ";";
+    if (bold) out += "font-weight:700;"; if (dim) out += "opacity:.65;";
+    if (it) out += "font-style:italic;"; if (ul) out += "text-decoration:underline;";
+    return out;
+  };
+  const seg = t => { if (!t) return ""; const st = style(); return st ? `<span style="${st}">${escHtml(t)}</span>` : escHtml(t); };
+  let out = "", last = 0, m;
+  const re = /\x1b\[([0-9;]*)m|\x1b[\[\]][0-9;?]*(?:[A-Za-z]|\x07)/g;
+  while ((m = re.exec(s))) {
+    out += seg(s.slice(last, m.index));
+    last = re.lastIndex;
+    if (m[1] === undefined) continue; // non-SGR escape: strip, no style change
+    const codes = m[1] === "" ? [0] : m[1].split(";").map(Number);
+    for (let k = 0; k < codes.length; k++) {
+      const c = codes[k];
+      if (c === 0) { fg = bg = null; bold = dim = ul = it = rev = false; }
+      else if (c === 1) bold = true; else if (c === 2) dim = true; else if (c === 3) it = true;
+      else if (c === 4) ul = true; else if (c === 7) rev = true;
+      else if (c === 22) { bold = dim = false; } else if (c === 23) it = false;
+      else if (c === 24) ul = false; else if (c === 27) rev = false;
+      else if (c >= 30 && c <= 37) fg = ansi256(c - 30);
+      else if (c >= 90 && c <= 97) fg = ansi256(c - 90 + 8);
+      else if (c >= 40 && c <= 47) bg = ansi256(c - 40);
+      else if (c >= 100 && c <= 107) bg = ansi256(c - 100 + 8);
+      else if (c === 39) fg = null; else if (c === 49) bg = null;
+      else if (c === 38 || c === 48) {
+        const toFg = c === 38, mode = codes[k+1], col =
+          mode === 5 ? ansi256(codes[k+2]) :
+          mode === 2 ? `rgb(${codes[k+2]},${codes[k+3]},${codes[k+4]})` : null;
+        if (col) { if (toFg) fg = col; else bg = col; }
+        k += mode === 5 ? 2 : mode === 2 ? 4 : 0;
+      }
+    }
+  }
+  out += seg(s.slice(last));
+  return out;
+}
+
+// Transcript viewer: polls the selected pane's buffer and behaves like tail -f
+// (auto-scrolls to bottom unless you've scrolled up to read history).
+function nearBottom(el) {
+  return el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+}
+
+async function refreshBuffer(forceBottom) {
+  if (!selected) { buffer.textContent = "(no pane selected)"; vname.textContent = "—"; return; }
+  vname.textContent = selected.node ? `${selected.node} · ${selected.name}` : selected.name;
+  const stick = forceBottom || nearBottom(buffer);
+  try {
+    const url = `/api/capture?session=${encodeURIComponent(selected.session)}`
+      + `&window=${selected.window}&lines=${vlines.value}&color=1`
+      + (selected.node ? `&node=${encodeURIComponent(selected.node)}` : "");
+    const r = await fetch(url);
+    if (!r.ok) throw new Error("HTTP " + r.status + ": " + (await r.text()).trim());
+    buffer.innerHTML = ansiToHtml(await r.text());
+    vstatus.textContent = "● live"; vstatus.className = "live";
+    if (stick) buffer.scrollTop = buffer.scrollHeight;
+  } catch (err) {
+    vstatus.textContent = err.message; vstatus.className = "";
+  }
+}
+
+// ---- session detail (claude's own transcript, not the tmux scrape) ----
+
+// Numbers here run to hundreds of millions of cached tokens, which is
+// unreadable in full; 3 significant figures is what the eye actually uses.
+function num(n) {
+  n = n || 0;
+  if (n < 1000) return String(n);
+  if (n < 1e6) return (n / 1e3).toFixed(n < 1e4 ? 1 : 0) + "k";
+  if (n < 1e9) return (n / 1e6).toFixed(n < 1e7 ? 1 : 0) + "M";
+  return (n / 1e9).toFixed(1) + "B";
+}
+
+function dur(from, to) {
+  if (!from || !to) return "—";
+  const s = Math.max(0, to - from);
+  if (s < 60) return s + "s";
+  if (s < 3600) return Math.floor(s / 60) + "m";
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+  return m ? `${h}h ${m}m` : `${h}h`;
+}
+
+// Long sessions routinely span days, so a bare wall-clock time would read as a
+// contradiction next to the duration (5:30 AM → 11:11 AM, duration 29h). Dates
+// appear only when the timestamp is not today.
+function clock(unix) {
+  if (!unix) return "—";
+  const d = new Date(unix * 1000);
+  const t = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  const today = new Date();
+  const sameDay = d.getDate() === today.getDate() && d.getMonth() === today.getMonth()
+    && d.getFullYear() === today.getFullYear();
+  return sameDay ? t : `${d.toLocaleDateString([], { month: "short", day: "numeric" })} ${t}`;
+}
+
+// MCP tools arrive as mcp__<server>__<tool>, which is far too wide for a chip.
+function shortTool(name) {
+  const m = /^mcp__(.+?)__(.+)$/.exec(name);
+  return m ? `${m[1]}:${m[2]}` : name;
+}
+
+// Strip the vendor prefix: "claude-opus-5" reads better than the full id, and
+// the full id is still in the title attribute.
+function shortModel(m) {
+  return m ? m.replace(/^claude-/, "") : "—";
+}
+
+// Note: renderSession() above renders a *tmux* session block. This one renders
+// a *Claude* session — the two words mean different things in this app.
+function renderClaudeSession(s) {
+  const tok = s.tokens || {};
+  const tools = Object.entries(s.tools || {}).sort((a, b) => b[1] - a[1]);
+  const models = Object.keys(s.models || {});
+
+  return `
+    <div class="stitle">${esc(s.title || s.session_id || "session")}</div>
+    <div class="scwd">${esc(s.cwd || "")}</div>
+    <div class="tiles">
+      <div class="tile"><span class="k">messages</span><span class="v">${s.messages || 0}
+        <small>${s.user_turns || 0}u / ${s.assistant_turns || 0}a</small></span></div>
+      <div class="tile"><span class="k">output</span><span class="v">${num(tok.output)}</span></div>
+      <div class="tile"><span class="k">cache read</span><span class="v">${num(tok.cache_read)}</span></div>
+      <div class="tile"><span class="k">cache write</span><span class="v">${num(tok.cache_write)}</span></div>
+      <div class="tile"><span class="k">input</span><span class="v">${num(tok.input)}</span></div>
+      <div class="tile"><span class="k">duration</span><span class="v">${dur(s.started, s.last)}</span></div>
+    </div>
+    <dl class="facts">
+      <dt>model</dt><dd title="${esc(models.join(", "))}">${esc(shortModel(s.model))}${
+        models.length > 1 ? ` <span class="muted">(+${models.length - 1} earlier)</span>` : ""}</dd>
+      <dt>branch</dt><dd>${esc(s.git_branch || "—")}</dd>
+      <dt>mode</dt><dd>${esc(s.permission_mode || "—")}</dd>
+      <dt>session</dt><dd class="muted">${esc(s.session_id || "—")}</dd>
+      <dt>span</dt><dd>${clock(s.started)} → ${clock(s.last)}</dd>
+      <dt>cli</dt><dd class="muted">v${esc(s.version || "?")} · ${num(s.size)}B transcript${
+        s.sidechains ? ` · ${s.sidechains} subagent msgs` : ""}</dd>
+    </dl>
+    ${tools.length ? `<div class="stools">${tools.map(([name, n]) =>
+      `<span class="stool" title="${esc(name)}">${esc(shortTool(name))}<b>${n}</b></span>`).join("")}</div>` : ""}
+    ${s.last_prompt ? `<div class="sprompt"><span class="k">last prompt</span>${esc(s.last_prompt)}</div>` : ""}`;
+}
+
+async function refreshSession() {
+  if (!selected) { sessionEl.innerHTML = `<p class="snote">(no pane selected)</p>`; vname.textContent = "—"; return; }
+  vname.textContent = selected.node ? `${selected.node} · ${selected.name}` : selected.name;
+  if (!selected.path) { sessionEl.innerHTML = `<p class="snote">(this window reports no cwd)</p>`; return; }
+  try {
+    const url = `/api/claude/session?path=${encodeURIComponent(selected.path)}`
+      + (selected.node ? `&node=${encodeURIComponent(selected.node)}` : "");
+    const r = await fetch(url);
+    if (r.status === 404) {
+      sessionEl.innerHTML = `<p class="snote">No Claude transcript for<br>${esc(selected.path)}</p>`;
+      vstatus.textContent = "no session"; vstatus.className = "";
+      return;
+    }
+    if (!r.ok) throw new Error("HTTP " + r.status + ": " + (await r.text()).trim());
+    sessionEl.innerHTML = renderClaudeSession(await r.json());
+    vstatus.textContent = "● live"; vstatus.className = "live";
+  } catch (err) {
+    sessionEl.innerHTML = `<p class="snote bad">${esc(err.message)}</p>`;
+    vstatus.textContent = err.message; vstatus.className = "";
+  }
+}
+
+// ---- viewer: two tabs over the same selected pane ----
+
+function setTab(name) {
+  vtab = name;
+  tabPane.classList.toggle("on", name === "pane");
+  tabSession.classList.toggle("on", name === "session");
+  buffer.hidden = name !== "pane";
+  sessionEl.hidden = name !== "session";
+  vlineswrap.hidden = name !== "pane"; // scrollback depth is a pane-only knob
+  if (!viewer.hidden) refreshViewer(true);
+}
+
+function refreshViewer(forceBottom) {
+  return vtab === "pane" ? refreshBuffer(forceBottom) : refreshSession();
+}
+
+function openViewer() {
+  viewer.hidden = false;
+  transcriptBtn.textContent = "Hide transcript";
+  refreshViewer(true);
+  if (bufferTimer) clearInterval(bufferTimer);
+  bufferTimer = setInterval(refreshViewer, 2000);
+}
+
+function closeViewer() {
+  viewer.hidden = true;
+  transcriptBtn.textContent = "Transcript";
+  if (bufferTimer) { clearInterval(bufferTimer); bufferTimer = null; }
+}
+
+transcriptBtn.addEventListener("click", () => viewer.hidden ? openViewer() : closeViewer());
+vclose.addEventListener("click", closeViewer);
+vlines.addEventListener("change", () => refreshBuffer(true));
+tabPane.addEventListener("click", () => setTab("pane"));
+tabSession.addEventListener("click", () => setTab("session"));
+
+// ---- audit ----
+//
+// Under --trust-network the audit log is the entire accountability story: it is
+// the one thing the coordinator adds over the flock, recording every keystroke
+// sent into every pane. It was written from the first commit and read by
+// nothing, which made it evidence nobody could look at without a shell and a
+// curl. This is that missing reader.
+//
+// Collapsed by default and polled only while open — an audit tail nobody is
+// looking at is not worth a request every few seconds.
+const auditEl = document.getElementById("audit");
+const auditRows = document.getElementById("audit-rows");
+const auditTable = document.getElementById("audit-table");
+const auditToggle = document.getElementById("audit-toggle");
+const auditCount = document.getElementById("audit-count");
+let auditOpen = false;
+
+document.getElementById("audit-head").addEventListener("click", () => {
+  auditOpen = !auditOpen;
+  auditTable.hidden = !auditOpen;
+  auditToggle.textContent = auditOpen ? "hide" : "show";
+  if (auditOpen) refreshAudit();
+});
+
+async function refreshAudit() {
+  try {
+    const r = await fetch("/api/audit?limit=100");
+    // 404 is the standalone fallback, which has no database. Leaving the panel
+    // hidden is the honest rendering: not "no activity", but "not recorded".
+    if (!r.ok) { auditEl.hidden = true; return; }
+    const { entries } = await r.json();
+    auditEl.hidden = false;
+    auditCount.textContent = entries.length;
+    if (!auditOpen) return;
+
+    auditRows.innerHTML = entries.map(e => {
+      // The server appends "[failed: ...]" to the detail of an attempt that
+      // did not land. An attempt is as interesting as a success here, so it is
+      // shown, just marked.
+      const failed = (e.detail || "").includes("[failed:");
+      return `<tr>
+        <td class="aat">${clock(e.at)}</td>
+        <td class="aactor" title="${esc(e.actor)}">${esc(e.actor)}</td>
+        <td class="aaction">${esc(e.action)}</td>
+        <td class="atarget" title="${esc(e.target || "")}">${esc(e.target || "")}</td>
+        <td class="adetail ${failed ? "failed" : ""}" title="${esc(e.detail || "")}">${esc(e.detail || "")}</td>
+      </tr>`;
+    }).join("") || `<tr><td class="adetail">(nothing recorded yet)</td></tr>`;
+  } catch {
+    // A failed poll says nothing about what is in the log — leave the last
+    // render up rather than blanking it.
+  }
+}
+
+// ---- devices ------------------------------------------------------------
+//
+// Who holds a credential for this coordinator, and the only place a new one can
+// be minted without a terminal. That gap was the sharpest in the whole UI: the
+// entire enrolment design — QR, fragment-carried code, a mobile-first pairing
+// page — exists to get a PHONE enrolled, and the one thing the phone-friendly
+// dashboard could not do was enrol a phone.
+//
+// Not polled. Devices change when a person does something, not on a timer —
+// except while a pairing code is outstanding, which is the one moment the list
+// is expected to grow under you.
+const devicesEl = document.getElementById("devices");
+const devicesBody = document.getElementById("devices-body");
+const devicesRows = document.getElementById("devices-rows");
+const devicesHead = document.getElementById("devices-head");
+const devicesToggle = document.getElementById("devices-toggle");
+const devicesCount = document.getElementById("devices-count");
+const pairOut = document.getElementById("pairout");
+let devicesOpen = false;
+let pairPoll = null;
+
+function toggleDevices() {
+  devicesOpen = !devicesOpen;
+  devicesBody.hidden = !devicesOpen;
+  devicesToggle.textContent = devicesOpen ? "hide" : "show";
+  devicesHead.setAttribute("aria-expanded", String(devicesOpen));
+  if (devicesOpen) refreshDevices();
+}
+devicesHead.addEventListener("click", toggleDevices);
+devicesHead.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleDevices(); }
+});
+
+async function refreshDevices() {
+  try {
+    const r = await fetch("/api/devices");
+    if (!r.ok) { devicesEl.hidden = true; return; }
+    const { devices } = await r.json();
+    devicesEl.hidden = false;
+    devicesCount.textContent = devices.length;
+    if (!devicesOpen) return;
+
+    const now = Date.now();
+    devicesRows.innerHTML = devices.map(d => {
+      const days = Math.floor((new Date(d.Expires).getTime() - now) / 86400000);
+      const tags = [
+        d.self ? `<span class="tag you">this browser</span>` : "",
+        d.Scope === "read" ? `<span class="tag read">read-only</span>` : "",
+        d.push ? `<span class="tag push">push</span>` : "",
+        // 14 days is roughly when renewal stops being automatic-if-you-visit
+        // and starts being something to actually do.
+        days <= 14 ? `<span class="tag soon">${days}d left</span>` : "",
+      ].join("");
+      return `<tr class="${d.self ? "self" : ""}">
+        <td class="dlabel">${esc(d.Label || "(unnamed)")}${tags}</td>
+        <td class="dmeta">${days}d</td>
+        <td class="dact"><button class="danger" data-revoke="${esc(d.ID)}"
+            data-label="${esc(d.Label || d.ID)}" data-self="${d.self ? "1" : ""}">Revoke</button></td>
+      </tr>`;
+    }).join("") || `<tr><td class="dmeta">(nothing enrolled)</td></tr>`;
+  } catch {
+    // Leave the last render up; a failed fetch says nothing about the list.
+  }
+}
+
+devicesRows.addEventListener("click", async (e) => {
+  const btn = e.target.closest("button[data-revoke]");
+  if (!btn) return;
+  const label = btn.dataset.label;
+  // Revoking yourself is legitimate — signing a lost browser out from the
+  // browser you are holding is the whole point — but it must not be a
+  // surprise, so it says what will happen rather than asking the same question.
+  const msg = btn.dataset.self
+    ? `Revoke "${label}"?\n\nThis is the browser you are using. You will be signed out immediately and will need a new pairing code to get back in.`
+    : `Revoke "${label}"?\n\nThat device is signed out immediately and cannot renew. Re-pairing is the only way back.`;
+  if (!confirm(msg)) return;
+  try {
+    await post("/api/devices/revoke", { device_id: btn.dataset.revoke });
+    flash("revoked " + label, "ok");
+    refreshDevices();
+  } catch (err) {
+    flash(err.message, "bad");
+  }
+});
+
+document.getElementById("pairbtn").addEventListener("click", async () => {
+  const label = document.getElementById("pairlabel").value.trim();
+  const read = document.getElementById("pairread").checked;
+  try {
+    const r = await fetch("/api/devices/code", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ label, scope: read ? "read" : "" }),
+    });
+    if (!r.ok) throw new Error("HTTP " + r.status + ": " + (await r.text()).trim());
+    showPairing(await r.json());
+  } catch (err) {
+    flash(err.message, "bad");
+  }
+});
+
+function showPairing(minted) {
+  // The code rides in the FRAGMENT, which is never sent to the server — so it
+  // stays out of access logs and Referer headers. The QR encodes the same URL,
+  // and /pair/qr.svg is unauthenticated because whoever holds the code already
+  // holds the only secret.
+  let url = location.origin + "/pair#code=" + encodeURIComponent(minted.code);
+  if (minted.label) url += "&label=" + encodeURIComponent(minted.label).replace(/%20/g, "%20");
+  const until = Date.now() + (minted.expires_in || 300) * 1000;
+
+  pairOut.hidden = false;
+  pairOut.innerHTML = `
+    <div class="qrwrap"><img alt="Pairing QR code"
+      src="/pair/qr.svg?d=${encodeURIComponent(url)}"></div>
+    <p><span class="pcode">${esc(minted.code)}</span>
+       ${minted.scope === "read" ? '<span class="tag read">read-only</span>' : ""}</p>
+    <p class="plink"><a href="${esc(url)}">${esc(url)}</a></p>
+    <p class="pexp" id="pexp"></p>
+    <p class="qhint">Scan it, or open the link on the device. Single use.</p>`;
+
+  // A code that has silently expired while you were walking to the other room
+  // is the most annoying possible failure, so the countdown is explicit.
+  const exp = document.getElementById("pexp");
+  const tick = () => {
+    const left = Math.round((until - Date.now()) / 1000);
+    if (left <= 0) {
+      exp.textContent = "expired — create another";
+      clearInterval(timer);
+      if (pairPoll) { clearInterval(pairPoll); pairPoll = null; }
+      return;
+    }
+    exp.textContent = `expires in ${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}`;
+  };
+  const timer = setInterval(tick, 1000);
+  tick();
+
+  // Watch for the enrolment landing. This is the one moment the device list is
+  // expected to change without anyone touching this page.
+  if (pairPoll) clearInterval(pairPoll);
+  pairPoll = setInterval(refreshDevices, 3000);
+}
+
+// ---- keeping this browser enrolled -------------------------------------
+//
+// A device token lasts 90 days and nothing renewed it, so every paired browser
+// was counting down to a lockout whose only recovery is restarting the
+// coordinator with --bootstrap. Renewal has always existed; what was missing
+// was anything calling it.
+//
+// The coordinator reports the expiry on every authenticated response, so this
+// costs no extra request to decide. Renewing at 30 days out means ~60 days of
+// chances to be opened once — and once is enough, since a renewal is a full
+// fresh term.
+const RENEW_BELOW_DAYS = 30;
+const RENEW_MARK = "shabadoo.lastRenew";
+let tokenExpires = 0;
+
+function noteTokenExpiry(res) {
+  const v = parseInt(res.headers.get("X-Shabadoo-Token-Expires") || "", 10);
+  if (v) tokenExpires = v;
+}
+
+async function maybeRenew() {
+  if (!tokenExpires) return;
+  const daysLeft = (tokenExpires * 1000 - Date.now()) / 86400000;
+  if (daysLeft > RENEW_BELOW_DAYS) return;
+  // At most one attempt a day. A failing renewal must not become a write on
+  // every poll — that would fill the audit log with the symptom rather than
+  // making the problem visible.
+  const today = new Date().toISOString().slice(0, 10);
+  if (localStorage.getItem(RENEW_MARK) === today) return;
+  localStorage.setItem(RENEW_MARK, today);
+  try {
+    const r = await fetch("/api/devices/renew", { method: "POST" });
+    if (r.ok) {
+      const { expires } = await r.json();
+      tokenExpires = expires;
+      flash("credential renewed for another 90 days", "ok");
+    }
+  } catch { /* offline; the next load tries again */ }
+}
+
+// ---- mail ----
+//
+// The durable inbox replaced NATS as how sessions talk to each other, and it
+// arrived with the same gap the audit log had: written by everything, readable
+// by nothing without a shell. This is that reader.
+//
+// The last 24 hours across the tenant, newest first — the same window
+// `Replay` uses. Collapsed and polled only while open, like Audit.
+const mailEl = document.getElementById("mail");
+const mailRows = document.getElementById("mail-rows");
+const mailTable = document.getElementById("mail-table");
+const mailToggle = document.getElementById("mail-toggle");
+const mailCount = document.getElementById("mail-count");
+let mailOpen = false;
+
+document.getElementById("mail-head").addEventListener("click", () => {
+  mailOpen = !mailOpen;
+  mailTable.hidden = !mailOpen;
+  mailToggle.textContent = mailOpen ? "hide" : "show";
+  if (mailOpen) refreshMail();
+});
+
+// Session ids are `claude-<project>-<host>-<8hex>`; the hash is what makes two
+// sessions on one project distinguishable and is exactly what a person does not
+// read. Shown on hover, dropped from the line.
+function shortSession(id) {
+  if (!id) return "?";
+  const human = id.replace(/^human:/, "");
+  if (human !== id) return human;
+  return id.replace(/^claude-/, "").replace(/-[0-9a-f]{8}$/, "");
+}
+
+async function refreshMail() {
+  try {
+    const r = await fetch("/api/messages?limit=100");
+    if (!r.ok) { mailEl.hidden = true; return; }
+    const { messages } = await r.json();
+    mailEl.hidden = false;
+    mailCount.textContent = messages.length;
+    if (!mailOpen) return;
+
+    mailRows.innerHTML = messages.map(m => {
+      // A broadcast has no single recipient. Saying "→ everyone" is clearer
+      // than an empty cell, which reads like a bug.
+      const to = m.to_session ? shortSession(m.to_session)
+                              : (m.topic ? "#" + m.topic : "everyone");
+      const title = m.title ? `<b>${esc(m.title)}</b> · ` : "";
+      const body = (m.body || "").replace(/\s+/g, " ").trim();
+      return `<tr>
+        <td class="mat">${clock(m.created_at)}</td>
+        <td class="mwho" title="${esc(m.from_session)} → ${esc(m.to_session || m.topic || "broadcast")}">${
+          esc(shortSession(m.from_session))} <span class="arrow">→</span> ${esc(to)}</td>
+        <td class="mbody" title="${esc(m.body || "")}">${title}${esc(body)}</td>
+      </tr>`;
+    }).join("") || `<tr><td class="mbody">(no messages in the last 24 hours)</td></tr>`;
+  } catch {
+    // Same as Audit: a failed poll says nothing about the contents.
+  }
+}
+
+setInterval(() => { if (mailOpen) refreshMail(); }, 5000);
+
+// Guard against overlapping polls: with peers in the flock a refresh can take
+// longer than the interval (a peer fetch is capped at 2s server-side), and
+// setInterval would otherwise stack requests faster than they drain.
+let ticking = false;
+
+async function tick() {
+  if (ticking) return;
+  ticking = true;
+  try {
+    const r = await fetch("/api/sessions");
+    noteTokenExpiry(r);
+    // The page's own fetches never get the middleware's redirect (that is for
+    // navigations), so an unpaired browser sees a 403 here and must be told
+    // where to go. Landing on "error: HTTP 403" with no route to pairing is
+    // exactly how a paired browser that lost its cookie looks like a broken
+    // dashboard.
+    // 401 only. A 403 means the credential is valid but not permitted — a
+    // read-only device — and telling that user to pair again would have them
+    // replace a working token to fix a permission.
+    if (r.status === 401) {
+      meta.textContent = "not paired with this coordinator";
+      meta.classList.add("err");
+      led.classList.add("err"); led.classList.remove("on");
+      root.innerHTML = `<p class="empty">This browser is not signed in.<br>
+        <a href="/pair">Pair it →</a> (you will need a code from
+        <code>shabadoo pair</code>, or the coordinator's <code>--bootstrap</code> log line)</p>`;
+      compose.hidden = true;
+      return;
+    }
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    render(await r.json());
+    updateTarget();
+    led.classList.add("on"); led.classList.remove("err");
+    // Only after a successful poll: renewing against a coordinator we just
+    // failed to reach would be a write attempted in the dark.
+    maybeRenew();
+  } catch (e) {
+    meta.textContent = "error: " + e.message;
+    meta.classList.add("err");
+    led.classList.add("err"); led.classList.remove("on");
+  } finally {
+    ticking = false;
+  }
+}
+
+// ---- live updates -------------------------------------------------------
+//
+// Prefer the pushed stream, fall back to polling. The fallback is not
+// belt-and-braces, it is the safety property: a proxy that buffers
+// text/event-stream turns SSE into a page that connects and never updates —
+// silent, and indistinguishable from every agent having gone away. The old
+// 3s poll is the floor, so the worst case is the behaviour we already had.
+//
+// `serve` answers /api/events with 501 for the same reason; it has no
+// coordinator to push from, and the page simply polls there.
+const POLL_MS = 3000;
+const STREAM_SILENCE_MS = 45000;   // > the server's 25s keepalive
+let pollTimer = null;
+let stream = null;
+let lastFrame = 0;
+
+// The last payload, and when it arrived. The coordinator skips frames that
+// would render identically, so an idle dashboard receives nothing for long
+// stretches — which is the point, and which means the "idle 4m" columns have
+// to be advanced here rather than waiting for a frame that is not coming.
+let lastData = null;
+let lastDataAt = 0;
+function remember(data) { lastData = data; lastDataAt = Date.now(); }
+setInterval(() => {
+  // Only while streaming: polling brings a fresh `now` every 3s anyway.
+  if (!lastData || pollTimer) return;
+  const elapsed = Math.floor((Date.now() - lastDataAt) / 1000);
+  if (elapsed < 10) return;
+  render({ ...lastData, now: lastData.now + elapsed });
+}, 15000);
+
+function startPolling(why) {
+  if (pollTimer) return;
+  if (why) console.info("shabadoo: polling (" + why + ")");
+  tick();
+  pollTimer = setInterval(tick, POLL_MS);
+}
+
+function stopPolling() {
+  if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+}
+
+function startStream() {
+  if (!window.EventSource) { startPolling("no EventSource"); return; }
+  try {
+    stream = new EventSource("/api/events");
+  } catch {
+    startPolling("EventSource failed to construct");
+    return;
+  }
+
+  stream.onmessage = (e) => {
+    let data;
+    try { data = JSON.parse(e.data); } catch { return; }
+    lastFrame = Date.now();
+    // The stream is working, so the poll is redundant. Stopping it here rather
+    // than on open means we only trust the stream once it has actually
+    // delivered something — an open connection that never speaks is exactly
+    // the buffering failure this guards against.
+    stopPolling();
+    led.classList.add("on"); led.classList.remove("err");
+    remember(data);
+    render(data);
+    maybeRenew();
+  };
+
+  stream.onerror = () => {
+    // EventSource reconnects on its own, but it cannot tell a coordinator
+    // restart from a proxy that will never deliver. Polling covers both.
+    startPolling("stream error");
+  };
+}
+
+// A stream that is open but silent past the keepalive interval is being
+// buffered somewhere. That looks identical to a healthy idle connection from
+// the browser's side, so it has to be timed rather than detected.
+setInterval(() => {
+  if (stream && lastFrame && Date.now() - lastFrame > STREAM_SILENCE_MS) {
+    startPolling("stream went quiet");
+  }
+}, 10000);
+
+startPolling();   // covers the first paint and everything below
+startStream();
+loadFolders("");
+refreshAudit();   // once at load: decides whether the panel exists at all here
+refreshMail();    // same — a mode with no store must not show an empty inbox
+refreshDevices(); // decides whether the panel exists in this mode at all
+setInterval(() => { if (auditOpen) refreshAudit(); }, 5000);
+</script>
+</body>
+</html>

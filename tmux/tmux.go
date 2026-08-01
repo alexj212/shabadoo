@@ -1,0 +1,415 @@
+// Package tmux shells out to the tmux CLI to read session/window state and
+// control it (select-window, send-keys, kill-window, capture-pane).
+package tmux
+
+import (
+	"context"
+	"fmt"
+	"os/exec"
+	"regexp"
+	"strconv"
+	"strings"
+)
+
+// FieldSep delimits the fields of a tmux -F format.
+//
+// It used to be the ASCII unit separator (0x1F), on the reasoning that tmux
+// never emits it inside a name or path. True, and irrelevant: **tmux rewrites
+// every non-printable byte in -F output to "_" when it is not in UTF-8 mode.**
+// A service manager supplies no locale, so under systemd or launchd the
+// separator silently became an underscore, every row failed its field count,
+// and the agent reported an empty window list while looking perfectly healthy.
+// A Mac node sat on the dashboard as "online, zero sessions" for half an hour
+// because of it.
+//
+// Setting LANG in the generated units fixes that instance. This fixes the
+// class: a printable delimiter survives any locale, so nothing has to be true
+// about the environment for parsing to work.
+//
+// Three characters that are individually plausible in a path but absurd
+// together. Two further defences make a collision harmless rather than
+// corrupting: every parser uses SplitN with a known field count, and the field
+// most likely to contain surprising text — pane_current_path — is always LAST,
+// so a stray separator lands inside it instead of shifting every column.
+const FieldSep = "|@|"
+
+// Session is one tmux session.
+type Session struct {
+	Name     string   `json:"name"`
+	Windows  int      `json:"windows"`
+	Attached bool     `json:"attached"`
+	Created  int64    `json:"created"` // unix seconds
+	WindowsL []Window `json:"windows_list"`
+}
+
+// Window is one window inside a session.
+type Window struct {
+	Session      string `json:"session"`
+	Index        int    `json:"index"`
+	Name         string `json:"name"`          // raw tmux window name
+	FriendlyName string `json:"friendly_name"` // name with the claude.sh -<hash> suffix stripped
+	Active       bool   `json:"active"`
+	Panes        int    `json:"panes"`
+	Activity     int64  `json:"activity"` // unix seconds of last activity
+	Command      string `json:"command"`  // pane_current_command of the active pane
+	Path         string `json:"path"`     // pane_current_path of the active pane
+	PID          int    `json:"pid"`      // pane_pid of the active pane
+}
+
+// hashSuffix matches the trailing "-<8 hex>" that claude.sh appends to window
+// names (e.g. "homelab-wsl-4b602ded"). Stripping it yields the friendly alias.
+var hashSuffix = regexp.MustCompile(`-[0-9a-f]{8}$`)
+
+func friendly(name string) string {
+	return hashSuffix.ReplaceAllString(name, "")
+}
+
+// noServer reports whether err is tmux's "no server running" condition, which
+// we treat as "zero sessions" rather than a hard error.
+func noServer(err error, out string) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(out, "no server running") ||
+		strings.Contains(out, "no current session") ||
+		strings.Contains(out, "error connecting")
+}
+
+func run(ctx context.Context, args ...string) (string, error) {
+	out, err := exec.CommandContext(ctx, "tmux", args...).CombinedOutput()
+	return string(out), err
+}
+
+// Sessions returns every tmux session with its windows attached. If no tmux
+// server is running it returns an empty slice and nil error.
+func Sessions(ctx context.Context) ([]Session, error) {
+	// session_name last: it is the only free-text field here, so SplitN below
+	// lets a separator inside it stay inside it.
+	sOut, err := run(ctx, "list-sessions", "-F",
+		strings.Join([]string{
+			"#{session_windows}", "#{session_attached}",
+			"#{session_created}", "#{session_name}",
+		}, FieldSep))
+	if err != nil {
+		if noServer(err, sOut) {
+			return []Session{}, nil
+		}
+		return nil, err
+	}
+
+	windows, err := Windows(ctx)
+	if err != nil {
+		return nil, err
+	}
+	byName := map[string][]Window{}
+	for _, w := range windows {
+		byName[w.Session] = append(byName[w.Session], w)
+	}
+
+	var sessions []Session
+	unparsed := 0
+	for _, line := range splitLines(sOut) {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		f := strings.SplitN(line, FieldSep, 4)
+		if len(f) < 4 {
+			unparsed++
+			continue
+		}
+		sessions = append(sessions, Session{
+			Windows:  atoi(f[0]),
+			Attached: atoi(f[1]) > 0,
+			Created:  atoi64(f[2]),
+			Name:     f[3],
+			WindowsL: byName[f[3]],
+		})
+	}
+	if len(sessions) == 0 && unparsed > 0 {
+		return nil, unparsedError("session", unparsed, sOut)
+	}
+	return sessions, nil
+}
+
+// Windows returns every window across every session.
+func Windows(ctx context.Context) ([]Window, error) {
+	// pane_current_path LAST: a directory name is the one field here that can
+	// contain genuinely arbitrary text, so SplitN keeps any separator inside it
+	// from shifting every other column.
+	out, err := run(ctx, "list-windows", "-a", "-F",
+		strings.Join([]string{
+			"#{session_name}", "#{window_index}", "#{window_name}",
+			"#{window_active}", "#{window_panes}", "#{window_activity}",
+			"#{pane_current_command}", "#{pane_pid}", "#{pane_current_path}",
+		}, FieldSep))
+	if err != nil {
+		if noServer(err, out) {
+			return []Window{}, nil
+		}
+		return nil, err
+	}
+
+	return parseWindows(out)
+}
+
+// parseWindows splits `list-windows` output. Separated from the tmux call so
+// the locale-mangling case can be tested without a tmux server.
+func parseWindows(out string) ([]Window, error) {
+	var windows []Window
+	unparsed := 0
+	for _, line := range splitLines(out) {
+		// A blank line is not malformed output — counting it would raise the
+		// alarm below on a host that simply has no windows.
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		f := strings.SplitN(line, FieldSep, 9)
+		if len(f) < 9 {
+			unparsed++
+			continue
+		}
+		windows = append(windows, Window{
+			Session:      f[0],
+			Index:        atoi(f[1]),
+			Name:         f[2],
+			FriendlyName: friendly(f[2]),
+			Active:       f[3] == "1",
+			Panes:        atoi(f[4]),
+			Activity:     atoi64(f[5]),
+			Command:      f[6],
+			PID:          atoi(f[7]),
+			Path:         f[8],
+		})
+	}
+	if len(windows) == 0 && unparsed > 0 {
+		return nil, unparsedError("window", unparsed, out)
+	}
+	return windows, nil
+}
+
+// unparsedError explains output that tmux produced but this parser could not
+// split. It exists because the alternative — dropping the rows and returning an
+// empty list — is indistinguishable from a host with nothing running, and that
+// is exactly how it presented: an agent that logged in, streamed, and answered
+// commands, while the dashboard showed it owning zero sessions.
+//
+// The cause is worth naming in the message, because it is not guessable: tmux
+// replaces every non-printable byte in -F output with "_" when it is not in
+// UTF-8 mode, which silently destroys the 0x1F separator these formats are
+// built on. A login shell has a locale so this never appears by hand; a service
+// manager supplies none, so it appears only once the agent runs as a service.
+func unparsedError(kind string, n int, out string) error {
+	return fmt.Errorf(
+		"tmux returned %d %s line(s) that did not parse: the 0x1f field separator is gone, "+
+			"which is what tmux does to non-printable bytes when it is not in UTF-8 mode — "+
+			"set a UTF-8 locale (LANG=en_US.UTF-8) in this process's environment; first line: %q",
+		n, kind, firstLine(out))
+}
+
+// target builds a "session:window" address for tmux's -t flag.
+func target(session string, window int) string {
+	return session + ":" + strconv.Itoa(window)
+}
+
+// Select makes the given window the active one in its session, switching the
+// attached client's view to it.
+func Select(ctx context.Context, session string, window int) error {
+	if session == "" {
+		return fmt.Errorf("session required")
+	}
+	if out, err := run(ctx, "select-window", "-t", target(session, window)); err != nil {
+		return fmt.Errorf("select-window: %s", firstLine(out))
+	}
+	return nil
+}
+
+// Input states a pane can be in, as far as a remote sender needs to care.
+const (
+	InputComposer = "composer" // normal prompt line; text + Enter submits
+	InputDialog   = "dialog"   // a modal owns the keyboard; text is swallowed
+)
+
+// dialogMarkers are strings Claude Code's own modals print in their footer.
+// A modal (permission prompt, /status, plan approval, the trust dialog) takes
+// over the keyboard: text sent to the pane vanishes and Enter is consumed by
+// the dialog rather than submitting a message. Detecting that is the
+// difference between "your message was sent" and a silent no-op.
+//
+// This is a heuristic over another program's UI, so it is deliberately
+// one-sided: only strong, footer-level markers count, and anything unrecognised
+// is treated as a normal composer. A false "composer" sends into a dialog (the
+// status quo); a false "dialog" would block legitimate messages, which is
+// worse.
+var dialogMarkers = []string{
+	"Esc to cancel",
+	"Enter to confirm",
+	"Do you want to proceed",
+	"Do you want to make this edit",
+	"esc to reject",
+}
+
+// InputState classifies what owns the keyboard in a captured pane, given the
+// pane's visible text. Only the tail matters — a dialog's footer is the last
+// thing drawn — and scanning further back would match a modal that has since
+// been dismissed and scrolled up.
+func InputState(pane string) string {
+	lines := strings.Split(strings.TrimRight(pane, "\n"), "\n")
+	if n := len(lines); n > 20 {
+		lines = lines[n-20:]
+	}
+	tail := strings.Join(lines, "\n")
+	for _, m := range dialogMarkers {
+		if strings.Contains(tail, m) {
+			return InputDialog
+		}
+	}
+	return InputComposer
+}
+
+// SendRawKeys sends key names (Enter, Escape, Up, "1", "y") to a pane without
+// clearing the input line first. This is how a dialog gets answered: the
+// keystroke is the whole message, and a C-u would be one more key the modal
+// has to interpret.
+//
+// Key names are passed to tmux verbatim, so this can send any key the terminal
+// can — including C-c. That is the point: answering a prompt from a phone
+// needs the same keys the keyboard has.
+func SendRawKeys(ctx context.Context, session string, window int, keys []string) error {
+	if session == "" {
+		return fmt.Errorf("session required")
+	}
+	if len(keys) == 0 {
+		return fmt.Errorf("keys required")
+	}
+	args := append([]string{"send-keys", "-t", target(session, window)}, keys...)
+	if out, err := run(ctx, args...); err != nil {
+		return fmt.Errorf("send-keys %v: %s", keys, firstLine(out))
+	}
+	return nil
+}
+
+// SendText clears the pane's input line (C-u), then types literal text into
+// it. When enter is true it follows with an Enter keypress (submitting the
+// line). The leading C-u means the sent text replaces whatever was already
+// half-typed in the pane rather than appending to it.
+//
+// The text is sent with send-keys -l (literal): tmux does not interpret key
+// names, so a message containing "Enter" or "C-c" is typed verbatim rather
+// than acted on. Args are passed via exec without a shell, so there is no
+// shell-injection surface; "--" guards against text that starts with "-".
+func SendText(ctx context.Context, session string, window int, text string, enter bool) error {
+	if session == "" {
+		return fmt.Errorf("session required")
+	}
+	t := target(session, window)
+	// Clear anything already on the pane's input line first, so the sent text
+	// replaces it rather than appending to whatever was half-typed there.
+	if out, err := run(ctx, "send-keys", "-t", t, "C-u"); err != nil {
+		return fmt.Errorf("send-keys C-u: %s", firstLine(out))
+	}
+	if text != "" {
+		if out, err := run(ctx, "send-keys", "-t", t, "-l", "--", text); err != nil {
+			return fmt.Errorf("send-keys: %s", firstLine(out))
+		}
+	}
+	if enter {
+		if out, err := run(ctx, "send-keys", "-t", t, "Enter"); err != nil {
+			return fmt.Errorf("send-keys Enter: %s", firstLine(out))
+		}
+	}
+	return nil
+}
+
+// SendCommand submits a command line (e.g. a slash command like "/clear" or
+// "/remote-control") to the pane. It first sends C-u to clear anything the
+// pane already has on its input line, types the command literally, then Enter.
+func SendCommand(ctx context.Context, session string, window int, cmd string) error {
+	if session == "" {
+		return fmt.Errorf("session required")
+	}
+	if cmd == "" {
+		return fmt.Errorf("command required")
+	}
+	t := target(session, window)
+	if out, err := run(ctx, "send-keys", "-t", t, "C-u"); err != nil {
+		return fmt.Errorf("send-keys C-u: %s", firstLine(out))
+	}
+	if out, err := run(ctx, "send-keys", "-t", t, "-l", "--", cmd); err != nil {
+		return fmt.Errorf("send-keys: %s", firstLine(out))
+	}
+	if out, err := run(ctx, "send-keys", "-t", t, "Enter"); err != nil {
+		return fmt.Errorf("send-keys Enter: %s", firstLine(out))
+	}
+	return nil
+}
+
+// Capture returns the pane's buffer: the visible screen plus up to `history`
+// lines of scrollback above it. history <= 0 captures the visible screen only.
+// When color is true it includes ANSI SGR escape sequences (capture-pane -e)
+// so the caller can render the terminal's colors. Read-only — capture-pane
+// does not disturb the pane.
+func Capture(ctx context.Context, session string, window, history int, color bool) (string, error) {
+	if session == "" {
+		return "", fmt.Errorf("session required")
+	}
+	args := []string{"capture-pane", "-p", "-t", target(session, window)}
+	if color {
+		args = append(args, "-e")
+	}
+	if history > 0 {
+		args = append(args, "-S", "-"+strconv.Itoa(history))
+	}
+	out, err := run(ctx, args...)
+	if err != nil {
+		return "", fmt.Errorf("capture-pane: %s", firstLine(out))
+	}
+	return out, nil
+}
+
+// KillWindow closes a window.
+func KillWindow(ctx context.Context, session string, window int) error {
+	if session == "" {
+		return fmt.Errorf("session required")
+	}
+	if out, err := run(ctx, "kill-window", "-t", target(session, window)); err != nil {
+		return fmt.Errorf("kill-window: %s", firstLine(out))
+	}
+	return nil
+}
+
+// KillWindowByName closes a window addressed by name rather than index.
+// Reopen needs this: it resolves a window by name, and an index can shift
+// under it when another window closes in between.
+func KillWindowByName(ctx context.Context, session, name string) error {
+	if session == "" || name == "" {
+		return fmt.Errorf("session and window name required")
+	}
+	if out, err := run(ctx, "kill-window", "-t", session+":"+name); err != nil {
+		return fmt.Errorf("kill-window: %s", firstLine(out))
+	}
+	return nil
+}
+
+func firstLine(s string) string {
+	s = strings.TrimSpace(s)
+	line, _, _ := strings.Cut(s, "\n")
+	return line
+}
+
+func splitLines(s string) []string {
+	s = strings.TrimRight(s, "\n")
+	if s == "" {
+		return nil
+	}
+	return strings.Split(s, "\n")
+}
+
+func atoi(s string) int {
+	n, _ := strconv.Atoi(strings.TrimSpace(s))
+	return n
+}
+
+func atoi64(s string) int64 {
+	n, _ := strconv.ParseInt(strings.TrimSpace(s), 10, 64)
+	return n
+}
