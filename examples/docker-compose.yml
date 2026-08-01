@@ -20,7 +20,7 @@ services:
     # "whatever was pushed most recently" is not something a restart should pick
     # up on its own. Bump it deliberately; the tags published per release are
     # {major}.{minor}.{patch}, {major}.{minor}, and latest.
-    image: ghcr.io/alexj212/shabadoo:0.1.1
+    image: ghcr.io/alexj212/shabadoo:0.1.2
     container_name: shabadoo
     restart: unless-stopped
 

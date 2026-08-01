@@ -947,6 +947,15 @@ documentation, and a scanner that cries wolf gets ignored.
 - **Self-contained binary.** Everything `setup` installs is embedded, so a
   single copied file bootstraps a machine with no network and no source tree.
   Don't add an install step that fetches from the network.
+- **`core.fileMode=false` on a Windows-mounted worktree.** This checkout lives
+  on `/c/...` (drvfs), which reports *every* file as executable, so git keeps
+  committing markdown and YAML as `100755`. Fixing it with
+  `git update-index --chmod=-x` is index-only and survives exactly one commit by
+  anyone else — the bit returns the moment another session stages the file. Set
+  the config instead; git then honours the index and ignores what the filesystem
+  claims. It is local config, deliberately not committable, because it describes
+  where this worktree lives rather than anything about the project — a clone on
+  a real filesystem neither needs nor wants it.
 - **Setup steps must stay idempotent and non-destructive** — re-runnable,
   reporting `unchanged`, backing up anything they replace. `shabadoo doctor`
   on a correctly-installed host must report zero changes; that property is the

@@ -82,8 +82,8 @@ Multi-arch (`linux/amd64`, `linux/arm64`), ~27 MB, static binary on Alpine,
 runs as UID 1000.
 
 ```bash
-docker pull ghcr.io/alexj212/shabadoo:0.1.1
-docker run --rm ghcr.io/alexj212/shabadoo:0.1.1 version
+docker pull ghcr.io/alexj212/shabadoo:0.1.2
+docker run --rm ghcr.io/alexj212/shabadoo:0.1.2 version
 ```
 
 A coordinator you can actually reach is a few more lines — a data directory, an
@@ -234,7 +234,7 @@ machines that have tmux and dial out to it.
 Since the image is published, upgrading is a pull rather than a build:
 
 ```bash
-ssh user@coordinator "cd /srv/shabadoo && sed -i 's/^SHABADOO_IMAGE_TAG=.*/SHABADOO_IMAGE_TAG=0.1.1/' .env && docker compose pull && docker compose up -d"
+ssh user@coordinator "cd /srv/shabadoo && sed -i 's/^SHABADOO_IMAGE_TAG=.*/SHABADOO_IMAGE_TAG=0.1.2/' .env && docker compose pull && docker compose up -d"
 
 make install                   # rebuild the local binary + ~/bin (agents, CLI)
 ssh user@coordinator 'docker logs shabadoo-hub -f'
