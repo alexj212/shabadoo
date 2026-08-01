@@ -50,9 +50,16 @@ jobs:
       - uses: actions/checkout@v7
         with: { fetch-depth: 0 }
 
+      # BOTH stamps. Passing only VERSION leaves main.buildTime empty, and an
+      # empty build stamp is not cosmetic: `setup` uses it to order two
+      # binaries, so a container build with no stamp is refused as if someone
+      # had hand-rolled `go build`. The COMMIT date, matching the Makefile, so
+      # the same source produces the same stamp and layers still cache.
       - name: Version stamp
         id: v
-        run: echo "version=$(git describe --tags --always)" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "version=$(git describe --tags --always)" >> "$GITHUB_OUTPUT"
+          echo "built=$(git log -1 --format=%cI)" >> "$GITHUB_OUTPUT"
 
       # A moving tag must only ever move FORWARD.
       #
@@ -111,7 +118,9 @@ jobs:
           # always-on box, and a lot of those are Raspberry Pis.
           platforms: linux/amd64,linux/arm64
           push: true
-          build-args: VERSION=${{ steps.v.outputs.version }}
+          build-args: |
+            VERSION=${{ steps.v.outputs.version }}
+            BUILT=${{ steps.v.outputs.built }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
