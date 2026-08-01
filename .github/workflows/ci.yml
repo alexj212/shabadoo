@@ -37,7 +37,10 @@ jobs:
       # qrencode installed those cases skip silently, which is how a QR that
       # renders beautifully and scans as nothing gets shipped.
       - name: Confirm the QR reference test actually ran
-        run: go test ./ -run QRMatchesReference -v | grep -q "PASS: TestQRMatchesReferenceEncoder"
+        # A block scalar, because the grep pattern contains ": " and YAML reads
+        # that as a mapping in a plain scalar.
+        run: |
+          go test ./ -run QRMatchesReference -v | grep -q 'PASS: TestQRMatchesReferenceEncoder'
 
       - name: Publish check
         run: ./scripts_publish_check.sh
