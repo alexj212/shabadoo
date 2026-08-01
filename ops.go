@@ -127,8 +127,10 @@ func reportSessions(ctx context.Context) ([]hub.Session, error) {
 	var out []hub.Session
 	for _, s := range sessions {
 		for _, w := range s.WindowsL {
+			state, asking := windowInput(ctx, s.Name, w.Index)
 			out = append(out, hub.Session{
-				InputState:  windowInputState(ctx, s.Name, w.Index),
+				InputState:  state,
+				Asking:      asking,
 				SessionID:   sessionID(w),
 				Project:     projectOf(w),
 				CWD:         w.Path,
@@ -315,12 +317,18 @@ func canonical(path string) string {
 // only (no scrollback), which is the cheap form of the call, and it buys the
 // only signal that a session is sitting on a prompt nobody has answered.
 // A capture that fails reports "" rather than guessing.
-func windowInputState(ctx context.Context, session string, window int) string {
+func windowInput(ctx context.Context, session string, window int) (state, asking string) {
 	pane, err := tmux.Capture(ctx, session, window, 0, false)
 	if err != nil {
-		return ""
+		return "", ""
 	}
-	return tmux.InputState(pane)
+	state = tmux.InputState(pane)
+	if state != tmux.InputDialog {
+		return state, ""
+	}
+	// Only for a dialog, and from the SAME capture — a second call would be a
+	// second screen, and the question could have been answered in between.
+	return state, tmux.DialogPrompt(pane)
 }
 
 // opReopen and opOpen are the agent's window-lifecycle handlers. They call the

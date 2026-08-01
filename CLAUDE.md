@@ -1041,6 +1041,21 @@ documentation, and a scanner that cries wolf gets ignored.
   not poll panes for any of this; `/api/input-state` remains for the two moments
   that cannot wait for the next report (selecting a pane, and the instant after
   answering one).
+- **The queue says what it is asking.** `tmux.DialogPrompt` pulls the question
+  out of the same capture that classified the pane as a dialog, and it appears
+  on the queue row, under `shabadoo sessions`, and — most usefully — as the
+  first line of the notification. Without it the loop this project sells had an
+  unadvertised hop in the middle: you were told a session was blocked and had
+  to open the pane to discover what you were agreeing to, which is the one
+  interaction to be most careful about when the pane runs with permissions
+  disabled.
+  It is a heuristic over another program's UI and fails the same way
+  `InputState` does — unrecognised returns empty and every surface simply shows
+  nothing, which is the behaviour that existed before. A line qualifies only if
+  it is **framed** by the modal's box and ends in a question mark, or opens
+  with Claude Code's own phrasing. A trailing `?` alone is not enough:
+  "Done. Anything else?" is something the assistant *says*, and showing it as a
+  pending question would be worse than showing none.
 - **Selecting from the queue opens the pane.** There is deliberately no
   answer-button on a queue row. Answering without reading the question is how
   "yes" gets sent to a prompt that was asking about deleting something, so a tap

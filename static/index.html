@@ -224,6 +224,12 @@
   .queue .panel-head { color: var(--warn); }
   .queue tr td { cursor: pointer; }
   .queue .qwhere { color: var(--dim); font-size: 0.76rem; }
+  /* The question the modal is asking. The point of the queue is to make
+     answering possible without opening the pane first, so this gets room. */
+  .queue .asking {
+    display: block; color: var(--fg); font-size: 0.82rem;
+    margin-top: 0.15rem; white-space: normal;
+  }
   .queue .qhint {
     color: var(--dim); font-size: 0.74rem; padding: 0 0.7rem 0.6rem; margin: 0;
   }
@@ -692,13 +698,16 @@ function renderQueue(nodes, now) {
                 data-sessionid="${esc(w.session_id)}" data-queued="1">
               <td class="name">${esc(w.alias)}
                 <span class="prompt">prompt</span>${
-                w.note ? `<span class="note">${esc(w.note)}</span>` : ""}</td>
+                w.note ? `<span class="note">${esc(w.note)}</span>` : ""}${
+                w.asking ? `<span class="asking">${esc(w.asking)}</span>` : ""}</td>
               <td class="qwhere">${esc(node)}</td>
               <td class="idle">${ago(now, w.activity)}</td>
             </tr>`).join("")}
         </tbody>
       </table>
-      <p class="qhint">Tap one to open the pane and answer it.</p>
+      <p class="qhint">Tap one to open the pane and answer it — the question is
+        shown so you can see what you are agreeing to, but read the pane before
+        answering anything consequential.</p>
     </section>`;
 }
 
