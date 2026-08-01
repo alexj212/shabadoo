@@ -174,8 +174,8 @@ shabadoo releases                         # what is published, and each node's p
 shabadoo upgrade --all                    # replace each node's binary, one at a time
 ```
 
-**Panes are addressed by name**, not just by index: `tail`, `kill` and
-`command` take a session name and resolve it exactly as `open` resolves a
+**Panes are addressed by name**, not just by index: `tail`, `kill`, `command`,
+`send` and `keys` all take a session name and resolve it exactly as `open` resolves a
 folder — exact match first, then substring, and an ambiguous match is an error
 rather than a guess. Window indices shift as sessions come and go, so a number
 in a script is a stale pointer waiting to type into the wrong project.
@@ -1046,6 +1046,14 @@ documentation, and a scanner that cries wolf gets ignored.
   "yes" gets sent to a prompt that was asking about deleting something, so a tap
   selects the pane and opens the transcript; the answer keys are one more tap
   away, with the dialog on screen.
+- **An empty `authorized_agents` is fine; a missing one is not.** Empty is what
+  every coordinator looks like before its first machine is added, and refusing
+  to start blocked only that case — which is every new install. The documented
+  first run (create the file, start the hub, add agents afterwards) was
+  impossible until someone actually followed it. A missing file is still an
+  error: that is almost always a wrong `--agents` path, and starting anyway
+  hands the operator a coordinator that silently trusts nobody. Starting with
+  none says so loudly in the log.
 - **`authorized_agents` is re-read when it changes**, checked at login — adding
   a node is an edit, not a restart, and a restart would disconnect every agent
   already connected to admit one. A file that fails to parse keeps the previous

@@ -88,7 +88,13 @@ func runNode(args []string) {
 // runHub serves the coordinator.
 func runHub(args []string) {
 	fset := flag.NewFlagSet("hub", flag.ExitOnError)
-	addr := fset.String("addr", "127.0.0.1:8788", "listen address")
+	// 8787, the same as `serve` and the same as what `setup` bakes into the
+	// unit. It was 8788 so both could run on one machine during development —
+	// a convenience for one person that cost every new operator the twenty
+	// minutes it takes to notice a one-digit difference between the flag they
+	// read about and the flag they typed. Run both locally with an explicit
+	// --addr instead.
+	addr := fset.String("addr", "127.0.0.1:8787", "listen address")
 	dbPath := fset.String("db", "hub.db", "SQLite database path")
 	keys := fset.String("agents", "authorized_agents", "authorized agent keys file")
 	team := fset.String("access-team", os.Getenv("SHABADOO_ACCESS_TEAM"),
@@ -284,6 +290,15 @@ func runHub(args []string) {
 		// messages that go nowhere.
 		h.EnableBlockedNotifications()
 		log.Printf("hub: notifying when a session waits at a prompt for %s", hub.BlockedGrace)
+	}
+	// Starting with no agents is allowed — it is what a fresh coordinator looks
+	// like — but it must not be quiet about it, or the operator's first
+	// experience is a dashboard reporting "No agents connected" with nothing to
+	// suggest why.
+	if auth.Count() == 0 {
+		log.Printf("hub: no authorized agents yet. Add a machine's public key to %s "+
+			"(one per line, node name as the comment); the file is re-read when it "+
+			"changes, so no restart is needed.", *keys)
 	}
 	log.Printf("hub %s listening on %s (db %s, %d authorized agents, %d enrolled devices)",
 		version, listen, *dbPath, auth.Count(), devices.Count())
