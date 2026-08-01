@@ -137,8 +137,16 @@ func (b *blockedWatcher) observe(ctx context.Context, tenant, node string, sessi
 			if d.repeat {
 				title = fmt.Sprintf("%s is still waiting", name)
 			}
+			// Lead with the QUESTION when the agent could recognise one. A
+			// notification saying only that something is waiting sends you to
+			// a screen to find out what; one carrying the question is
+			// sometimes the whole interaction.
 			body := fmt.Sprintf("%s on %s has been at a prompt for %s.\n%s",
 				name, node, roundDuration(d.blocked), d.sess.CWD)
+			if d.sess.Asking != "" {
+				body = fmt.Sprintf("%s\n\n%s on %s, waiting %s.\n%s",
+					d.sess.Asking, name, node, roundDuration(d.blocked), d.sess.CWD)
+			}
 
 			if err := b.send(c, tenant, title, body, "all"); err != nil {
 				return

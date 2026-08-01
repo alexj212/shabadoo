@@ -2,6 +2,7 @@ package hub
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 )
@@ -101,5 +102,49 @@ func TestBlockedWatcherIsPerNode(t *testing.T) {
 
 	if sent != 1 {
 		t.Fatalf("sent = %d, want 1 (wsl's prompt, aged across the mac's report)", sent)
+	}
+}
+
+// The notification leads with the question when the agent recognised one.
+// A phone buzzing with "something is waiting" sends you to a screen to find
+// out what; one carrying the question is sometimes the whole interaction.
+func TestBlockedNotificationCarriesTheQuestion(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0)
+	w := newBlockedWatcher(func() time.Time { return now })
+	var bodies []string
+	w.send = func(_ context.Context, _, _, body, _ string) error {
+		bodies = append(bodies, body)
+		return nil
+	}
+
+	s := Session{Window: "claude:3", Alias: "homelab", InputState: "dialog",
+		CWD: "/srv/homelab", Asking: "Do you want to create deploy.sh?"}
+	w.observe(context.Background(), "alex", "wsl", []Session{s})
+	now = now.Add(blockedGrace + time.Second)
+	w.observe(context.Background(), "alex", "wsl", []Session{s})
+	time.Sleep(20 * time.Millisecond)
+
+	if len(bodies) != 1 {
+		t.Fatalf("got %d notifications, want 1", len(bodies))
+	}
+	if !strings.HasPrefix(bodies[0], "Do you want to create deploy.sh?") {
+		t.Errorf("the question is not first:\n%s", bodies[0])
+	}
+	for _, want := range []string{"homelab", "wsl", "/srv/homelab"} {
+		if !strings.Contains(bodies[0], want) {
+			t.Errorf("notification lost %q:\n%s", want, bodies[0])
+		}
+	}
+
+	// With no recognised question it must fall back rather than emit a blank
+	// leading line — an unrecognised modal is the common case, not an error.
+	bodies = nil
+	now = now.Add(2 * blockedRepeat)
+	plain := s
+	plain.Asking = ""
+	w.observe(context.Background(), "alex", "wsl", []Session{plain})
+	time.Sleep(20 * time.Millisecond)
+	if len(bodies) != 1 || strings.HasPrefix(bodies[0], "\n") {
+		t.Errorf("fallback body is wrong: %q", bodies)
 	}
 }

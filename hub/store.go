@@ -132,6 +132,9 @@ CREATE TABLE IF NOT EXISTS sessions (
   -- Reported by the agent so the dashboard can flag a session that is blocked
   -- waiting on a human without polling every pane from the browser.
   input_state  TEXT NOT NULL DEFAULT '',
+  -- The question a modal is asking, when input_state is 'dialog'. Reported by
+  -- the agent from the same capture that classified the state.
+  asking       TEXT NOT NULL DEFAULT '',
   -- Keyed by (tenant, session_id), not session_id alone: session ids are derived
   -- from project path and host label, so two tenants can legitimately produce
   -- the same one. With a bare session_id key, one tenant's report silently
@@ -243,6 +246,7 @@ func (s *Store) migrate(ctx context.Context) error {
 	// first, so that specific failure is success.
 	for _, alter := range []string{
 		`ALTER TABLE sessions ADD COLUMN input_state TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE sessions ADD COLUMN asking TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE devices ADD COLUMN scope TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE devices ADD COLUMN push_token TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE devices ADD COLUMN push_env TEXT NOT NULL DEFAULT ''`,
@@ -795,6 +799,16 @@ type Session struct {
 	// A "dialog" session is blocked on a human answering a prompt.
 	InputState string `json:"input_state,omitempty"`
 
+	// Asking is the question a modal is waiting on, when InputState is
+	// "dialog". Empty when there is no dialog or none could be recognised.
+	//
+	// It closes the last hop in the loop: without it the dashboard could say a
+	// session was blocked and never what it was blocked ON, so answering meant
+	// selecting the pane and reading a transcript first. Approving something
+	// you have not read is the interaction this tool should be most careful
+	// about, because these panes run with permissions disabled.
+	Asking string `json:"asking,omitempty"`
+
 	// Note is what this session says it is doing, in its own words, set through
 	// the MCP bridge. Empty when it has said nothing recently.
 	//
@@ -842,18 +856,18 @@ func (t *Tenant) UpsertSession(ctx context.Context, sess Session, now time.Time)
 	_, err := t.s.db.ExecContext(ctx, `
 		INSERT INTO sessions (tenant, session_id, agent, project, cwd, alias, window, status,
 		                      updated_at, tmux_session, win_index, win_name, command, activity, panes,
-		                      input_state)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		                      input_state, asking)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(tenant, session_id) DO UPDATE SET
 		  agent=excluded.agent, project=excluded.project, cwd=excluded.cwd,
 		  alias=excluded.alias, window=excluded.window, status=excluded.status,
 		  updated_at=excluded.updated_at, tmux_session=excluded.tmux_session,
 		  win_index=excluded.win_index, win_name=excluded.win_name,
 		  command=excluded.command, activity=excluded.activity, panes=excluded.panes,
-		  input_state=excluded.input_state`,
+		  input_state=excluded.input_state, asking=excluded.asking`,
 		t.id, sess.SessionID, sess.Agent, sess.Project, sess.CWD, sess.Alias,
 		sess.Window, sess.Status, now.Unix(), sess.TmuxSession, sess.Index,
-		sess.Name, sess.Command, sess.Activity, sess.Panes, sess.InputState)
+		sess.Name, sess.Command, sess.Activity, sess.Panes, sess.InputState, sess.Asking)
 	return err
 }
 
@@ -862,7 +876,7 @@ func (t *Tenant) ListSessions(ctx context.Context, now time.Time) ([]Session, er
 	rows, err := t.s.db.QueryContext(ctx, `
 		SELECT s.session_id, s.agent, s.project, s.cwd, s.alias, s.window, s.status,
 		       s.updated_at, s.tmux_session, s.win_index, s.win_name, s.command,
-		       s.activity, s.panes, s.input_state,
+		       s.activity, s.panes, s.input_state, s.asking,
 		       COALESCE(n.note, '')
 		  FROM sessions s
 		  LEFT JOIN session_status n
@@ -879,7 +893,7 @@ func (t *Tenant) ListSessions(ctx context.Context, now time.Time) ([]Session, er
 		if err := rows.Scan(&s2.SessionID, &s2.Agent, &s2.Project, &s2.CWD,
 			&s2.Alias, &s2.Window, &s2.Status, &s2.UpdatedAt,
 			&s2.TmuxSession, &s2.Index, &s2.Name, &s2.Command,
-			&s2.Activity, &s2.Panes, &s2.InputState, &s2.Note); err != nil {
+			&s2.Activity, &s2.Panes, &s2.InputState, &s2.Asking, &s2.Note); err != nil {
 			return nil, err
 		}
 		out = append(out, s2)

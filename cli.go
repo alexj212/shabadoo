@@ -433,6 +433,7 @@ type cliSession struct {
 	InputState string `json:"input_state"`
 	Pending    int    `json:"pending"`
 	Note       string `json:"note"`
+	Asking     string `json:"asking"`
 
 	TmuxSession string `json:"tmux_session"`
 	Index       int    `json:"index"`
@@ -612,6 +613,12 @@ func runSessions(args []string) {
 			// squeezing them into a column would truncate the useful half.
 			if s.Note != "" {
 				fmt.Printf("      ↳ %s\n", s.Note)
+			}
+			// The question, when one is waiting. `sessions` already points at
+			// `tail` before `keys`; this often makes the round trip
+			// unnecessary.
+			if s.Asking != "" {
+				fmt.Printf("      ? %s\n", s.Asking)
 			}
 		}
 	}

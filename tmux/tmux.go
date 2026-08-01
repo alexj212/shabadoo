@@ -266,6 +266,74 @@ func InputState(pane string) string {
 	return InputComposer
 }
 
+// DialogPrompt extracts the question a modal is asking, from the same captured
+// pane InputState classified.
+//
+// This closes the last hop in the loop this project exists for. The dashboard
+// could say a session was blocked and never what it was blocked ON, so
+// answering meant selecting the pane and reading a transcript — and "approve
+// something you have not read" is the one interaction this tool should be most
+// careful about, given the panes run with permissions disabled.
+//
+// A heuristic over another program's UI, so it fails the same way InputState
+// does: unrecognised returns "" and every caller simply shows nothing, which is
+// the behaviour that existed before this. A wrong question is far worse than no
+// question — somebody would answer it.
+func DialogPrompt(pane string) string {
+	lines := strings.Split(strings.TrimRight(pane, "\n"), "\n")
+	if n := len(lines); n > 30 {
+		lines = lines[n-30:]
+	}
+
+	// Search backwards: a pane can hold an earlier answered prompt above the
+	// live one, and the live one is always nearer the bottom.
+	for i := len(lines) - 1; i >= 0; i-- {
+		raw := lines[i]
+		q := strings.TrimSpace(stripBox(raw))
+		if q == "" || len(q) < 8 {
+			continue
+		}
+		// Two ways to be confident this is the modal's question rather than
+		// prose that happens to end in a question mark:
+		//
+		//   - it opens with the phrasing Claude Code's prompts use, or
+		//   - it sits INSIDE the modal's box frame and ends in a question mark.
+		//
+		// A trailing "?" alone is not enough. "Done. Anything else?" is
+		// something the assistant says, and extracting it would put a question
+		// nobody is being asked onto a dashboard and into a notification.
+		framed := strings.ContainsAny(raw, "│┃|") && strings.HasSuffix(q, "?")
+		phrased := strings.HasPrefix(strings.ToLower(q), "do you want")
+		if !framed && !phrased {
+			continue
+		}
+		if len(q) > dialogPromptMax {
+			q = strings.TrimSpace(q[:dialogPromptMax]) + "…"
+		}
+		return q
+	}
+	return ""
+}
+
+// dialogPromptMax bounds the extracted question. It rides in every agent report
+// and into a phone notification; a wrapped paragraph helps nobody on a lock
+// screen.
+const dialogPromptMax = 120
+
+// stripBox removes the box-drawing characters Claude Code's modals are framed
+// in, so the question comes out as a sentence rather than as a row of a table.
+func stripBox(line string) string {
+	return strings.TrimSpace(strings.Map(func(r rune) rune {
+		switch {
+		case r >= 0x2500 && r <= 0x257F: // box drawing
+			return -1
+		case r == '❯' || r == '›' || r == '*':
+			return -1
+		}
+		return r
+	}, line))
+}
+
 // SendRawKeys sends key names (Enter, Escape, Up, "1", "y") to a pane without
 // clearing the input line first. This is how a dialog gets answered: the
 // keystroke is the whole message, and a C-u would be one more key the modal
