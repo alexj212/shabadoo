@@ -758,31 +758,36 @@ func runSend(args []string) {
 	coord := fset.String("coord", "", "coordinator base URL")
 	node := fset.String("node", "", "node owning the pane")
 	session := fset.String("session", "claude", "tmux session")
-	window := fset.Int("window", -1, "tmux window index (required)")
+	window := fset.Int("window", -1, "tmux window index")
+	pane := fset.String("pane", "", "session name, instead of --window")
 	noEnter := fset.Bool("no-enter", false, "type the text but do not submit it")
 	fset.Parse(args)
 
-	if *window < 0 || fset.NArg() == 0 {
-		fmt.Fprintln(os.Stderr, "usage: shabadoo send --window N [--node NODE] [--session S] <text>")
+	if (*window < 0 && *pane == "") || fset.NArg() == 0 {
+		fmt.Fprintln(os.Stderr,
+			"usage: shabadoo send --pane NAME|--window N [--node NODE] <text>")
 		os.Exit(2)
 	}
 	c, err := newClient(*coord)
 	if err != nil {
 		fatalf("%v", err)
 	}
-	target, err := resolveNode(c, *node)
+	// By name as well as by index. The index form stays because it is what you
+	// have in front of you when reading `sessions`, but a name is what survives
+	// a window being opened or closed in between.
+	p, err := resolvePane(c, *node, *session, *window, *pane)
 	if err != nil {
 		fatalf("%v", err)
 	}
 	text := strings.Join(fset.Args(), " ")
 	_, err = c.do("POST", "/api/send", map[string]any{
-		"node": target, "session": *session, "window": *window,
+		"node": p.node, "session": p.session, "window": p.window,
 		"text": text, "enter": !*noEnter,
 	})
 	if err != nil {
 		fatalf("send: %v", err)
 	}
-	fmt.Printf("sent to %s:%d%s\n", *session, *window, nodeSuffix(target))
+	fmt.Printf("sent to %s\n", p)
 }
 
 func runKeys(args []string) {
@@ -790,14 +795,15 @@ func runKeys(args []string) {
 	coord := fset.String("coord", "", "coordinator base URL")
 	node := fset.String("node", "", "node owning the pane")
 	session := fset.String("session", "claude", "tmux session")
-	window := fset.Int("window", -1, "tmux window index (required)")
+	window := fset.Int("window", -1, "tmux window index")
+	pane := fset.String("pane", "", "session name, instead of --window")
 	fset.Usage = func() {
-		fmt.Fprint(os.Stderr, `usage: shabadoo keys --window N [--node NODE] <key>...
+		fmt.Fprint(os.Stderr, `usage: shabadoo keys --pane NAME|--window N [--node NODE] <key>...
 
 Sends raw keypresses — how a dialog gets answered, since text typed into a
 modal is swallowed. Keys are tmux key names: Enter, Escape, Up, Down, 1, y.
 
-  shabadoo keys --window 3 Enter        # accept the highlighted option
+  shabadoo keys --pane homelab Enter    # accept the highlighted option
   shabadoo keys --window 3 2 Enter      # choose option 2
 
 flags:
@@ -806,7 +812,7 @@ flags:
 	}
 	fset.Parse(args)
 
-	if *window < 0 || fset.NArg() == 0 {
+	if (*window < 0 && *pane == "") || fset.NArg() == 0 {
 		fset.Usage()
 		os.Exit(2)
 	}
@@ -814,17 +820,17 @@ flags:
 	if err != nil {
 		fatalf("%v", err)
 	}
-	target, err := resolveNode(c, *node)
+	p, err := resolvePane(c, *node, *session, *window, *pane)
 	if err != nil {
 		fatalf("%v", err)
 	}
 	_, err = c.do("POST", "/api/keys", map[string]any{
-		"node": target, "session": *session, "window": *window, "keys": fset.Args(),
+		"node": p.node, "session": p.session, "window": p.window, "keys": fset.Args(),
 	})
 	if err != nil {
 		fatalf("keys: %v", err)
 	}
-	fmt.Printf("sent %s to %s:%d%s\n", strings.Join(fset.Args(), " "), *session, *window, nodeSuffix(target))
+	fmt.Printf("sent %s to %s\n", strings.Join(fset.Args(), " "), p)
 }
 
 func nodeSuffix(node string) string {

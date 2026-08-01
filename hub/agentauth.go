@@ -194,7 +194,16 @@ func ParseAuthorizedAgents(raw []byte) ([]Agent, error) {
 		rest = next
 	}
 	if len(agents) == 0 {
-		return nil, errors.New("authorized_agents: no keys found")
+		// An EMPTY file is a legitimate state, not an error: it is what every
+		// coordinator looks like before its first machine is added, and the
+		// file is re-read when it changes, so an agent authorised later is
+		// admitted without a restart. Refusing here blocked exactly one case —
+		// the very first run — which is every new install.
+		//
+		// A MISSING file is still an error, handled by the caller: that is
+		// almost always a wrong --agents path, and starting anyway would give
+		// an operator a coordinator that silently trusts nobody.
+		return nil, nil
 	}
 	return agents, nil
 }

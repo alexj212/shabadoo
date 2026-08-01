@@ -224,9 +224,31 @@ func TestParseRejectsDuplicateNode(t *testing.T) {
 	}
 }
 
-func TestParseRejectsEmpty(t *testing.T) {
-	if _, err := ParseAuthorizedAgents([]byte("# nothing here\n")); err == nil {
-		t.Fatal("empty key set accepted")
+// An EMPTY key set is accepted, and this is a deliberate reversal.
+//
+// It used to be an error, on the reasoning that a coordinator trusting nobody
+// is probably misconfigured. But that is exactly what every coordinator looks
+// like before its first machine is added, so the check failed only in the one
+// situation it could not help with: a first run. The documented getting-started
+// flow — create the file, start the hub, add agents afterwards — was impossible,
+// and it took someone actually following it to notice.
+//
+// The file is re-read when it changes, so a key added later is picked up
+// without a restart; the empty case simply waits. A MISSING file is still an
+// error, raised by the caller, because that is almost always a wrong path.
+func TestParseAcceptsEmptyKeySet(t *testing.T) {
+	agents, err := ParseAuthorizedAgents([]byte("# nothing here\n"))
+	if err != nil {
+		t.Fatalf("empty key set rejected: %v — a fresh coordinator cannot start", err)
+	}
+	if len(agents) != 0 {
+		t.Fatalf("got %d agents from an empty file", len(agents))
+	}
+
+	// Empty is not the same as malformed: content that looks like a key and is
+	// not must still fail, or a typo silently trusts nobody.
+	if _, err := ParseAuthorizedAgents([]byte("ssh-ed25519 NOT-BASE64 wsl\n")); err == nil {
+		t.Fatal("malformed key accepted")
 	}
 }
 
