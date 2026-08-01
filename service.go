@@ -309,8 +309,10 @@ func (s *setup) guardDowngrade(dst string) error {
 			return nil
 		}
 		return fmt.Errorf("refusing to install an unstamped build over %s (built %s)\n"+
-			"      this binary has no build stamp, so it was built with `go build` rather than `make`.\n"+
-			"      use `make install`, or pass --force if you mean it",
+			"      this binary carries no build stamp, so its age cannot be compared.\n"+
+			"      usually a plain `go build` — use `make install` instead; a container\n"+
+			"      image needs both --build-arg VERSION and --build-arg BUILT.\n"+
+			"      or pass --force if you mean it",
 			theirs.Version, theirs.Built)
 	}
 

@@ -59,7 +59,8 @@ deploy: install
 	@echo "note: this restarted THIS HOST'S AGENT only."
 	@echo "      the hub runs on dm — upgrade it with:"
 	@echo "        V=\$$(git describe --tags --always --dirty)"
-	@echo "        docker build --load --build-arg VERSION=\$$V -t shabadoo:\$$V ."
+	@echo "        B=\$$(git log -1 --format=%cI)"
+	@echo "        docker build --load --build-arg VERSION=\$$V --build-arg BUILT=\$$B -t shabadoo:\$$V ."
 	@echo "        docker save shabadoo:\$$V | gzip -1 | ssh user@coordinator 'gunzip | docker load'"
 	@echo "        ssh user@coordinator \"cd /srv/shabadoo && sed -i 's/^SHABADOO_IMAGE_TAG=.*/SHABADOO_IMAGE_TAG=\$$V/' .env && docker compose up -d\""
 
