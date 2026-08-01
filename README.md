@@ -32,6 +32,89 @@ so one copied file can set up a new machine offline.
 > coordinator is also tailnet-only. See [CLAUDE.md](CLAUDE.md) and
 > [docs/shabadoo.md](docs/shabadoo.md).
 
+## Install
+
+Prebuilt binaries and a container image are published for every tagged release.
+Neither needs a Go toolchain or a clone.
+
+### Download a binary
+
+One static file, no runtime, no install step — it is the same artefact
+`make dist` produces, built by CI from the tag.
+
+```bash
+OS=$(uname -s | tr '[:upper:]' '[:lower:]')          # linux | darwin
+ARCH=$(uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/')
+BASE=https://github.com/alexj212/shabadoo/releases/latest/download
+
+curl -fsSL -o shabadoo "$BASE/shabadoo-$OS-$ARCH"
+curl -fsSL -o SHA256SUMS "$BASE/SHA256SUMS"
+
+# Verify before running it. The whole point of a published checksum is that
+# somebody checks it, and this is a binary you are about to give a terminal.
+grep " shabadoo-$OS-$ARCH\$" SHA256SUMS | sed "s/shabadoo-$OS-$ARCH/shabadoo/" | sha256sum -c -
+
+chmod +x shabadoo && ./shabadoo version
+```
+
+`sha256sum` is `shasum -a 256` on macOS. Platforms: `linux-amd64`,
+`linux-arm64`, `darwin-amd64`, `darwin-arm64`.
+
+Deliberately **not** a `curl … | sh` installer. This binary installs a
+toolchain, and a project whose own rule is "never fetch from the network during
+install" should not open by asking you to pipe an unread script into a shell.
+Two commands and a checksum is the honest version of the same convenience.
+
+> The macOS builds are **unsigned**. `curl` does not set the quarantine
+> attribute so the commands above just work, but a binary downloaded through a
+> **browser** is quarantined and Gatekeeper will refuse it — clear it with
+> `xattr -d com.apple.quarantine shabadoo`.
+
+Then install the toolchain, or just run it — see [Run locally](#run-locally).
+
+```bash
+./shabadoo setup      # ~/bin, PATH, deps report, portable ~/.claude
+```
+
+### Run the coordinator as a container
+
+Multi-arch (`linux/amd64`, `linux/arm64`), ~27 MB, static binary on Alpine,
+runs as UID 1000.
+
+```bash
+docker pull ghcr.io/alexj212/shabadoo:0.1.1
+docker run --rm ghcr.io/alexj212/shabadoo:0.1.1 version
+```
+
+A coordinator you can actually reach is a few more lines — a data directory, an
+auth posture, and one pairing code. [`examples/docker-compose.yml`](examples/docker-compose.yml)
+is that, commented, and it is about a minute end to end.
+
+```bash
+curl -fsSLO https://raw.githubusercontent.com/alexj212/shabadoo/main/examples/docker-compose.yml
+mkdir -p data && touch data/authorized_agents
+docker compose up -d
+docker compose logs | grep 'pairing code'
+```
+
+**Pin a version tag rather than `latest`.** The image is what drives every pane
+on every connected machine, so "whatever was pushed most recently" is not a
+property you want a restart to pick up on its own.
+
+The image contains the **hub only**. A node is not containerised on purpose: it
+drives the host's tmux, so a node in a container would be a node with nothing to
+manage.
+
+### Build from source
+
+```bash
+git clone https://github.com/alexj212/shabadoo && cd shabadoo
+make build      # stamps the version from `git describe`
+make dist       # all four platforms, into dist/
+```
+
+Stdlib-only, so there is nothing to fetch beyond the Go toolchain itself.
+
 ## Run locally
 
 ```bash
@@ -119,12 +202,17 @@ would disconnect every other.
 Useful flags: `--dry-run`, `--bin-dir`, `--skip=deps,config`, `--force`.
 Full reference in [CLAUDE.md](CLAUDE.md).
 
-`config/` is the embedded payload — the portable half of `~/.claude`, snapshotted
-at build time. `make vendor` refreshes it from this machine's live `~/.claude`;
-`make vendor-diff` shows drift first. Vendoring is deliberate, never automatic.
+`config/` is the embedded payload — the **portable** half of `~/.claude`,
+snapshotted at build time and safe to publish: behavioural guidance, a generic
+`settings.json`, and skills that name nobody's infrastructure. A fresh clone
+builds and installs that tree alone.
 
-> The vendored `config/` contains infra topology (hostnames, Tailscale IPs,
-> Cloudflare zone IDs) though no credentials. **Keep this repo private.**
+The operator's own `~/.claude` — hostnames, addresses, infrastructure skills —
+lives in `config.local/`, which git never sees. `make vendor` fills it from this
+machine's live config; `make vendor-diff` shows drift first. Vendoring is
+deliberate, never automatic, and `make vendor-check` fails the build if anything
+under the personal overlay is tracked. See
+[CLAUDE.md](CLAUDE.md) for why the split is where it is.
 
 ## Deployed
 

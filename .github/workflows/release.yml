@@ -8,6 +8,15 @@ permissions:
   contents: write   # create the release and upload binaries
   packages: write   # push the container image to ghcr.io
 
+# Two tags pushed together start two runs at once, and every moving tag
+# (`latest`, `0.1`) is then won by whichever run finishes LAST rather than by
+# whichever version is newest. Serialising is half the fix; the other half is
+# the "highest version" guard in the container job, because a serialised run
+# can still be the older tag going second.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   binaries:
     runs-on: ubuntu-latest
@@ -45,6 +54,32 @@ jobs:
         id: v
         run: echo "version=$(git describe --tags --always)" >> "$GITHUB_OUTPUT"
 
+      # A moving tag must only ever move FORWARD.
+      #
+      # This is not hypothetical: on 2026-08-01 v0.1.0 and v0.1.1 were pushed
+      # together, the v0.1.0 run finished six seconds after the v0.1.1 run, and
+      # `latest` and `0.1` were left pointing at the older image — while the
+      # compose example told everyone to pull `latest`. The version-pinned tag
+      # (`0.1.1`) was correct throughout, which is why nothing looked wrong.
+      #
+      # `latest` moves only for the highest tag in the repo. The series tag
+      # (`0.1`) moves only for the highest tag WITHIN its own series, so a
+      # genuine 0.1.x backport still updates `0.1` without dragging `latest`
+      # backwards off a later 0.2.x.
+      - name: Should the moving tags move?
+        id: moving
+        run: |
+          this="${GITHUB_REF_NAME#v}"
+          series="${this%.*}"
+          highest=$(git tag -l 'v*' | sed 's/^v//' | sort -V | tail -1)
+          highest_in_series=$(git tag -l "v${series}.*" | sed 's/^v//' | sort -V | tail -1)
+          [ "$this" = "$highest" ] && l=true || l=false
+          [ "$this" = "$highest_in_series" ] && s=true || s=false
+          echo "latest=$l" >> "$GITHUB_OUTPUT"
+          echo "series=$s" >> "$GITHUB_OUTPUT"
+          echo "this=$this highest=$highest (latest=$l)"
+          echo "series=$series highest_in_series=$highest_in_series (series=$s)"
+
       - uses: docker/setup-qemu-action@v4
       - uses: docker/setup-buildx-action@v4
 
@@ -58,10 +93,16 @@ jobs:
         id: meta
         with:
           images: ghcr.io/${{ github.repository }}
+          # `flavor: latest=false` because metadata-action's own "latest"
+          # handling fires for any semver tag and has no idea another, newer
+          # tag exists — which is the bug being fixed. The raw entry below is
+          # gated on the comparison instead.
+          flavor: |
+            latest=false
           tags: |
             type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest
+            type=semver,pattern={{major}}.{{minor}},enable=${{ steps.moving.outputs.series }}
+            type=raw,value=latest,enable=${{ steps.moving.outputs.latest }}
 
       - uses: docker/build-push-action@v7
         with:
