@@ -864,6 +864,13 @@ the queue opens the transcript, the shipped question still says to read the
 pane — and voice is the strongest possible version of answering without
 reading, on panes running with permissions disabled.
 
+The agent's own definition — prompt, tools, voice — lives in the provider's
+dashboard rather than here, so what it believes it can call and what this API
+serves can drift with nothing to catch it. `docs/voice-agent.md` checks in the
+intended configuration so the drift is at least **visible**; it is
+documentation of intent, not the source of truth, and a disagreement between
+the two is a bug in one of them.
+
 Rate limited to 30 mints per device per hour. That limit is about **spend**,
 not about guessing, which is what the redeem throttle is for — this is the
 first credential the coordinator hands out that arrives with a bill.
