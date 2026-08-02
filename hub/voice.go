@@ -46,6 +46,12 @@ var (
 	// so once at startup instead of surprising someone mid-sentence.
 	ElevenLabsKey string
 
+	// elevenLabsBase is the provider's API root. A variable, not a constant,
+	// solely so a test can point it at a stub — the mint is the part of this
+	// file with real logic in it (headers, status handling, response shape),
+	// and a hardcoded URL made all of it unreachable without an account.
+	elevenLabsBase = "https://api.elevenlabs.io"
+
 	// ElevenLabsAgent is the configured conversational agent's id. The agent's
 	// prompt, voice and tool list live in the provider's dashboard, not here —
 	// which means the tools it believes it has and the API it actually calls
@@ -148,7 +154,7 @@ func mintElevenLabsURL(ctx context.Context, agentID string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, voiceMintTimeout)
 	defer cancel()
 
-	endpoint := "https://api.elevenlabs.io/v1/convai/conversation/get-signed-url?agent_id=" +
+	endpoint := elevenLabsBase + "/v1/convai/conversation/get-signed-url?agent_id=" +
 		url.QueryEscape(agentID)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
