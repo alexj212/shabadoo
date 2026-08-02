@@ -1,6 +1,11 @@
 package hub
 
 import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -33,22 +38,181 @@ func TestVoiceRateLimitIsPerDevice(t *testing.T) {
 	}
 }
 
-// A half-configured deployment must not mint. Both halves are required, and
-// the failure has to be at configuration time rather than at the moment
-// somebody is holding a phone waiting to talk.
-func TestVoiceRequiresBothHalves(t *testing.T) {
-	for _, tc := range []struct {
-		key, agent string
-		want       bool
-	}{
-		{"", "", false},
-		{"k", "", false},
-		{"", "a", false},
-		{"k", "a", true},
-	} {
-		got := tc.key != "" && tc.agent != ""
-		if got != tc.want {
-			t.Errorf("key=%q agent=%q enabled=%v, want %v", tc.key, tc.agent, got, tc.want)
+// stubProvider stands in for ElevenLabs so the mint — headers, status
+// handling, response shape — is reachable without an account. Everything about
+// this call is testable except whether the real API matches its own docs.
+func stubProvider(t *testing.T, h http.HandlerFunc) func() {
+	t.Helper()
+	srv := httptest.NewServer(h)
+	prev := elevenLabsBase
+	elevenLabsBase = srv.URL
+	return func() { elevenLabsBase = prev; srv.Close() }
+}
+
+func TestMintSendsTheKeyAndReturnsTheURL(t *testing.T) {
+	var gotKey, gotAgent, gotPath string
+	defer stubProvider(t, func(w http.ResponseWriter, r *http.Request) {
+		gotKey = r.Header.Get("xi-api-key")
+		gotAgent = r.URL.Query().Get("agent_id")
+		gotPath = r.URL.Path
+		w.Write([]byte(`{"signed_url":"wss://example.invalid/convai?token=abc"}`))
+	})()
+
+	prevKey := ElevenLabsKey
+	ElevenLabsKey = "secret-key"
+	defer func() { ElevenLabsKey = prevKey }()
+
+	got, err := mintElevenLabsURL(context.Background(), "agent-123")
+	if err != nil {
+		t.Fatalf("mint failed: %v", err)
+	}
+	if got != "wss://example.invalid/convai?token=abc" {
+		t.Errorf("signed url = %q", got)
+	}
+	// The key travels in a header, never in the query string — a URL ends up in
+	// access logs and proxy traces.
+	if gotKey != "secret-key" {
+		t.Errorf("xi-api-key = %q, want the configured key", gotKey)
+	}
+	if gotAgent != "agent-123" {
+		t.Errorf("agent_id = %q", gotAgent)
+	}
+	if gotPath != "/v1/convai/conversation/get-signed-url" {
+		t.Errorf("path = %q", gotPath)
+	}
+}
+
+// An upstream error must not be echoed verbatim. This is an authenticated call
+// to an account-level API, and its error bodies are where account details leak
+// into a response a client reads.
+func TestMintDoesNotLeakUpstreamErrors(t *testing.T) {
+	defer stubProvider(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		w.Write([]byte(`{"detail":{"message":"key sk_live_abc123 for account alex@example.com is invalid"}}`))
+	})()
+
+	_, err := mintElevenLabsURL(context.Background(), "a")
+	if err == nil {
+		t.Fatal("a 401 from the provider was reported as success")
+	}
+	for _, secret := range []string{"sk_live_abc123", "alex@example.com"} {
+		if strings.Contains(err.Error(), secret) {
+			t.Errorf("upstream error leaked %q: %v", secret, err)
 		}
+	}
+}
+
+// A 200 carrying no url is a failure, not an empty success. Returning "" would
+// have the client open a socket to nowhere and blame itself.
+func TestMintRejectsAResponseWithNoURL(t *testing.T) {
+	for _, body := range []string{`{}`, `{"signed_url":""}`, `not json at all`} {
+		stop := stubProvider(t, func(w http.ResponseWriter, r *http.Request) {
+			w.Write([]byte(body))
+		})
+		got, err := mintElevenLabsURL(context.Background(), "a")
+		stop()
+		if err == nil {
+			t.Errorf("body %q returned %q with no error", body, got)
+		}
+	}
+}
+
+// The endpoint must refuse before calling anywhere when it is not configured —
+// a half-configured deployment reaching out with an empty key would fail
+// slowly, and against someone else's rate limit.
+func TestVoiceEndpointRefusesWhenUnconfigured(t *testing.T) {
+	called := false
+	defer stubProvider(t, func(w http.ResponseWriter, r *http.Request) { called = true })()
+
+	prevKey, prevAgent := ElevenLabsKey, ElevenLabsAgent
+	defer func() { ElevenLabsKey, ElevenLabsAgent = prevKey, prevAgent }()
+
+	for _, tc := range []struct{ key, agent string }{{"", ""}, {"k", ""}, {"", "a"}} {
+		ElevenLabsKey, ElevenLabsAgent = tc.key, tc.agent
+		h := &humanAPI{now: time.Now}
+		rec := httptest.NewRecorder()
+		h.voiceSession(rec, httptest.NewRequest("POST", "/api/voice/session", nil))
+
+		if rec.Code != http.StatusNotFound {
+			t.Errorf("key=%q agent=%q gave %d, want 404", tc.key, tc.agent, rec.Code)
+		}
+	}
+	if called {
+		t.Error("an unconfigured coordinator still called the provider")
+	}
+}
+
+// The whole path a phone takes: authenticated request -> rate limit -> mint ->
+// JSON the client can use, with an audit row behind it. Everything except
+// whether the real provider matches its own documentation.
+func TestVoiceSessionEndToEnd(t *testing.T) {
+	defer stubProvider(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"signed_url":"wss://example.invalid/c?token=xyz"}`))
+	})()
+	prevKey, prevAgent := ElevenLabsKey, ElevenLabsAgent
+	ElevenLabsKey, ElevenLabsAgent = "k", "agent-xyz"
+	defer func() { ElevenLabsKey, ElevenLabsAgent = prevKey, prevAgent }()
+
+	st := testStore(t)
+	h := &humanAPI{store: st.s, now: time.Now}
+	voiceMints = &voiceLimiter{at: map[string][]time.Time{}} // isolate from other tests
+
+	call := func(sub, scope string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest("POST", "/api/voice/session", nil)
+		r = r.WithContext(context.WithValue(r.Context(), identityKey{},
+			Identity{Tenant: st.id, Sub: sub, Scope: scope, Label: "phone"}))
+		rec := httptest.NewRecorder()
+		h.voiceSession(rec, r)
+		return rec
+	}
+
+	rec := call("device:phone", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+	var out struct{ SignedURL, AgentID, Scope string }
+	if err := json.Unmarshal(rec.Body.Bytes(), &struct {
+		SignedURL *string `json:"signed_url"`
+		AgentID   *string `json:"agent_id"`
+		Scope     *string `json:"scope"`
+	}{&out.SignedURL, &out.AgentID, &out.Scope}); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if out.SignedURL != "wss://example.invalid/c?token=xyz" || out.AgentID != "agent-xyz" {
+		t.Errorf("body = %+v", out)
+	}
+	if out.Scope != "full" {
+		t.Errorf("scope = %q, want full", out.Scope)
+	}
+
+	// A READ-ONLY device may mint. It is the one that most needs to ask what is
+	// going on out loud, and what it can then DO is decided by its own token on
+	// the tools, not here.
+	if rec := call("device:readonly", ScopeRead); rec.Code != http.StatusOK {
+		t.Errorf("a read-only device was refused a voice session: %d", rec.Code)
+	}
+
+	// Spending is audited. "Who started forty sessions on Tuesday" is a
+	// question somebody eventually asks of a per-minute bill.
+	entries, err := st.AuditTail(context.Background(), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var mints int
+	for _, e := range entries {
+		if e.Action == "voice.session" {
+			mints++
+		}
+	}
+	if mints != 2 {
+		t.Errorf("audited %d mints, want 2", mints)
+	}
+
+	// And the limit bites on the same path, returning 429 rather than spending.
+	for i := 0; i < voiceRateLimit; i++ {
+		call("device:phone", "")
+	}
+	if rec := call("device:phone", ""); rec.Code != http.StatusTooManyRequests {
+		t.Errorf("past the limit got %d, want 429", rec.Code)
 	}
 }

@@ -165,11 +165,23 @@ when the whole interaction is "what is waiting on me" while driving.
 
 ---
 
-## Verifying the round trip
+## What is tested, and what cannot be
 
-This coordinator's call to `GET /v1/convai/conversation/get-signed-url` is
-written against the documented contract and **has never been exercised** — no
-account existed when it was built. The first real mint is the first proof.
+Everything on this side is exercised against a **stub provider** — the request
+path is pointed at a test server, so headers, status handling, response parsing
+and the whole HTTP path through the endpoint are covered without an account:
 
-If the response shape differs from `{"signed_url": "..."}`, that is a bug here,
-not something to work around in the client.
+| Covered | |
+|---|---|
+| the key travels as `xi-api-key`, never in the query string | a URL ends up in access logs |
+| an upstream error is **not echoed** to the client | an authenticated API's error bodies name accounts and keys |
+| a 200 carrying no `signed_url` fails | returning `""` would have the client open a socket to nowhere and blame itself |
+| unconfigured refuses **before** calling out | a half-configured deployment must not spend someone else's rate limit |
+| read-only devices may mint; the limit returns 429 | and both are audited |
+
+**One thing cannot be tested here: whether the real API matches its own
+documentation.** The stub returns what the docs describe. If ElevenLabs returns
+a different shape, every test above still passes and the first real mint fails.
+
+That is a bug on this side when it happens, not something for a client to work
+around — report it and it gets fixed here.
