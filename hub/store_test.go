@@ -593,3 +593,51 @@ func TestUnroutableRecipientBounces(t *testing.T) {
 		t.Errorf("the bounce does not name the candidates: %v", err)
 	}
 }
+
+// A keystroke addressed by name must land on exactly one live pane, or refuse.
+//
+// This is the one place in the design where being wrong means text typed into a
+// live session somebody else is using, so it resolves on the SERVER: a voice
+// agent, a phone and the CLI each inventing a fuzzy-match rule is how the same
+// phrase reaches different projects.
+func TestResolvePane(t *testing.T) {
+	ctx, s, now := context.Background(), testStore(t), time.Now()
+	for _, x := range []struct{ id, agent, project, alias string }{
+		{"claude-homelife-wsl-1", "wsl", "homelife", "homelife-wsl"},
+		{"claude-homelife-mcp-wsl-2", "wsl", "homelife-mcp", "homelife-mcp-wsl"},
+		{"claude-iptv-wsl-3", "wsl", "iptv", "iptv-wsl"},
+	} {
+		if err := s.UpsertSession(ctx, Session{SessionID: x.id, Agent: x.agent,
+			Project: x.project, Alias: x.alias, TmuxSession: "claude", Index: 4}, now); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// The exact case the iOS session raised: "homelife" is a prefix of two
+	// sessions, and an exact project match must win rather than being called
+	// ambiguous.
+	pane, err := s.ResolvePane(ctx, "homelife", now)
+	if err != nil {
+		t.Fatalf("exact project match refused: %v", err)
+	}
+	if pane.SessionID != "claude-homelife-wsl-1" {
+		t.Errorf("resolved to %s, want the exact match", pane.SessionID)
+	}
+	// It returns the coordinates a write needs, not just an id.
+	if pane.Agent != "wsl" || pane.TmuxSession != "claude" || pane.Index != 4 {
+		t.Errorf("pane coordinates incomplete: %+v", pane)
+	}
+
+	// A genuinely ambiguous stem refuses and names the candidates.
+	if _, err := s.ResolvePane(ctx, "homel", now); err == nil {
+		t.Error("an ambiguous name resolved instead of refusing")
+	} else if !strings.Contains(err.Error(), "homelife-mcp-wsl") {
+		t.Errorf("the refusal does not name the candidates: %v", err)
+	}
+
+	// Mail may be addressed to an offline session and wait for it. A keystroke
+	// cannot wait for anything, so a well-formed id that is not live refuses.
+	if _, err := s.ResolvePane(ctx, "claude-gone-dm-9", now); err == nil {
+		t.Error("resolved a pane that is not live")
+	}
+}
