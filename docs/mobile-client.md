@@ -540,8 +540,11 @@ Suggested client tools:
 | Tool | Calls | Notes |
 |---|---|---|
 | `list_sessions` | `GET /api/sessions` | who is running, who is blocked, what each is asking |
-| `read_pane` | `GET /api/capture` | keep `lines` small; a screen of text is a lot of speech |
 | `send_message` | `POST /api/send` | dictation into a pane; 403 on a read-only device |
+
+**Deliberately not `read_pane`.** A pane is a screenful of box-drawing and
+diffs; read aloud it is unusable, and the `asking` field is the useful sentence
+out of it. Add a capture tool only if a real gap appears, not on principle.
 
 #### Do not give it a tool that answers a dialog
 
