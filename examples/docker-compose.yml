@@ -44,6 +44,15 @@ services:
       # themselves. Optional.
       # - --releases=/data/releases
 
+    # Voice, optional. Both halves are required; with only one the endpoint
+    # stays disabled and says so at startup. The key is account-wide and billed
+    # per minute, so it belongs in a .env beside this file (mode 600, never
+    # committed) rather than inline here. `:?` fails the deploy loudly instead
+    # of starting a coordinator whose voice endpoint quietly 404s.
+    # environment:
+    #   SHABADOO_ELEVENLABS_KEY: ${SHABADOO_ELEVENLABS_KEY:?set it in .env}
+    #   SHABADOO_ELEVENLABS_AGENT: ${SHABADOO_ELEVENLABS_AGENT:?set it in .env}
+
     ports:
       # Bind to a PRIVATE interface. Reaching this port with a credential means
       # driving every Claude pane on every connected machine, and those panes
