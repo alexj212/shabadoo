@@ -798,6 +798,7 @@ fetches must not be handed a redirect body to parse.
 | `GET /api/releases` | what is published, plus each connected node's platform — "who needs upgrading" answered from one response rather than two |
 | `POST /api/releases` | `?version=&platform=` + raw binary body → publish. **Audited** |
 | `POST /api/upgrade` | `{node, version?}` → tell one node to replace itself. Audited on success *and* failure, since a node left mid-swap is what someone reading this log later is reconstructing |
+| `POST /api/voice/session` | mint a short-lived signed URL for a voice agent. **Not** behind `requireWrite` — a read-only phone is exactly the one that benefits from asking out loud — and rate limited per device because it is the only endpoint that spends money |
 | `POST /api/devices/redeem` | **the only endpoint outside the middleware** — an enrolling app has no credential yet. Rate limited per caller (10 bad codes / 15 min → 429) and audited either way; it is the one thing an unauthenticated caller can reach |
 
 Every write carries `node`; the coordinator resolves the agent within the
@@ -836,6 +837,36 @@ one change to a person looking at the page), the per-subscriber queue is depth
 newest rather than a queue of stale ones, and `notify` never blocks — it is
 called inline from the report handler, so a blocking send would stall an
 agent's report behind a slow browser.
+
+## Voice (`--elevenlabs-key`)
+
+The coordinator mints short-lived signed URLs for a conversational voice agent;
+the phone opens the socket directly and the audio never passes through here.
+
+Same arrangement as `--apprise-url`, for the same reason: the credential and the
+routing config are one thing in one place. The key is account-wide and **billed
+per minute**, so a copy inside a shipped app is a copy on every phone that
+installs it. Requires both `--elevenlabs-key` and `--elevenlabs-agent`; half a
+configuration leaves the endpoint disabled and says so at startup.
+
+**Nothing here grants a permission.** The agent's tools run on the CLIENT,
+against this same API, with the device's own token — so a read-scoped phone's
+attempt to dictate into a pane is refused by `requireWrite` without the voice
+layer knowing scopes exist. The voice agent cannot exceed the device holding
+it, because it is not a separate identity. The `scope` in the response is for
+greying out a button, not for enforcement.
+
+**It cannot answer a dialog, and that is enforced by not shipping the tool.**
+An agent told "never approve a prompt" can be argued into approving one; an
+agent with no keypress tool cannot, whatever it decides. This is the fourth
+place the same line is drawn — no answer button on a queue row, selecting from
+the queue opens the transcript, the shipped question still says to read the
+pane — and voice is the strongest possible version of answering without
+reading, on panes running with permissions disabled.
+
+Rate limited to 30 mints per device per hour. That limit is about **spend**,
+not about guessing, which is what the redeem throttle is for — this is the
+first credential the coordinator hands out that arrives with a bill.
 
 ## The MCP bridge (`shabadoo mcp`)
 

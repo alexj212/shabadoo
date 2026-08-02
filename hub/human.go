@@ -115,6 +115,12 @@ func HumanRoutes(mux *http.ServeMux, hub *Hub, store *Store, devices *DeviceStor
 	// Cutting a node off now. See Hub.Disconnect for why this is separate from
 	// authorized_agents rather than replacing it.
 	mux.HandleFunc("POST /api/nodes/disconnect", requireWrite(h.disconnectNode))
+
+	// Minting a voice session is NOT behind requireWrite: a read-only phone is
+	// exactly the one that benefits from being able to ask what is going on
+	// out loud. What the voice agent can then DO is decided by the device's own
+	// scope, because its tools call this same API with this same token.
+	mux.HandleFunc("POST /api/voice/session", h.voiceSession)
 }
 
 func (h *humanAPI) disconnectNode(w http.ResponseWriter, r *http.Request) {

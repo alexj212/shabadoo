@@ -502,6 +502,65 @@ session up to" — but see the warning about its read surface in *Ground rules*.
 | `GET /api/audit` | `?limit=` — who drove which pane, newest first |
 | `GET /healthz` | **no auth** — reachability check before showing a login error |
 
+### `POST /api/voice/session` — talk to your sessions
+
+```http
+POST {coord}/api/voice/session
+   → {"signed_url": "wss://…", "agent_id": "…", "scope": "full"}
+```
+
+Mints a **short-lived signed WebSocket URL** for an ElevenLabs conversational
+agent. Open it directly from the app; the audio never touches the coordinator.
+
+**The API key is never sent to you and must never be in the app.** It is
+account-wide and billed per minute, so a copy in a shipped binary is a copy on
+every phone that installs it. The coordinator holds it and hands out signed
+URLs; that is the entire reason this endpoint exists.
+
+Returns **404** when the coordinator has no voice configured — treat that as
+"this deployment does not do voice" and hide the feature, not as an error.
+
+**Rate limited to 30 sessions per device per hour**, returning **429**. This is
+the only endpoint that costs money when you call it, so the limit is about
+spend rather than abuse. Mint one when the user starts talking, not on launch.
+
+#### What the agent may do, and why you do not enforce it
+
+The agent's tools run **on your side**, calling this same API with **this
+device's existing token**. So you do not implement permissions:
+
+- a **read-scoped** device's `send` gets a 403 from the coordinator, exactly as
+  it would from a button;
+- the `scope` in the response is for **shaping the UI** — grey out dictation on
+  a read-only device rather than letting someone talk into a refusal. It is not
+  what enforces anything.
+
+Suggested client tools:
+
+| Tool | Calls | Notes |
+|---|---|---|
+| `list_sessions` | `GET /api/sessions` | who is running, who is blocked, what each is asking |
+| `read_pane` | `GET /api/capture` | keep `lines` small; a screen of text is a lot of speech |
+| `send_message` | `POST /api/send` | dictation into a pane; 403 on a read-only device |
+
+#### Do not give it a tool that answers a dialog
+
+There is deliberately **no keypress tool**. Not "the agent is told not to" —
+the tool does not exist, because an agent instructed not to approve can be
+argued into approving, and one with no such tool cannot regardless of what it
+decides.
+
+The reason is the same one behind there being no answer button on a queue row:
+these panes run `claude --dangerously-skip-permissions`, and approving
+something you have not read is the one interaction that can do real damage.
+When the user asks to approve, the right behaviour is to **open that pane** so
+they can read it — one more tap, with the dialog on screen.
+
+If you do surface the question by voice, speak the **verbatim** `asking` string
+from `/api/sessions`. Never let the model paraphrase it: rendering
+`Do you want to delete /etc/foo?` as *"it wants to remove a config file, shall
+I approve?"* is precisely the failure this is guarding against.
+
 ### Deliberately out of scope for a phone
 
 These exist and your token can call them, but they are operator-grade and a
