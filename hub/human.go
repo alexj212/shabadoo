@@ -462,6 +462,13 @@ type writeReq struct {
 	Keys    []string `json:"keys,omitempty"`
 	Name    string   `json:"name,omitempty"`
 	Path    string   `json:"path,omitempty"`
+
+	// To names a pane instead of addressing it by coordinates: "homelab", an
+	// alias, or a full session id. Resolved HERE so that every client — the
+	// dashboard, the phone, a voice agent, the CLI — agrees on what a name
+	// means. Three clients inventing three fuzzy-match rules is how the same
+	// phrase types into the wrong project.
+	To string `json:"to,omitempty"`
 }
 
 // write returns a handler that proxies one mutating op to its agent and
@@ -472,6 +479,21 @@ func (h *humanAPI) write(op string) http.HandlerFunc {
 		var req writeReq
 		if !readJSON(w, r, &req) {
 			return
+		}
+
+		// A name instead of coordinates. Ambiguity is an error listing the
+		// candidates, never a best guess — the caller asks again, or the agent
+		// asks the human which one they meant.
+		if req.To != "" {
+			pane, err := h.scope(r.Context()).ResolvePane(r.Context(), req.To, h.now())
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			req.Node, req.Session, req.Window = pane.Agent, pane.TmuxSession, pane.Index
+			if req.Name == "" {
+				req.Name = pane.Name
+			}
 		}
 
 		detail := req.Text

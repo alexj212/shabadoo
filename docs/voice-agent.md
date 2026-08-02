@@ -70,9 +70,15 @@ agent calls something nobody handles.
 No parameters.
 
 Returns, per session: `alias`, `project`, `agent` (the machine), `input_state`
-(`composer` or `dialog`), `asking` (the verbatim question, present only when
-blocked), `note` (what the session says it is doing), `pending` (unread
-messages).
+(`composer` or `dialog`), `pending` (unread messages), and two fields that are
+**`omitempty` and usually absent**:
+
+- `asking` — the verbatim question, present only while that pane is blocked;
+- `note` — what the session says it is doing, present only if that session has
+  set one through `session_status_set` and within the last 30 minutes.
+
+Decode both as optional. Their absence across a healthy fleet is the normal
+case, not a missing feature: nothing is blocked and nobody has set a status.
 
 ### `send_message`
 
@@ -84,6 +90,23 @@ messages).
 |---|---|---|
 | `to` | string | the project or session to send to, e.g. `homelab` |
 | `text` | string | what to say to that session |
+
+**Pass `to` straight through — do not resolve it yourself.** `POST /api/send`
+accepts `{"to": "homelab", "text": "…"}` and resolves the name on the
+coordinator, which is the only way every client agrees on what a name means.
+Three clients inventing three fuzzy-match rules is how the same phrase types
+into the wrong project, and this is the one place in the design where being
+wrong lands text in a live session somebody else is using.
+
+The rule: exact session id, then exact alias or project (case-insensitive),
+then substring — and **an ambiguous name is a 400 listing the candidates**,
+never a best guess. `homelife` resolves even though `homelife-mcp` shares the
+prefix, because an exact project match wins outright; `homel` refuses and names
+both. Surface that refusal to the agent so it asks which one, rather than
+picking.
+
+A name that is not a **live** pane also refuses. Mail may be addressed to an
+offline session and wait for it; a keystroke cannot wait for anything.
 
 ### There is deliberately no third tool
 

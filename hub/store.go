@@ -415,6 +415,36 @@ func (t *Tenant) ResolveSession(ctx context.Context, want string, now time.Time)
 	}
 }
 
+// ResolvePane turns a name into the pane coordinates a write needs.
+//
+// ResolveSession answers "which session" for mail; this answers "which pane"
+// for a keystroke, which needs the node, the tmux session and the window index
+// as well.
+//
+// It exists so no CLIENT has to invent the rule. A voice agent, the phone, the
+// CLI and the dashboard resolving "homelife" three different ways is how the
+// same phrase types into the wrong project — and this is the one place in the
+// design where being wrong means text landing in a live session someone else
+// is using.
+func (t *Tenant) ResolvePane(ctx context.Context, want string, now time.Time) (Session, error) {
+	id, err := t.ResolveSession(ctx, want, now)
+	if err != nil {
+		return Session{}, err
+	}
+	sessions, err := t.ListSessions(ctx, now)
+	if err != nil {
+		return Session{}, err
+	}
+	for _, s2 := range sessions {
+		if s2.SessionID == id {
+			return s2, nil
+		}
+	}
+	// ResolveSession passes a claude-prefixed id through unresolved so mail can
+	// wait for an offline session. A keystroke cannot wait for anything.
+	return Session{}, fmt.Errorf("%w: %q is not a live pane", ErrNoSuchSession, want)
+}
+
 // sessionNames renders candidates for an error message. A resolution failure is
 // most often a near miss, and the list is what turns it into a one-line fix.
 func sessionNames(sessions []Session) string {
