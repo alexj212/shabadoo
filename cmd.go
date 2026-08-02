@@ -113,6 +113,11 @@ func runHub(args []string) {
 	tsAllow := fset.String("tailscale-allow", os.Getenv("SHABADOO_TAILSCALE_ALLOW"),
 		"comma-separated tailnet logins admitted without pairing, e.g. "+
 			"alex@example.com (empty disables the tailnet provider)")
+	elevenKey := fset.String("elevenlabs-key", os.Getenv("SHABADOO_ELEVENLABS_KEY"),
+		"ElevenLabs API key, held here so no client ever holds it "+
+			"(empty disables the voice endpoint)")
+	elevenAgent := fset.String("elevenlabs-agent", os.Getenv("SHABADOO_ELEVENLABS_AGENT"),
+		"ElevenLabs conversational agent id")
 	releaseDir := fset.String("releases", "",
 		"directory for binaries published for node upgrades (empty disables `shabadoo upgrade`)")
 	auditDays := fset.Int("audit-retention-days", 90,
@@ -121,6 +126,7 @@ func runHub(args []string) {
 
 	hub.Version = version
 	hub.AppriseURL = *apprise
+	hub.ElevenLabsKey, hub.ElevenLabsAgent = *elevenKey, *elevenAgent
 
 	// 0 means keep forever, which is a legitimate choice for someone who wants
 	// the audit log to be the permanent record — but it has to be chosen, not
@@ -278,6 +284,17 @@ func runHub(args []string) {
 		defer cancel()
 		srv.Shutdown(shutdown)
 	}()
+
+	// Said once at startup rather than discovered per-call, same as the
+	// notifier: someone finding out mid-sentence that voice was never
+	// configured is a worse way to learn it.
+	switch {
+	case *elevenKey != "" && *elevenAgent != "":
+		log.Printf("hub: voice sessions enabled for agent %s", *elevenAgent)
+	case *elevenKey != "" || *elevenAgent != "":
+		log.Printf("hub: voice is HALF configured (need both --elevenlabs-key and " +
+			"--elevenlabs-agent); the endpoint stays disabled")
+	}
 
 	// Said once at startup rather than discovered per-call: a session that tries
 	// to notify a human and silently cannot is worse than one told up front.
