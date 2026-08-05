@@ -114,9 +114,32 @@ func envFileMap(path string) map[string]string {
 		if !ok {
 			continue
 		}
-		out[strings.TrimSpace(k)] = strings.Trim(strings.TrimSpace(v), `"'`)
+		out[strings.TrimSpace(k)] = unquoteEnvValue(strings.TrimSpace(v))
 	}
 	return out
+}
+
+// unquoteEnvValue undoes shell quoting on a value from the env file.
+//
+// This used to be `strings.Trim(v, "\"'")` — trimming quote CHARACTERS from
+// both ends, which is not the same as unquoting. It got the common cases right
+// and mangled anything containing a quote: `--foo 'bar'` came back as
+// `--foo 'bar`, silently, because the trailing quote was eaten as a delimiter.
+// It also could not read back what shellQuote writes, which is how the bug
+// surfaced — a value written by `config set` did not survive being read.
+//
+// Not a shell parser, deliberately. It handles the two forms this file
+// actually contains: a single-quoted string with the '\'' idiom for an
+// embedded quote, and a double-quoted string with backslash escapes.
+func unquoteEnvValue(v string) string {
+	if len(v) >= 2 && v[0] == '\'' && v[len(v)-1] == '\'' {
+		return strings.ReplaceAll(v[1:len(v)-1], `'\''`, "'")
+	}
+	if len(v) >= 2 && v[0] == '"' && v[len(v)-1] == '"' {
+		r := strings.NewReplacer(`\"`, `"`, `\\`, `\`, "\\$", "$")
+		return r.Replace(v[1 : len(v)-1])
+	}
+	return v
 }
 
 // windowName is the stable per-folder identifier: <project>-<host>-<8 hex>.

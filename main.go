@@ -91,7 +91,26 @@ func main() {
 	case "win":
 		runWin(args[1:])
 	case "boot":
-		runBoot(args[1:])
+		// A bare `boot` still opens the windows. The cron watchdog runs it every
+		// ten minutes, so turning this into a noun-only namespace would stop
+		// autostart on every host, silently.
+		rest := args[1:]
+		if len(rest) > 0 {
+			switch rest[0] {
+			case "list", "ls":
+				runBootList(rest[1:])
+				return
+			case "add":
+				runBootAdd(rest[1:])
+				return
+			case "remove", "rm":
+				runBootRemove(rest[1:])
+				return
+			}
+		}
+		runBoot(rest)
+	case "config":
+		runConfig(args[1:])
 	case "setup":
 		runSetup(args[1:])
 	case "doctor":
@@ -171,6 +190,8 @@ usage:
   shabadoo attach [--dir D]       start/attach this folder's session (local)
   shabadoo win <cmd> [args]       local windows: list open close reopen clear
   shabadoo boot [--list F]        open one window per folder in the boot list
+  shabadoo boot list|add|remove   which folders autostart
+  shabadoo config [set|unset]     launcher settings (host label, claude flags)
 
   shabadoo setup [flags]          install the toolchain onto this machine
   shabadoo doctor                 report what setup would change (no writes)
