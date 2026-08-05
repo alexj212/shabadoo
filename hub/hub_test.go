@@ -37,6 +37,10 @@ func newHubFixture(t *testing.T) *hubFixture {
 
 	mux := http.NewServeMux()
 	hub.Routes(mux)
+	// Production registers both planes (see cmd.go); the fixture registering
+	// only the first meant every session-messaging endpoint was unreachable
+	// here, which reads as a 404 rather than as "not wired up".
+	hub.AgentAPIRoutes(mux)
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
@@ -424,5 +428,90 @@ func TestLoginIsAudited(t *testing.T) {
 	}
 	if !strings.HasPrefix(got[0].Detail, "SHA256:") {
 		t.Errorf("detail = %q, want the key fingerprint", got[0].Detail)
+	}
+}
+
+// A misaddressed message must leave a trace. Until it did, a bounce existed
+// only in the sending session's own context: the recipient never learned
+// anyone had tried to reach it, and an operator had nothing to read. That is
+// not a hypothetical — it was found by trying to investigate a real bounce and
+// discovering there was nothing to look at.
+func TestBounceIsAudited(t *testing.T) {
+	f := newHubFixture(t)
+	token := f.login(t)
+	ctx := context.Background()
+
+	// One real session, so the bounce is a genuine miss rather than an empty
+	// table — an empty table would pass this test for the wrong reason.
+	if err := f.store.UpsertSession(ctx, Session{
+		SessionID: "claude-homelab-wsl-1111", Agent: "wsl", Project: "homelab",
+		Alias: "homelab-wsl", CWD: "/home/a/homelab", Window: "claude:0",
+	}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+
+	body, _ := json.Marshal(Envelope{
+		FromSession: "claude-site-wsl-2222", ToSession: "nosuchproject", Body: "hello",
+	})
+	req, _ := http.NewRequest("POST", f.server.URL+"/agent/message/send", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := f.server.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", resp.StatusCode)
+	}
+
+	entries, err := f.store.AuditTail(ctx, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got *AuditEntry
+	for i := range entries {
+		if entries[i].Action == "message.bounce" {
+			got = &entries[i]
+			break
+		}
+	}
+	if got == nil {
+		t.Fatalf("no message.bounce in the audit log: %+v", entries)
+	}
+	// The three things someone reconstructing this afterwards needs: who tried,
+	// what they wrote, and why it failed.
+	if !strings.Contains(got.Actor, "claude-site-wsl-2222") {
+		t.Errorf("actor does not name the sender: %q", got.Actor)
+	}
+	if got.Target != "nosuchproject" {
+		t.Errorf("target = %q, want the name as written", got.Target)
+	}
+	if !strings.Contains(got.Detail, "homelab") {
+		t.Errorf("detail should list what does exist, got %q", got.Detail)
+	}
+
+	// A delivered message must not also be recorded as a bounce.
+	body, _ = json.Marshal(Envelope{
+		FromSession: "claude-site-wsl-2222", ToSession: "homelab", Body: "hello",
+	})
+	req, _ = http.NewRequest("POST", f.server.URL+"/agent/message/send", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp2, err := f.server.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp2.Body.Close()
+	if resp2.StatusCode != http.StatusOK {
+		t.Fatalf("resolvable recipient: status = %d, want 200", resp2.StatusCode)
+	}
+	entries, _ = f.store.AuditTail(ctx, 10)
+	n := 0
+	for _, e := range entries {
+		if e.Action == "message.bounce" {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Errorf("bounce count = %d, want 1 (a delivered message logged one too)", n)
 	}
 }

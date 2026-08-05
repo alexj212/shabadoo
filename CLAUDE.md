@@ -262,7 +262,7 @@ subcommands now.
 | `shabadoo attach` | The daily driver. Start or attach this folder's window — one shared tmux session (default `claude`), one window per project dir. Re-running from the same folder re-attaches; from a new folder, adds a window. Execs into tmux so the terminal is handed over cleanly. |
 | `shabadoo win list\|open\|close\|reopen\|clear` | Inspect and control those windows locally. Also what the global `claude-sessions` skill drives. |
 | `shabadoo boot` | Opens one window per folder in `~/.config/claude-sessions/folders`. Driven by a cron watchdog (`*/10`) and the `claude-sessions.service` user unit. |
-| `shabadoo boot list\|add\|remove` | Edit that list. A **bare `boot` still opens the windows** — the watchdog runs it every ten minutes, so turning this into a noun-only namespace would stop autostart on every host, silently. |
+| `shabadoo boot list\|add\|remove` | Edit that list. A **bare `boot` still opens the windows** — the watchdog runs it every ten minutes, so turning this into a noun-only namespace would stop autostart on every host, silently. That makes it the one command whose bare form acts, so it announces what it is about to open first, and **`--dry-run`** answers "what would this do" without doing it — `doctor` to `setup`, applied to the same tension. |
 | `shabadoo config [set\|unset\|edit]` | The launcher knobs in `~/.config/claude/env`, with **where each value came from**. The file wins over the process environment, which is the opposite of what most people assume and invisible until it surprises them. |
 
 **Everything that starts a window goes through `launchConfig` in `launch.go`.**
@@ -1067,6 +1067,11 @@ documentation, and a scanner that cries wolf gets ignored.
   matches nothing is still passed through, because mail for an **offline**
   session is meant to wait for it and those sessions are absent from the table
   while their host is gone.
+  **A bounce is audited** (`message.bounce`), because it used to exist only in
+  the sender's own context: the recipient never learned anyone had tried to
+  reach it, and nothing an operator could read said so either — so diagnosing
+  one meant asking the sender what it remembered. Found the hard way, trying to
+  investigate a real bounce with nothing to read.
 - **A session says what it is doing; tmux cannot.** `sessions.status` is tmux's
   view (active / idle) and `Session.Note` is the session's own
   (`session_status_set` through the MCP bridge, rendered in the dashboard row

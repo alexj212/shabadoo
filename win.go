@@ -287,19 +287,38 @@ func isTerminal(f *os.File) bool {
 func runBoot(args []string) {
 	fset := flag.NewFlagSet("boot", flag.ExitOnError)
 	list := fset.String("list", bootListPath(), "folder list to open")
+
+	// A bare `boot` opens windows, and it has to: the cron watchdog runs it
+	// every ten minutes, so making it noun-only would stop autostart on every
+	// host, silently. But that leaves it the one command here where "let me see
+	// what this does" has a side effect — `config` with no arguments prints,
+	// and someone reasonably expects the same shape from `boot`.
+	//
+	// So it says what it is about to do before doing it, and --dry-run answers
+	// the question without acting. That is `doctor` to `setup`, which is this
+	// project's existing answer to the same tension.
+	dry := fset.Bool("dry-run", false, "report what would open; start nothing")
 	fset.Parse(args)
 
 	body, err := os.ReadFile(*list)
 	if err != nil {
 		fatalf("folder list: %v", err)
 	}
-	if err := exec.Command("tmux", "-V").Run(); err != nil {
-		fatalf("tmux is not installed")
+	if !*dry {
+		if err := exec.Command("tmux", "-V").Run(); err != nil {
+			fatalf("tmux is not installed")
+		}
 	}
 
 	ctx := context.Background()
 	c := loadLaunchConfig()
 	failed := false
+
+	verb := "opening"
+	if *dry {
+		verb = "would open"
+	}
+	fmt.Fprintf(os.Stderr, "boot: %s folders listed in %s\n", verb, *list)
 
 	for _, raw := range strings.Split(string(body), "\n") {
 		line := strings.TrimSpace(raw)
@@ -329,6 +348,10 @@ func runBoot(args []string) {
 				fmt.Fprintf(os.Stderr, "boot: already open: %s\n", name)
 				continue
 			}
+		}
+		if *dry {
+			fmt.Fprintf(os.Stderr, "boot: would launch in %s\n", cwd)
+			continue
 		}
 		fmt.Fprintf(os.Stderr, "boot: launching in %s\n", cwd)
 		if _, err := c.launch(ctx, cwd, true); err != nil {
