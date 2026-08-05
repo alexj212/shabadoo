@@ -206,7 +206,7 @@ usage:
 
   shabadoo attach [--dir D]       start/attach this folder's session (local)
   shabadoo win <cmd> [args]       local windows: list open close reopen clear
-  shabadoo boot [--list F]        open one window per folder in the boot list
+  shabadoo boot [--dry-run]       open one window per folder in the boot list
   shabadoo boot list|add|remove   which folders autostart
   shabadoo config [set|unset]     launcher settings (host label, claude flags)
 

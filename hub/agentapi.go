@@ -57,6 +57,18 @@ func (h *Hub) agentSend(w http.ResponseWriter, r *http.Request) {
 	// reported as sent, and drained by nobody.
 	to, err := tn.ResolveSession(r.Context(), env.ToSession, now)
 	if err != nil {
+		// A bounce is recorded, because until it was, a failed handoff existed
+		// only in the sender's own context: the recipient never learned anyone
+		// had tried to reach it, and nothing an operator can read said so
+		// either. Diagnosing one afterwards meant asking the sender what it
+		// remembered — which is exactly as reliable as it sounds.
+		//
+		// It is audited rather than logged so it lands beside the sends that
+		// worked: "did that reach homelab?" is answered by one list either way.
+		tn.Audit(r.Context(), AuditEntry{
+			Actor: "session:" + env.FromSession, Action: "message.bounce",
+			Target: env.ToSession, Detail: err.Error(),
+		}, now)
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
