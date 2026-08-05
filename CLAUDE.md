@@ -1180,10 +1180,19 @@ make vet test                     # before committing
 A plain `go build -o shabadoo .` still works but leaves the version unstamped
 (`dev (unstamped)`), which is why `make build` is the documented path.
 
-`shabadoo` with no subcommand — or with only flags — still serves, so the
-systemd unit's `ExecStart=... --addr ...` keeps working now that subcommands
-exist. Preserve that: a bare/flag-only invocation must never become an error.
-`--version` is answered before that fallthrough, or it would start a server.
+**A bare `shabadoo` prints usage and exits 0.** It used to start the fallback
+server, so that `ExecStart=... --addr ...` kept working when subcommands were
+introduced — but every unit `setup` writes now names `hub`, `node` or `boot`
+explicitly, so that compatibility was protecting nothing. Meanwhile a
+downloaded binary run once to see what it is silently bound port 8787 and
+served a dashboard, which is a startling first impression and the opposite of
+what typing a program's name suggests.
+
+Flags with no subcommand (`shabadoo --addr X`) are an **error with a hint**,
+not an assumption: guessing `serve` is how someone meaning to reach their
+coordinator quietly starts a second, local one instead. `--version` and
+`--help` are still answered first. `bare_invocation_test` runs the real binary
+and asserts none of these paths ever prints `listening on`.
 
 > **Tests run against the developer's real machine.** There is no sandbox
 > between this code and the host, so any fixture that *resolves* is a live
