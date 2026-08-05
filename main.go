@@ -20,25 +20,38 @@ import (
 func main() {
 	args := os.Args[1:]
 
-	// `shabadoo` and `shabadoo --addr ...` still serve, so a flag-only
-	// invocation keeps working now that subcommands exist.
+	// A bare invocation prints usage.
+	//
+	// It used to start the fallback server, so that `ExecStart=... --addr ...`
+	// kept working when subcommands were introduced. Every unit this installs
+	// now names `hub`, `node` or `boot` explicitly, so that compatibility was
+	// protecting nothing — while a downloaded binary run once to see what it is
+	// silently bound a port and served a dashboard, which is a startling first
+	// impression and the opposite of what someone typing `shabadoo` expects.
 	if len(args) == 0 {
-		runServe(nil)
-		return
+		usage()
+		return // exit 0: asking what a program does is not a failure
 	}
 	if strings.HasPrefix(args[0], "-") {
 		if isHelpFlag(args[0]) {
 			usage()
 			return
 		}
-		// Answered before the flag-only invocation falls through to serve —
-		// otherwise `shabadoo --version` starts a server on port 8787.
+		// Before the fallthrough below, or `--version` would print usage.
 		if args[0] == "--version" || args[0] == "-version" {
 			printVersion(args[1:])
 			return
 		}
-		runServe(args)
-		return
+		// Flags with no subcommand. Refused rather than assumed: guessing
+		// `serve` is how someone means to reach the coordinator and quietly
+		// starts a second, local one instead.
+		fmt.Fprintf(os.Stderr, "shabadoo: %q is a flag, not a command.\n", args[0])
+		if strings.HasPrefix(args[0], "--addr") {
+			fmt.Fprintf(os.Stderr, "  did you mean: shabadoo serve %s\n", strings.Join(args, " "))
+		}
+		fmt.Fprintln(os.Stderr)
+		usage()
+		os.Exit(2)
 	}
 
 	switch args[0] {
@@ -161,11 +174,15 @@ func usage() {
 	fmt.Fprint(os.Stderr, `shabadoo — coordinator, per-host agent, and installer for the Claude
 launcher toolchain they drive.
 
+Start here:
+  shabadoo setup --service --coord URL   join an existing coordinator
+  shabadoo attach                        start/attach this folder's session
+  shabadoo sessions                      every session on every machine
+
 usage:
-  shabadoo [--addr HOST:PORT]     serve the local dashboard (default command)
-  shabadoo serve [--addr ...]     same, explicitly — the standalone fallback
-  shabadoo node --coord URL       run this host's agent against a coordinator
   shabadoo hub [flags]            run the coordinator
+  shabadoo node --coord URL       run this host's agent against a coordinator
+  shabadoo serve [--addr ...]     standalone fallback for THIS host only
 
   shabadoo pair [--self]          enrol a device: prints a pairing URL + code
   shabadoo renew                  extend this machine's device token

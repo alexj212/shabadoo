@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -183,6 +184,49 @@ func TestUnquoteEnvValue(t *testing.T) {
 	} {
 		if got := unquoteEnvValue(in); got != want {
 			t.Errorf("unquoteEnvValue(%s) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// A bare invocation must not start a server.
+//
+// It used to, so that `ExecStart=... --addr ...` kept working when subcommands
+// were introduced. Every unit this installs now names hub, node or boot
+// explicitly, so that compatibility protected nothing — while a downloaded
+// binary run once to see what it is silently bound port 8787 and served a
+// dashboard.
+//
+// Exercised as a subprocess because the alternative is a test that starts a
+// listener and hopes.
+func TestBareInvocationPrintsUsage(t *testing.T) {
+	bin := filepath.Join(t.TempDir(), "shabadoo")
+	if out, err := exec.Command("go", "build", "-o", bin, ".").CombinedOutput(); err != nil {
+		t.Fatalf("build: %v: %s", err, out)
+	}
+
+	for _, tc := range []struct {
+		args     []string
+		wantExit int
+		wantText string
+	}{
+		{nil, 0, "usage:"},                                      // asking is not a failure
+		{[]string{"--help"}, 0, "usage:"},                       //
+		{[]string{"--addr", "127.0.0.1:1"}, 2, "not a command"}, // a flag is not a command
+		{[]string{"nonsense"}, 2, "unknown command"},
+	} {
+		cmd := exec.Command(bin, tc.args...)
+		out, _ := cmd.CombinedOutput()
+		code := cmd.ProcessState.ExitCode()
+
+		if code != tc.wantExit {
+			t.Errorf("%v exited %d, want %d\n%s", tc.args, code, tc.wantExit, out)
+		}
+		if !strings.Contains(string(out), tc.wantText) {
+			t.Errorf("%v output missing %q:\n%s", tc.args, tc.wantText, out)
+		}
+		// The specific regression: none of these may bind a port.
+		if strings.Contains(string(out), "listening on") {
+			t.Errorf("%v started a server:\n%s", tc.args, out)
 		}
 	}
 }
