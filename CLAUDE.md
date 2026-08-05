@@ -262,6 +262,8 @@ subcommands now.
 | `shabadoo attach` | The daily driver. Start or attach this folder's window — one shared tmux session (default `claude`), one window per project dir. Re-running from the same folder re-attaches; from a new folder, adds a window. Execs into tmux so the terminal is handed over cleanly. |
 | `shabadoo win list\|open\|close\|reopen\|clear` | Inspect and control those windows locally. Also what the global `claude-sessions` skill drives. |
 | `shabadoo boot` | Opens one window per folder in `~/.config/claude-sessions/folders`. Driven by a cron watchdog (`*/10`) and the `claude-sessions.service` user unit. |
+| `shabadoo boot list\|add\|remove` | Edit that list. A **bare `boot` still opens the windows** — the watchdog runs it every ten minutes, so turning this into a noun-only namespace would stop autostart on every host, silently. |
+| `shabadoo config [set\|unset\|edit]` | The launcher knobs in `~/.config/claude/env`, with **where each value came from**. The file wins over the process environment, which is the opposite of what most people assume and invisible until it surprises them. |
 
 **Everything that starts a window goes through `launchConfig` in `launch.go`.**
 That is the whole point of the port: as two scripts they had drifted, and both
@@ -305,7 +307,16 @@ machine-distinctive (`wsl`, `mac`, `dm`).
 
 Per-host config deliberately lives **outside** this repo and is never vendored:
 `~/.config/claude/env` (knobs) and `~/.config/claude-sessions/folders` (boot
-folder list).
+folder list). `shabadoo config` and `shabadoo boot add/remove` edit them
+**surgically** — one line at a time, comments untouched. Both files hold
+decisions with reasons written beside them, and a tool that regenerated either
+from a parsed map would delete every one of those reasons the first time it
+was used.
+
+`boot add` refuses a folder that does not exist, because an entry that cannot
+open starts nothing and says nothing — it would sit there looking configured.
+Folders are compared **through symlinks**, so removing by either spelling of
+the same path works; that is the same reason `/api/folders` resolves them.
 
 ## The fallback (`shabadoo serve`)
 
