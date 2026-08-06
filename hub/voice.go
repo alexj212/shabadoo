@@ -34,6 +34,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"sync"
@@ -102,6 +103,31 @@ func (v *voiceLimiter) allow(id string, now time.Time) bool {
 	return true
 }
 
+// refund returns a reservation that allow took but which never became a mint.
+//
+// The limit bounds SPEND, and a call that never reached the provider spent
+// nothing — so charging for it is simply wrong. It matters at the moment it is
+// least affordable: when the provider is refusing, the retries that diagnose
+// the problem eat the budget for the retries that fix it. Not hypothetical —
+// it happened while configuring this, where four consecutive 401s from a key
+// missing convai_write each cost a slot.
+//
+// Reserve-then-refund rather than check-then-record, because the latter lets
+// concurrent callers all pass the check before any of them records, which is a
+// hole in the one guarantee this exists to give.
+func (v *voiceLimiter) refund(id string, at time.Time) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+
+	ts := v.at[id]
+	for i := len(ts) - 1; i >= 0; i-- {
+		if ts[i].Equal(at) {
+			v.at[id] = append(ts[:i], ts[i+1:]...)
+			return
+		}
+	}
+}
+
 // voiceSession mints a short-lived signed URL for a conversational session.
 //
 // A GET would be more natural for something that reads no state, but this
@@ -117,7 +143,8 @@ func (h *humanAPI) voiceSession(w http.ResponseWriter, r *http.Request) {
 
 	// Keyed on the credential, not the tenant: one device's enthusiasm must not
 	// exhaust another's budget.
-	if !voiceMints.allow(id.Sub, h.now()) {
+	now := h.now()
+	if !voiceMints.allow(id.Sub, now) {
 		http.Error(w, fmt.Sprintf(
 			"too many voice sessions: %d in the last hour for this device", voiceRateLimit),
 			http.StatusTooManyRequests)
@@ -126,6 +153,8 @@ func (h *humanAPI) voiceSession(w http.ResponseWriter, r *http.Request) {
 
 	signed, err := mintElevenLabsURL(r.Context(), ElevenLabsAgent)
 	if err != nil {
+		// Nothing was spent, so nothing is charged. See refund.
+		voiceMints.refund(id.Sub, now)
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
@@ -136,7 +165,7 @@ func (h *humanAPI) voiceSession(w http.ResponseWriter, r *http.Request) {
 	h.scope(r.Context()).Audit(r.Context(), AuditEntry{
 		Actor: actor(r.Context()), Action: "voice.session", Target: ElevenLabsAgent,
 		Detail: "scope=" + scopeName(id.Scope),
-	}, h.now())
+	}, now)
 
 	// The scope is reported so the client can shape what it offers — grey out
 	// dictation on a read-only device rather than letting someone talk into a
@@ -147,6 +176,15 @@ func (h *humanAPI) voiceSession(w http.ResponseWriter, r *http.Request) {
 		"agent_id":   ElevenLabsAgent,
 		"scope":      scopeName(id.Scope),
 	})
+}
+
+// truncate bounds a provider-supplied string before it reaches the log. The
+// message is theirs, not ours, so its length is not something to trust.
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "…"
 }
 
 // mintElevenLabsURL asks the provider for a signed WebSocket URL.
@@ -170,9 +208,33 @@ func mintElevenLabsURL(ctx context.Context, agentID string) (string, error) {
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
 
 	if resp.StatusCode/100 != 2 {
-		// Deliberately does not echo the provider's body verbatim: an error
-		// from an authenticated upstream call is a place account details leak
-		// into a response an unprivileged-ish client reads.
+		// The client is told the status and nothing else: an error from an
+		// authenticated upstream call is a place account details leak into a
+		// response an unprivileged-ish client reads.
+		//
+		// But that left the actual explanation nowhere. Configuring this the
+		// first time produced a bare 401 on the phone while the provider was
+		// saying, in the body, exactly what was wrong — "missing the permission
+		// convai_write" — and reading it took a hand-run curl on the host. So
+		// the diagnosis goes to the LOG, which lives on the machine that
+		// already holds the key and is read by whoever deployed it.
+		//
+		// The provider's own fields only, never the raw body: an unbounded echo
+		// of an authenticated response into a log is the same leak, somewhere
+		// quieter.
+		var e struct {
+			Detail struct {
+				Status  string `json:"status"`
+				Code    string `json:"code"`
+				Message string `json:"message"`
+			} `json:"detail"`
+		}
+		if json.Unmarshal(body, &e) == nil && (e.Detail.Status != "" || e.Detail.Message != "") {
+			log.Printf("hub: voice mint refused by provider: %s status=%q code=%q: %s",
+				resp.Status, e.Detail.Status, e.Detail.Code, truncate(e.Detail.Message, 200))
+		} else {
+			log.Printf("hub: voice mint refused by provider: %s (no parsable detail)", resp.Status)
+		}
 		return "", fmt.Errorf("voice provider returned %s", resp.Status)
 	}
 

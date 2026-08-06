@@ -32,6 +32,18 @@ The coordinator **does not create agents.** It only exchanges its key for a
 short-lived signed URL for an agent that already exists. Somebody creates the
 agent once in the dashboard and hands over the id.
 
+### The key needs `convai_write`
+
+Minting a signed URL is a **write** in the provider's permission model — it
+creates a conversation session — so a key scoped to read refuses with `401` and
+`status: missing_permissions`. This is worth knowing before scoping a key
+narrowly, which is otherwise the right instinct: everything else the key could
+do (text-to-speech above all) is where a leaked key runs up a bill fastest, and
+this integration needs none of it.
+
+The refusal is legible in the coordinator's log, not in the client's response —
+see *What is tested*.
+
 ### The key never lands in git
 
 It is account-wide and billed per minute. Put it wherever the host keeps
@@ -178,6 +190,8 @@ and the whole HTTP path through the endpoint are covered without an account:
 | a 200 carrying no `signed_url` fails | returning `""` would have the client open a socket to nowhere and blame itself |
 | unconfigured refuses **before** calling out | a half-configured deployment must not spend someone else's rate limit |
 | read-only devices may mint; the limit returns 429 | and both are audited |
+| a refused mint does **not** consume rate-limit budget | a broken key would otherwise lock the device out of diagnosing it |
+| the provider's `status`/`message` reach the log, not the client | the explanation has to live somewhere, and the client is the wrong somewhere |
 
 **One thing cannot be tested here: whether the real API matches its own
 documentation.** The stub returns what the docs describe. If ElevenLabs returns
