@@ -1,6 +1,7 @@
 package hub
 
 import (
+	"log"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -214,5 +215,114 @@ func TestVoiceSessionEndToEnd(t *testing.T) {
 	}
 	if rec := call("device:phone", ""); rec.Code != http.StatusTooManyRequests {
 		t.Errorf("past the limit got %d, want 429", rec.Code)
+	}
+}
+
+// A mint that never reached the provider spent nothing, so it must not consume
+// a limit whose entire purpose is bounding spend.
+//
+// This is not a hypothetical tidy-up. Configuring voice for the first time
+// produced four consecutive 401s from a key missing convai_write, and each one
+// cost a slot — so the retries that diagnose a broken key eat the budget for
+// the retries that fix it, at exactly the moment that hurts most.
+func TestFailedMintDoesNotConsumeQuota(t *testing.T) {
+	var calls int
+	defer stubProvider(t, func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.WriteHeader(http.StatusUnauthorized)
+		w.Write([]byte(`{"detail":{"status":"missing_permissions",` +
+			`"message":"The API key you used is missing the permission convai_write"}}`))
+	})()
+
+	prevKey, prevAgent := ElevenLabsKey, ElevenLabsAgent
+	ElevenLabsKey, ElevenLabsAgent = "k", "agent-xyz"
+	defer func() { ElevenLabsKey, ElevenLabsAgent = prevKey, prevAgent }()
+
+	st := testStore(t)
+	h := &humanAPI{store: st.s, now: time.Now}
+	voiceMints = &voiceLimiter{at: map[string][]time.Time{}}
+
+	call := func() *httptest.ResponseRecorder {
+		r := httptest.NewRequest("POST", "/api/voice/session", nil)
+		r = r.WithContext(context.WithValue(r.Context(), identityKey{},
+			Identity{Tenant: st.id, Sub: "device:phone", Label: "phone"}))
+		rec := httptest.NewRecorder()
+		h.voiceSession(rec, r)
+		return rec
+	}
+
+	// Far more failures than the limit. Every one must reach the provider and
+	// come back 502 — never 429, which would mean a broken key had locked the
+	// device out of finding out why.
+	for i := 0; i < voiceRateLimit*2; i++ {
+		if rec := call(); rec.Code != http.StatusBadGateway {
+			t.Fatalf("failure %d gave %d, want 502 — the limit charged for a call that spent nothing",
+				i+1, rec.Code)
+		}
+	}
+	if calls != voiceRateLimit*2 {
+		t.Errorf("provider saw %d calls, want %d", calls, voiceRateLimit*2)
+	}
+
+	// The budget is still whole, so a working key mints immediately.
+	if n := len(voiceMints.at["device:phone"]); n != 0 {
+		t.Errorf("%d reservations survived %d failures, want 0", n, voiceRateLimit*2)
+	}
+}
+
+// refund removes exactly one reservation, not the device's whole history.
+func TestRefundRemovesOneReservation(t *testing.T) {
+	v := &voiceLimiter{at: map[string][]time.Time{}}
+	now := time.Unix(1_700_000_000, 0)
+
+	v.allow("d", now)
+	v.allow("d", now.Add(time.Second))
+	v.allow("d", now.Add(2*time.Second))
+	v.refund("d", now.Add(time.Second))
+
+	if got := len(v.at["d"]); got != 2 {
+		t.Fatalf("after one refund, %d reservations remain, want 2", got)
+	}
+	for _, ts := range v.at["d"] {
+		if ts.Equal(now.Add(time.Second)) {
+			t.Error("refund removed the wrong reservation")
+		}
+	}
+	// Refunding something never reserved must not corrupt the record.
+	v.refund("d", now.Add(time.Hour))
+	if got := len(v.at["d"]); got != 2 {
+		t.Errorf("an unmatched refund changed the count to %d", got)
+	}
+}
+
+// The provider's explanation must reach the operator's log while still not
+// reaching the client. Both halves matter: the first 401 in production said
+// exactly what was wrong and it took a hand-run curl on the host to see it.
+func TestProviderErrorIsLoggedButNotReturned(t *testing.T) {
+	defer stubProvider(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		w.Write([]byte(`{"detail":{"status":"missing_permissions","code":"unauthorized",` +
+			`"message":"The API key sk_live_abc123 is missing the permission convai_write"}}`))
+	})()
+
+	var logged strings.Builder
+	prev := log.Writer()
+	log.SetOutput(&logged)
+	defer log.SetOutput(prev)
+
+	_, err := mintElevenLabsURL(context.Background(), "a")
+	if err == nil {
+		t.Fatal("a 401 was reported as success")
+	}
+	// The caller still learns only the status.
+	if strings.Contains(err.Error(), "convai_write") {
+		t.Errorf("the provider's message reached the client: %v", err)
+	}
+	// The operator learns why.
+	out := logged.String()
+	for _, want := range []string{"missing_permissions", "convai_write", "401"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the log does not explain the failure (missing %q): %s", want, out)
+		}
 	}
 }

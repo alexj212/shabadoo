@@ -886,6 +886,25 @@ Rate limited to 30 mints per device per hour. That limit is about **spend**,
 not about guessing, which is what the redeem throttle is for — this is the
 first credential the coordinator hands out that arrives with a bill.
 
+**Only successful mints count.** A call the provider refused spent nothing, so
+charging for it is wrong in the way that bites hardest: when the key is broken,
+the retries that diagnose it eat the budget for the retries that fix it. Found
+by configuring voice for the first time and burning four slots on 401s. The
+reservation is taken before the call and *refunded* on failure rather than
+recorded after success — check-then-record would let concurrent callers all
+pass the check before any of them records, which is a hole in the one guarantee
+the limiter exists to give.
+
+**A refused mint is explained in the hub log, never to the client.** The client
+gets the status alone, because an authenticated upstream's error bodies name
+accounts and keys. But that first 401 was a bare 502 on the phone while the
+provider was saying exactly what was wrong — `missing the permission
+convai_write` — and reading it took a hand-run `curl` on the coordinator host.
+The provider's own `status`/`code`/`message` fields now go to the log, which is
+on the machine that already holds the key; never the raw body, since an
+unbounded echo of an authenticated response into a log is the same leak
+somewhere quieter.
+
 ## The MCP bridge (`shabadoo mcp`)
 
 Each Claude session launches `shabadoo mcp`, which speaks MCP over stdio and
