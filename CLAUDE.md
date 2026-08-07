@@ -1126,7 +1126,14 @@ documentation, and a scanner that cries wolf gets ignored.
   precisely the state you are in when asking "did that reach homelab?". The
   read paths now aggregate it: `recipients` (one row for a direct message, one
   per subscriber for a broadcast), `acked`, and `acked_at`. Direct mail renders
-  `✓ <time>` or **waiting**; a broadcast renders `n/m`.
+  a green dot plus the drain time, or an amber dot plus **waiting**; a
+  broadcast renders `n/m`. The dot is the `.led` node rows already use, so one
+  shape means one thing across the page, and the word beside it carries the
+  same state for anyone who cannot separate green from amber.
+  **Every row states which it is, including the ones that landed.** Marking
+  only the exceptions looked tidier and was worse: an unmarked line is then
+  ambiguous between "picked up" and "this build does not report it", which is
+  exactly what the first person to read the panel asked.
   Acknowledged means **drained** — the recipient session pulled it into
   context. Deliberately not called "read": nothing here can know whether anyone
   acted on it, and a word implying that would claim more than the data
