@@ -1058,15 +1058,22 @@ func runMail(args []string) {
 				to = "everyone"
 			}
 		}
-		// Whether the recipient has drained it. The dashboard renders the same
-		// fact; a handoff nobody picked up is the one worth spotting, so only
-		// that case is marked.
+		// Whether the recipient has drained it.
+		//
+		// Every message says which it is, including the ones that landed.
+		// Marking only the exceptions looked tidier and was worse: an unmarked
+		// line is then ambiguous between "picked up" and "this build does not
+		// report it", and the first person to read it asked exactly that.
 		ack := ""
 		switch {
+		case m.Recipients == 0:
+			ack = "  [no recipient]"
 		case m.Recipients > 1:
 			ack = fmt.Sprintf("  [%d/%d drained]", m.Acked, m.Recipients)
-		case m.Recipients == 1 && m.Acked == 0:
-			ack = "  [waiting]"
+		case m.Acked > 0:
+			ack = "  [drained]"
+		default:
+			ack = "  [WAITING]"
 		}
 		fmt.Printf("%s  %s → %s%s\n", time.Unix(m.CreatedAt, 0).Format("01-02 15:04"),
 			shortSession(m.FromSession), shortSession(to), ack)

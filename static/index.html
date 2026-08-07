@@ -106,7 +106,14 @@
   /* Acknowledgement: whether the recipient has actually drained it. Muted
      when read, because "picked up" is the expected case and should not shout;
      the eye is meant to catch the ones that did NOT land. */
-  #mail td.mack { width: 4.5rem; white-space: nowrap; text-align: right; }
+  #mail td.mack { width: 7rem; white-space: nowrap; text-align: right; }
+  #mail td.mack .wrap { display: inline-flex; align-items: center; gap: .4rem; justify-content: flex-end; }
+  /* Reuses the .led dot the node rows use, so one shape means one thing across
+     the page. Colour is never the ONLY signal — the word beside it carries the
+     same state for anyone who cannot separate green from amber. */
+  #mail td.mack .led { width: 7px; height: 7px; }
+  #mail td.mack .led.acked   { background: var(--ok); box-shadow: 0 0 6px var(--ok-glow); }
+  #mail td.mack .led.pending { background: var(--warn); box-shadow: 0 0 6px rgba(230,184,80,.5); }
   #mail td.mack .ok { color: var(--dim); }
   #mail td.mack .waiting { color: var(--warn); }
   #mail td.mbody b { color: var(--fg); font-weight: 600; }
@@ -1544,17 +1551,22 @@ function ackCell(m) {
   const n = m.recipients || 0;
   const acked = m.acked || 0;
   if (!n) return `<td class="mack"></td>`;           // no delivery rows at all
+
+  const dot = cls => `<span class="led ${cls}"></span>`;
+
   if (n > 1) {                                        // a broadcast
-    const cls = acked >= n ? "ok" : "waiting";
+    const done = acked >= n;
     return `<td class="mack" title="${acked} of ${n} recipients have drained this">` +
-           `<span class="${cls}">${acked}/${n}</span></td>`;
+      `<span class="wrap">${dot(done ? "acked" : "pending")}` +
+      `<span class="${done ? "ok" : "waiting"}">${acked}/${n}</span></span></td>`;
   }
   if (acked) {
-    return `<td class="mack" title="drained ${new Date((m.acked_at || 0) * 1000).toLocaleString()}">` +
-           `<span class="ok">✓ ${clock(m.acked_at)}</span></td>`;
+    return `<td class="mack" title="drained by the recipient ${
+      new Date((m.acked_at || 0) * 1000).toLocaleString()}">` +
+      `<span class="wrap">${dot("acked")}<span class="ok">${clock(m.acked_at)}</span></span></td>`;
   }
-  return `<td class="mack" title="delivered to the inbox, not yet drained by the recipient">` +
-         `<span class="waiting">waiting</span></td>`;
+  return `<td class="mack" title="in the recipient's inbox, not yet drained">` +
+    `<span class="wrap">${dot("pending")}<span class="waiting">waiting</span></span></td>`;
 }
 
 async function refreshMail() {
