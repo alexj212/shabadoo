@@ -1042,6 +1042,8 @@ func runMail(args []string) {
 			Title       string `json:"title"`
 			Body        string `json:"body"`
 			CreatedAt   int64  `json:"created_at"`
+			Recipients  int    `json:"recipients"`
+			Acked       int    `json:"acked"`
 		} `json:"messages"`
 	}
 	if err := json.Unmarshal(raw, &out); err != nil {
@@ -1056,8 +1058,18 @@ func runMail(args []string) {
 				to = "everyone"
 			}
 		}
-		fmt.Printf("%s  %s → %s\n", time.Unix(m.CreatedAt, 0).Format("01-02 15:04"),
-			shortSession(m.FromSession), shortSession(to))
+		// Whether the recipient has drained it. The dashboard renders the same
+		// fact; a handoff nobody picked up is the one worth spotting, so only
+		// that case is marked.
+		ack := ""
+		switch {
+		case m.Recipients > 1:
+			ack = fmt.Sprintf("  [%d/%d drained]", m.Acked, m.Recipients)
+		case m.Recipients == 1 && m.Acked == 0:
+			ack = "  [waiting]"
+		}
+		fmt.Printf("%s  %s → %s%s\n", time.Unix(m.CreatedAt, 0).Format("01-02 15:04"),
+			shortSession(m.FromSession), shortSession(to), ack)
 		if m.Title != "" {
 			fmt.Printf("    %s\n", m.Title)
 		}

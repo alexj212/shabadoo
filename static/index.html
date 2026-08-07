@@ -103,6 +103,12 @@
   #mail td.mat { color: var(--dim); width: 5.5rem; }
   #mail td.mwho { color: var(--fg); width: 22rem; }
   #mail td.mbody { color: var(--dim); max-width: 0; width: 100%; }
+  /* Acknowledgement: whether the recipient has actually drained it. Muted
+     when read, because "picked up" is the expected case and should not shout;
+     the eye is meant to catch the ones that did NOT land. */
+  #mail td.mack { width: 4.5rem; white-space: nowrap; text-align: right; }
+  #mail td.mack .ok { color: var(--dim); }
+  #mail td.mack .waiting { color: var(--warn); }
   #mail td.mbody b { color: var(--fg); font-weight: 600; }
   #mail .arrow { color: var(--dim); }
   /* ---- devices: who may drive these panes ---- */
@@ -1527,6 +1533,30 @@ function shortSession(id) {
   return id.replace(/^claude-/, "").replace(/-[0-9a-f]{8}$/, "");
 }
 
+// Acknowledged means DRAINED: the recipient session pulled the message into
+// its context. That is the only acknowledgement this system has, and it is the
+// one worth showing — a handoff that was stored, reported as sent, and never
+// picked up is indistinguishable from a delivered one without it.
+//
+// Deliberately not called "read": nothing here can know whether anyone acted on
+// it, and a word implying that would be a claim the data does not support.
+function ackCell(m) {
+  const n = m.recipients || 0;
+  const acked = m.acked || 0;
+  if (!n) return `<td class="mack"></td>`;           // no delivery rows at all
+  if (n > 1) {                                        // a broadcast
+    const cls = acked >= n ? "ok" : "waiting";
+    return `<td class="mack" title="${acked} of ${n} recipients have drained this">` +
+           `<span class="${cls}">${acked}/${n}</span></td>`;
+  }
+  if (acked) {
+    return `<td class="mack" title="drained ${new Date((m.acked_at || 0) * 1000).toLocaleString()}">` +
+           `<span class="ok">✓ ${clock(m.acked_at)}</span></td>`;
+  }
+  return `<td class="mack" title="delivered to the inbox, not yet drained by the recipient">` +
+         `<span class="waiting">waiting</span></td>`;
+}
+
 async function refreshMail() {
   try {
     const r = await fetch("/api/messages?limit=100");
@@ -1542,14 +1572,16 @@ async function refreshMail() {
       const to = m.to_session ? shortSession(m.to_session)
                               : (m.topic ? "#" + m.topic : "everyone");
       const title = m.title ? `<b>${esc(m.title)}</b> · ` : "";
+      const ack = ackCell(m);
       const body = (m.body || "").replace(/\s+/g, " ").trim();
       return `<tr>
         <td class="mat">${clock(m.created_at)}</td>
         <td class="mwho" title="${esc(m.from_session)} → ${esc(m.to_session || m.topic || "broadcast")}">${
           esc(shortSession(m.from_session))} <span class="arrow">→</span> ${esc(to)}</td>
         <td class="mbody" title="${esc(m.body || "")}">${title}${esc(body)}</td>
+        ${ack}
       </tr>`;
-    }).join("") || `<tr><td class="mbody">(no messages in the last 24 hours)</td></tr>`;
+    }).join("") || `<tr><td class="mbody" colspan="4">(no messages in the last 24 hours)</td></tr>`;
   } catch {
     // Same as Audit: a failed poll says nothing about the contents.
   }
