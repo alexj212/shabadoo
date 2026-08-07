@@ -797,7 +797,7 @@ fetches must not be handed a redirect body to parse.
 | `GET /api/capture` | `?node=&session=&window=&lines=&color=1` → pane text |
 | `GET /api/claude/session` | `?node=&path=` → Claude session summary |
 | `GET /api/audit` | `?limit=` → recent actions, newest first. Rendered by the dashboard's Audit panel (collapsed by default, polled only while open) |
-| `GET /api/messages` | `?limit=&session=` → the durable inbox: the last 24h across the tenant, or one session's thread. Read-only — looking at mail never consumes it. Rendered by the dashboard's Mail panel, same collapse-and-poll-while-open shape as Audit |
+| `GET /api/messages` | `?limit=&session=` → the durable inbox: the last 24h across the tenant, or one session's thread. Read-only — looking at mail never consumes it. Each message carries `recipients`/`acked`/`acked_at`, so a handoff that was stored and never picked up is distinguishable from one that landed. Rendered by the dashboard's Mail panel, same collapse-and-poll-while-open shape as Audit |
 | `GET /api/input-state` | `?node=&session=&window=` → `composer` or `dialog` |
 | `GET /api/folders` | `?node=` → startable folders: boot list + every folder with a transcript, each flagged `open` |
 | `POST /api/select\|send\|command\|kill\|reopen\|open` | `{node, ...}` → proxied to that agent, **audited** |
@@ -1120,6 +1120,20 @@ documentation, and a scanner that cries wolf gets ignored.
   reach it, and nothing an operator could read said so either — so diagnosing
   one meant asking the sender what it remembered. Found the hard way, trying to
   investigate a real bounce with nothing to read.
+- **Mail shows whether it was picked up.** `deliveries` has carried
+  `acked_at` since the start and nothing read it, so the Mail panel rendered a
+  message nobody ever drained identically to one that was acted on — which is
+  precisely the state you are in when asking "did that reach homelab?". The
+  read paths now aggregate it: `recipients` (one row for a direct message, one
+  per subscriber for a broadcast), `acked`, and `acked_at`. Direct mail renders
+  `✓ <time>` or **waiting**; a broadcast renders `n/m`.
+  Acknowledged means **drained** — the recipient session pulled it into
+  context. Deliberately not called "read": nothing here can know whether anyone
+  acted on it, and a word implying that would claim more than the data
+  supports. The fields are filled by the read paths only, so a client cannot
+  assert its own message was received. `Replay` and `Conversation` share one
+  SELECT because two renderings of one fact drift, and the drift is invisible
+  until you rely on the one you were not looking at.
 - **A session says what it is doing; tmux cannot.** `sessions.status` is tmux's
   view (active / idle) and `Session.Note` is the session's own
   (`session_status_set` through the MCP bridge, rendered in the dashboard row

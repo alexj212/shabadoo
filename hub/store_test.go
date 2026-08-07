@@ -641,3 +641,82 @@ func TestResolvePane(t *testing.T) {
 		t.Error("resolved a pane that is not live")
 	}
 }
+
+// The Mail panel's whole job is telling a delivered handoff from a stored one.
+// Before this, a message that nobody ever drained looked exactly like one that
+// was picked up and acted on — which is the state you are in when you ask
+// "did that reach homelab?".
+func TestReplayReportsAcknowledgement(t *testing.T) {
+	ctx, s, now := context.Background(), testStore(t), time.Now()
+
+	for _, id := range []string{"claude-homelab-wsl-1", "claude-iptv-wsl-2"} {
+		if err := s.UpsertSession(ctx, Session{
+			SessionID: id, Agent: "wsl", Project: strings.Split(id, "-")[1], Alias: id,
+		}, now); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Resolve first, exactly as the handler does — Send stores what it is
+	// handed, and addressing by project is the handler's job.
+	send := func(to, body string) {
+		id, err := s.ResolveSession(ctx, to, now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.Send(ctx, Envelope{
+			FromSession: "claude-shabadoo-wsl-9", ToSession: id, Body: body}, now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	send("homelab", "please look at this")
+	send("iptv", "and this")
+
+	byBody := func() map[string]Envelope {
+		msgs, err := s.Replay(ctx, 50, now.Add(-time.Hour))
+		if err != nil {
+			t.Fatal(err)
+		}
+		m := map[string]Envelope{}
+		for _, e := range msgs {
+			m[e.Body] = e
+		}
+		return m
+	}
+
+	// Nothing drained yet: one recipient each, none acknowledged.
+	for body, e := range byBody() {
+		if e.Recipients != 1 || e.Acked != 0 || e.AckedAt != 0 {
+			t.Errorf("%q before drain: recipients=%d acked=%d at=%d, want 1/0/0",
+				body, e.Recipients, e.Acked, e.AckedAt)
+		}
+	}
+
+	// homelab drains; iptv does not. That asymmetry is the whole feature — if
+	// both read the same afterwards, the panel would be decoration.
+	if _, err := s.Drain(ctx, "claude-homelab-wsl-1", now.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+
+	got := byBody()
+	if e := got["please look at this"]; e.Acked != 1 || e.AckedAt == 0 {
+		t.Errorf("drained message reports acked=%d at=%d, want 1 and a timestamp", e.Acked, e.AckedAt)
+	}
+	if e := got["and this"]; e.Acked != 0 || e.AckedAt != 0 {
+		t.Errorf("undrained message reports acked=%d at=%d, want 0/0", e.Acked, e.AckedAt)
+	}
+
+	// Conversation must agree with Replay. Two renderings of one fact drift,
+	// and the drift is invisible until you are relying on the one you did not
+	// happen to be looking at.
+	thread, err := s.Conversation(ctx, "claude-homelab-wsl-1", 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(thread) != 1 {
+		t.Fatalf("thread has %d messages, want 1", len(thread))
+	}
+	if thread[0].Acked != 1 || thread[0].Recipients != 1 {
+		t.Errorf("Conversation disagrees with Replay: %+v", thread[0])
+	}
+}

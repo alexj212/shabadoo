@@ -344,6 +344,19 @@ type Envelope struct {
 	Type        string `json:"type,omitempty"`
 	Tag         string `json:"tag,omitempty"`
 	CreatedAt   int64  `json:"created_at"`
+
+	// Delivery state, filled in by the READ paths only (Replay, Conversation)
+	// and absent everywhere else — Send ignores them, so a client cannot claim
+	// its own message was read.
+	//
+	// "Acknowledged" here means drained: the recipient session pulled the
+	// message into its context. That is the only acknowledgement this system
+	// has, and it is the one worth showing — a handoff that was stored, and
+	// reported as sent, and never picked up is indistinguishable from a
+	// delivered one until you can see this.
+	Recipients int   `json:"recipients,omitempty"` // delivery rows; >1 for a broadcast
+	Acked      int   `json:"acked,omitempty"`      // how many have drained it
+	AckedAt    int64 `json:"acked_at,omitempty"`   // most recent drain, unix seconds
 }
 
 var ErrNoRecipient = errors.New("message has no recipient")
@@ -712,25 +725,25 @@ func (v VacuumResult) String() string {
 		v.Messages, v.Audit, v.Retrievals)
 }
 
-// Replay returns recent messages regardless of delivery state — the timeline
-// view. Unlike Drain it changes nothing.
-func (t *Tenant) Replay(ctx context.Context, limit int, since time.Time) ([]Envelope, error) {
-	if limit <= 0 || limit > 1000 {
-		limit = 200
-	}
-	rows, err := t.s.db.QueryContext(ctx, `
-		SELECT id, from_session, to_session, topic, title, body, type, tag, created_at
-		  FROM messages WHERE tenant = ? AND created_at >= ?
-		 ORDER BY created_at DESC LIMIT ?`, t.id, since.Unix(), limit)
-	if err != nil {
-		return nil, err
-	}
+// messageCols is the SELECT list both read paths use. Delivery state is an
+// aggregate over `deliveries`: a direct message has one row, a broadcast has
+// one per subscriber, and a LEFT JOIN keeps a message with no rows at all
+// (which should not happen, and must not silently vanish if it does).
+const messageCols = `
+	SELECT m.id, m.from_session, m.to_session, m.topic, m.title, m.body,
+	       m.type, m.tag, m.created_at,
+	       COUNT(d.message_id), COUNT(d.acked_at), COALESCE(MAX(d.acked_at), 0)
+	  FROM messages m
+	  LEFT JOIN deliveries d ON d.message_id = m.id AND d.tenant = m.tenant`
+
+func scanMessages(rows *sql.Rows) ([]Envelope, error) {
 	defer rows.Close()
 	var out []Envelope
 	for rows.Next() {
 		var e Envelope
 		if err := rows.Scan(&e.ID, &e.FromSession, &e.ToSession, &e.Topic,
-			&e.Title, &e.Body, &e.Type, &e.Tag, &e.CreatedAt); err != nil {
+			&e.Title, &e.Body, &e.Type, &e.Tag, &e.CreatedAt,
+			&e.Recipients, &e.Acked, &e.AckedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, e)
@@ -738,29 +751,35 @@ func (t *Tenant) Replay(ctx context.Context, limit int, since time.Time) ([]Enve
 	return out, rows.Err()
 }
 
+// Replay returns recent messages regardless of delivery state — the timeline
+// view. Unlike Drain it changes nothing.
+func (t *Tenant) Replay(ctx context.Context, limit int, since time.Time) ([]Envelope, error) {
+	if limit <= 0 || limit > 1000 {
+		limit = 200
+	}
+	rows, err := t.s.db.QueryContext(ctx, messageCols+`
+		 WHERE m.tenant = ? AND m.created_at >= ?
+		 GROUP BY m.id
+		 ORDER BY m.created_at DESC LIMIT ?`, t.id, since.Unix(), limit)
+	if err != nil {
+		return nil, err
+	}
+	return scanMessages(rows)
+}
+
 // Conversation returns the thread involving one session, both directions.
 func (t *Tenant) Conversation(ctx context.Context, sessionID string, limit int) ([]Envelope, error) {
 	if limit <= 0 || limit > 1000 {
 		limit = 200
 	}
-	rows, err := t.s.db.QueryContext(ctx, `
-		SELECT id, from_session, to_session, topic, title, body, type, tag, created_at
-		  FROM messages WHERE tenant = ? AND (from_session = ? OR to_session = ?)
-		 ORDER BY created_at DESC LIMIT ?`, t.id, sessionID, sessionID, limit)
+	rows, err := t.s.db.QueryContext(ctx, messageCols+`
+		 WHERE m.tenant = ? AND (m.from_session = ? OR m.to_session = ?)
+		 GROUP BY m.id
+		 ORDER BY m.created_at DESC LIMIT ?`, t.id, sessionID, sessionID, limit)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	var out []Envelope
-	for rows.Next() {
-		var e Envelope
-		if err := rows.Scan(&e.ID, &e.FromSession, &e.ToSession, &e.Topic,
-			&e.Title, &e.Body, &e.Type, &e.Tag, &e.CreatedAt); err != nil {
-			return nil, err
-		}
-		out = append(out, e)
-	}
-	return out, rows.Err()
+	return scanMessages(rows)
 }
 
 // ---------------------------------------------------------------------------
