@@ -943,7 +943,22 @@ Two behaviours that are load-bearing rather than incidental:
 `stdout` carries the protocol. Anything else written there surfaces to the
 client as a parse error rather than as the problem; diagnostics go to stderr.
 
-**Switched over 2026-07-31, and `mcp-natsbridge` is removed from both hosts.**
+**Switched over 2026-07-31 — but only half of it, and the other half went
+unnoticed for a week.** The MCP tool moved; the two *hooks* that surface mail
+without anyone asking (`SessionStart`, `UserPromptSubmit`) were left pointing at
+`mcp-natsbridge -mode=inbox-drain`, against a stream nothing writes to any more.
+On wsl that drained an empty subject forever; on the mac the bridge cannot start
+at all (see below). Both failed into `2>/dev/null`, so a week of silence looked
+exactly like a week with no mail — the visible symptom was a human typing "check
+inbox" by hand. **`shabadoo inbox` is the hook-shaped counterpart** of
+`session_inbox_drain`: same socket, no credential, but a shell command rather
+than an MCP client. Hooks call it as `shabadoo inbox 2>/dev/null || true`,
+which is the form to keep — an unknown subcommand exits 2, and a
+`UserPromptSubmit` hook exiting 2 blocks the prompt. It prints nothing on an
+empty inbox and always exits 0, for the same reason.
+`mcp-natsbridge` is now removed from both hosts: unconfigured everywhere, the
+15-minute `-mode=nudge` cron on wsl retired (the coordinator nudges instantly),
+and the binary moved to `~/bin/archives/claude-legacy/`.
 `shabadoo` is the only session-messaging MCP server configured on wsl and mac.
 A wsl session was canaried first — it reported its own id, listed all 9 sessions
 across both hosts, and a send/drain round trip confirmed drained mail never
