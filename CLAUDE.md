@@ -1070,6 +1070,35 @@ documentation, and a scanner that cries wolf gets ignored.
   only restores the old behaviour. It deliberately never presses Escape
   itself — Escape during a running turn interrupts Claude's work, and
   discarding someone's in-flight turn is the operator's call.
+  **Select-list modals were invisible to it.** The markers were written from
+  confirm-style prompts, and `/remote-control` on an already-connected session
+  raises a three-item menu footed `Enter to select · Esc to continue` — nothing
+  the list matched. So the pane read `composer` while a modal owned the
+  keyboard, with `guardDialog` waving sends into the exact silent no-op it
+  exists to prevent. Found from a screenshot; there is no other way this
+  surfaces.
+  A **visible composer row beats any marker above it**, because footer text is
+  also just words: the session that widened this list was discussing the
+  markers on screen while its own agent classified the pane. The input row
+  (boxed ASCII `>`) is the discriminator rather than the box outline, since
+  permission modals are boxed too and menus select with `❯`.
+- **One key is pressed automatically, and only one.** Remote control drops on
+  its own: the `--remote-control` flag is set at launch and stays set, but the
+  CLI's link to claude.ai does not survive indefinitely, and a session whose
+  link dropped **vanishes from the mobile app** — so the tap that restores it
+  can only come from here. `/remote-control` on a still-connected session opens
+  a menu (Disconnect / Show QR / Continue) that then owns the keyboard, making
+  a one-tap chip a three-step chore. `dismissRemoteControl` closes it.
+  It presses **Escape, never Enter**, and that is the safety argument rather
+  than a detail: Enter acts on whichever line the cursor is on, and one of them
+  is *Disconnect this session* — the precise opposite of the request. The
+  cursor defaults to Continue, but a default is something that changes in
+  another program's UI without telling us; Escape means "continue"
+  unconditionally, per the modal's own footer. It fires only after the pane is
+  confirmed to hold **that** modal (classified as a dialog *and* carrying both
+  of its markers), which is also why Escape is safe here — a modal owning the
+  keyboard means no turn is running. Dismissing a receipt this program just
+  caused is not the same decision as answering a question nobody has read.
 - **Sessions are addressed by DOMAIN, not by id.** `session_send to="homelab"`
   resolves to whichever session owns that project — exact match on session id,
   alias or project first, then substring, and an ambiguous name is refused

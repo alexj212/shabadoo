@@ -64,3 +64,40 @@ func longTail(n int) string {
 	}
 	return s
 }
+
+// The `/remote-control` menu is a SELECT LIST, and its footer shares nothing
+// with the confirm-style prompts the original markers were written from
+// ("Enter to select · Esc to continue" against "Enter to confirm" / "Esc to
+// cancel"). So it classified as `composer`: a modal owned the keyboard while
+// the guard that exists to catch precisely that waved sends straight into it.
+//
+// Transcribed from a screenshot of the real dialog — this class of bug does
+// not surface any other way. The other cases are here so a widened marker set
+// cannot pass by matching everything.
+func TestInputStateDetectsSelectListModals(t *testing.T) {
+	remoteControl := `
+  Remote Control
+
+  This session is available in the Claude mobile app and at https://claude.ai/code/session_01ABC.
+
+    Disconnect this session
+    Show QR code   Scan with your phone to open this session
+  > Continue
+
+  Enter to select · Esc to continue
+`
+	for _, tc := range []struct{ name, pane, want string }{
+		{"remote-control menu", remoteControl, InputDialog},
+		{"confirm-style prompt", "│ Do you want to proceed? │\n  Esc to cancel", InputDialog},
+		{"plain composer", "> hello\n╭───╮\n│ > │\n╰───╯", InputComposer},
+		// Prose ABOUT a dialog is not a dialog. These markers are footer text,
+		// so a pane merely discussing them must stay a composer — otherwise the
+		// guard refuses real messages and the watcher notifies about nothing.
+		{"transcript discussing it", "I added \"Enter to select\" to the marker list.\n" +
+			"╭──────────╮\n│ > ..... │\n╰──────────╯", InputComposer},
+	} {
+		if got := InputState(tc.pane); got != tc.want {
+			t.Errorf("%s: InputState = %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}

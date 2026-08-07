@@ -246,6 +246,17 @@ var dialogMarkers = []string{
 	"Do you want to proceed",
 	"Do you want to make this edit",
 	"esc to reject",
+
+	// Claude Code's SELECT-LIST modals use a different footer, and missing it
+	// was a false negative rather than a missed nicety: `/remote-control` on an
+	// already-connected session puts up a three-item menu whose footer reads
+	// "Enter to select · Esc to continue", and none of the markers above match
+	// it. So the pane reported `composer` while a modal owned the keyboard —
+	// the precise silent no-op guardDialog exists to prevent, with the guard
+	// itself waved through. Found from a screenshot of the real dialog, which
+	// is the only way this class of bug ever surfaces.
+	"Enter to select",
+	"Esc to continue",
 }
 
 // InputState classifies what owns the keyboard in a captured pane, given the
@@ -257,6 +268,21 @@ func InputState(pane string) string {
 	if n := len(lines); n > 20 {
 		lines = lines[n-20:]
 	}
+	// A visible composer box wins over any marker above it. The markers are
+	// footer text, and footer text is also just words — a pane whose TRANSCRIPT
+	// quotes one is not a modal. That is not hypothetical: the session that
+	// added "Enter to select" to this list was discussing it on screen while
+	// its own agent classified the pane, and a false dialog is the expensive
+	// direction (it refuses real messages and raises a blocked-session alert
+	// about nothing).
+	//
+	// The input row is the discriminator rather than the box outline, because
+	// permission modals are boxed too. Claude Code draws the composer's prompt
+	// with an ASCII ">", while menu selection uses "❯".
+	if hasComposerRow(lines) {
+		return InputComposer
+	}
+
 	tail := strings.Join(lines, "\n")
 	for _, m := range dialogMarkers {
 		if strings.Contains(tail, m) {
@@ -264,6 +290,22 @@ func InputState(pane string) string {
 		}
 	}
 	return InputComposer
+}
+
+// hasComposerRow reports whether the pane's last few lines hold Claude Code's
+// input row — a boxed ASCII "> " prompt. Only the last few, because that box is
+// drawn at the very bottom when the composer has the keyboard; finding one
+// higher up means it has since been replaced by something else.
+func hasComposerRow(lines []string) bool {
+	if n := len(lines); n > 5 {
+		lines = lines[n-5:]
+	}
+	for _, l := range lines {
+		if strings.Contains(l, "│") && strings.Contains(l, "> ") {
+			return true
+		}
+	}
+	return false
 }
 
 // DialogPrompt extracts the question a modal is asking, from the same captured
