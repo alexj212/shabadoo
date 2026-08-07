@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"shabadoo/claudelog"
 	"shabadoo/hub"
@@ -67,7 +68,13 @@ func handleOp(ctx context.Context, op string, payload json.RawMessage) (any, err
 		if err := guardDialog(ctx, a); err != nil {
 			return nil, err
 		}
-		return nil, tmux.SendCommand(ctx, a.Session, a.Window, a.Command)
+		if err := tmux.SendCommand(ctx, a.Session, a.Window, a.Command); err != nil {
+			return nil, err
+		}
+		if isRemoteControl(a.Command) {
+			dismissRemoteControl(ctx, a)
+		}
+		return nil, nil
 
 	case "keys":
 		return nil, tmux.SendRawKeys(ctx, a.Session, a.Window, a.Keys)
@@ -192,6 +199,11 @@ func inputState(ctx context.Context, a opArgs) (string, error) {
 // way to clear one, but Escape during a running turn interrupts Claude
 // mid-work. Choosing to discard someone's in-flight turn is the operator's
 // call, so the dashboard offers the key instead of pressing it.
+//
+// The single exception is dismissRemoteControl, and it is narrow on purpose:
+// that modal is one this program just caused, identified by its own text
+// before anything is pressed. "Dismiss a receipt we asked for" is not the same
+// decision as "answer a question somebody has not read".
 func guardDialog(ctx context.Context, a opArgs) error {
 	state, err := inputState(ctx, a)
 	if err != nil {
@@ -204,6 +216,74 @@ func guardDialog(ctx context.Context, a opArgs) error {
 			"answer or dismiss it first (the answer keys are in the control deck)")
 	}
 	return nil
+}
+
+// Remote control drops on its own — the flag is set at launch and stays set,
+// but the CLI's link to claude.ai does not survive indefinitely, and a session
+// whose link has dropped VANISHES from the mobile app. So the tap that restores
+// it has to come from here, and it should cost one interaction rather than
+// three.
+//
+// `/remote-control` on a session that is already connected does not error; it
+// opens a three-item menu — Disconnect this session / Show QR code / Continue —
+// which then owns the keyboard until somebody dismisses it.
+func isRemoteControl(cmd string) bool {
+	return strings.EqualFold(strings.TrimSpace(cmd), "/remote-control")
+}
+
+// remoteControlMarkers identify that specific menu. Both must be present: the
+// title alone appears in ordinary transcript text whenever anyone discusses
+// this feature, and dismissing a modal because the word "Remote Control" is on
+// screen would fire on a pane that is merely talking about it.
+var remoteControlMarkers = []string{"Remote Control", "Disconnect this session"}
+
+// dismissRemoteControl closes that menu, and closes ONLY that menu.
+//
+// It presses ESCAPE, never Enter, and the difference is the whole safety
+// argument. Enter acts on whatever line the cursor is on, and one of the three
+// lines is "Disconnect this session" — the exact opposite of what the operator
+// asked for. The cursor defaults to Continue, but a default is a thing that
+// changes in someone else's UI without telling us. Escape means "continue"
+// unconditionally, which is what the modal's own footer says.
+//
+// Pressing Escape is otherwise something this project refuses to do, because
+// Escape during a running turn discards work in flight. That does not apply
+// here: it fires only after the pane is confirmed to hold this modal, and a
+// modal owning the keyboard means no turn is running.
+//
+// Best effort throughout. A failure to dismiss leaves exactly today's
+// behaviour — a menu waiting for a human — so nothing is worth reporting as an
+// error, and the command itself already succeeded.
+func dismissRemoteControl(ctx context.Context, a opArgs) {
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		time.Sleep(250 * time.Millisecond)
+
+		pane, err := tmux.Capture(ctx, a.Session, a.Window, 0, false)
+		if err == nil && isRemoteControlDialog(pane) {
+			tmux.SendRawKeys(ctx, a.Session, a.Window, []string{"Escape"})
+			return
+		}
+		if time.Now().After(deadline) {
+			return // it never appeared, or it is something else; leave it alone
+		}
+	}
+}
+
+// isRemoteControlDialog requires BOTH that the pane classifies as a modal and
+// that it carries this menu's own text. Either test alone is too loose: the
+// classifier does not say *which* modal, and the text can appear in a pane that
+// is only discussing it.
+func isRemoteControlDialog(pane string) bool {
+	if tmux.InputState(pane) != tmux.InputDialog {
+		return false
+	}
+	for _, m := range remoteControlMarkers {
+		if !strings.Contains(pane, m) {
+			return false
+		}
+	}
+	return true
 }
 
 // Folder is a candidate place to start a session, for clients that cannot
