@@ -67,6 +67,8 @@ func main() {
 		runRenew(args[1:])
 	case "mcp":
 		runMCP(args[1:])
+	case "inbox":
+		runInbox(args[1:])
 	case "sessions":
 		runSessions(args[1:])
 	case "folders":
@@ -197,6 +199,7 @@ usage:
   shabadoo kill [NAME]            close a window (asks first)
   shabadoo audit [--limit N]      who drove which pane, newest last
   shabadoo mail [--session S]     session-to-session messages
+  shabadoo inbox                  drain THIS session's mail (for a prompt hook)
   shabadoo devices                enrolled clients: scope, days left, push
   shabadoo publish dist/          upload binaries the coordinator can push
   shabadoo releases               what is published, and each node's platform
