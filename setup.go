@@ -380,6 +380,10 @@ func (s *setup) stepNodeProject() error {
 func nodeProjectTemplate(label string) string {
 	return "---\n" +
 		"description: Use for anything about the " + label + " machine itself — what is installed, what it can do, and starting or stopping sessions on it.\n" +
+		"# Things no probe can establish. Toolchains, a GPU and the platform are\n" +
+		"# detected automatically and do not belong here; a declared capability\n" +
+		"# that is checkable and absent is ignored rather than believed.\n" +
+		"capabilities:\n" +
 		"---\n\n" +
 		"# " + label + "\n\n" +
 		"This machine's own project. Its session is " + label + "'s core session: it\n" +

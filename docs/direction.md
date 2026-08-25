@@ -308,10 +308,31 @@ The session table silently claims every tmux window is a Claude session, and
 cannot be addressed at all. It is also the honest fix for a real inaccuracy: the
 blocked-session watcher applies Claude-shaped heuristics to whatever is on screen.
 
-**2. A capability manifest per node, reported by the core session.**
-`audio.capture`, `gpu`, `ios.build`, `llm.local`, `always-on`. The core session
-reads its own `CLAUDE.md` and reports upward, the way `session_status_set`
-reports status — so the agent never parses prose.
+**2. A capability manifest per node, read from its project's frontmatter.**
+Two halves answering different questions. The agent **detects** what is
+checkable — toolchains, a GPU, the platform — from a curated vocabulary, not an
+inventory of everything installed: asking a package manager returns thousands of
+entries and answers none of the questions a router asks. The node's project
+**declares** what no probe can establish: always on, in the meeting room, the
+build host.
+
+**Detection wins where they disagree about something checkable.** A declared
+`ffmpeg` on a machine without ffmpeg is not an opinion, it is wrong, and the
+cost of believing it lands after a handoff — on another machine, where it is
+most expensive to diagnose. Anything outside the detectable vocabulary is taken
+at its word, because there is nothing to check it against.
+
+*This reverses an earlier decision, deliberately.* The plan was for the core
+session to report capabilities upward, chosen when the agent had no structured
+parser and the alternative was reading prose. Once the project description moved
+into `CLAUDE.md` frontmatter the agent had one, and reading the file directly
+removes an endpoint, removes a lifecycle rule, and removes the cost that plan
+accepted: a node that can say nothing about itself until its core session has
+started.
+
+Presence only, no versions: "can this node build Go" is the decision a router
+makes, and "which Go" is something the session that receives the work can
+establish correctly at the moment it matters.
 
 **Detection and declaration divide along the line already drawn:** the agent
 detects what is checkable — platform, whether ffmpeg is present, audio devices,

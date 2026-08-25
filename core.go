@@ -18,9 +18,12 @@ package main
 import (
 	"context"
 	"log"
+	"sort"
+	"strings"
 	"time"
 
 	"shabadoo/hub"
+	"shabadoo/node"
 )
 
 const (
@@ -112,4 +115,67 @@ func coreBackoff(attempt int) time.Duration {
 		}
 	}
 	return d
+}
+
+// nodeCapabilities is what this host advertises: what the agent can see, plus
+// what the node's own project declares.
+//
+// The two halves answer different questions. Detection covers what is
+// checkable — toolchains, a GPU, a platform — and cannot go stale. Declaration
+// covers what no probe can establish: that a machine is always on, that it is
+// the one in the meeting room, that it is the build host. Neither alone is
+// enough, and the split is the same one the rest of the design runs on:
+// mechanical facts are data, judgment is written down.
+//
+// **Detection wins where the two disagree about something detectable.** A
+// declared `ffmpeg` on a machine without ffmpeg is not an opinion, it is wrong,
+// and the cost of believing it lands after a handoff — at the far end, on
+// another machine, where it is most expensive to work out what happened.
+// Anything outside the detectable vocabulary is taken at its word, because
+// there is nothing to check it against.
+//
+// Read from the node project's frontmatter rather than reported by its core
+// session. That was the original plan, and it was chosen when the agent had no
+// structured parser and the alternative was reading prose. It has one now, and
+// reading the file directly removes an endpoint, removes a lifecycle rule, and
+// removes the cost that plan accepted: a node that says nothing about itself
+// until its core session has started.
+func nodeCapabilities() []string {
+	detected := node.Capabilities()
+	have := make(map[string]bool, len(detected))
+	for _, c := range detected {
+		have[c] = true
+	}
+
+	out := append([]string(nil), detected...)
+	for _, c := range declaredCapabilities(coreProjectPath()) {
+		if have[c] {
+			continue // already detected; nothing to add
+		}
+		if node.Detectable(c) {
+			// Declared, checkable, and not found. Detection wins.
+			log.Printf("node: ignoring declared capability %q — not present on this host", c)
+			continue
+		}
+		have[c] = true
+		out = append(out, c)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// declaredCapabilities reads the `capabilities:` frontmatter key of a node's
+// own project: a comma-separated list on one line, matching how `description:`
+// is written, so there is one frontmatter shape to learn rather than two.
+func declaredCapabilities(dir string) []string {
+	if dir == "" {
+		return nil
+	}
+	var out []string
+	for _, part := range strings.Split(frontmatterValue(dir, "capabilities"), ",") {
+		if c := strings.TrimSpace(strings.Trim(part, `"'`)); c != "" {
+			out = append(out, c)
+		}
+	}
+	return out
 }

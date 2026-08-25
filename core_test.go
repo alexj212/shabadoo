@@ -3,10 +3,13 @@ package main
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"shabadoo/hub"
+	"shabadoo/node"
 )
 
 // keeper builds a coreKeeper whose clock and launcher are under the test's
@@ -151,5 +154,71 @@ func TestCoreBackoffGrowsAndIsCapped(t *testing.T) {
 	}
 	if got := coreBackoff(50); got != coreBackoffMax {
 		t.Errorf("backoff = %s at attempt 50, want it capped at %s", got, coreBackoffMax)
+	}
+}
+
+// Detection and declaration answer different questions, and the merge decides
+// what happens when they disagree.
+func TestNodeCapabilitiesMergeDeclarationWithDetection(t *testing.T) {
+	dir := t.TempDir()
+	write := func(front string) {
+		if err := os.WriteFile(filepath.Join(dir, "CLAUDE.md"),
+			[]byte("---\n"+front+"\n---\n# node\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Something no probe can establish is taken at its word: there is nothing
+	// to check it against, and refusing it would leave the node unable to say
+	// anything true about itself that is not a binary on PATH.
+	write("capabilities: always-on, meeting-room")
+	got := declaredCapabilities(dir)
+	if len(got) != 2 || got[0] != "always-on" || got[1] != "meeting-room" {
+		t.Fatalf("declared = %v, want [always-on meeting-room]", got)
+	}
+
+	// Quoting and spacing are the operator's business, not ours.
+	write(`capabilities: "  a , b  ,, c "`)
+	if got := declaredCapabilities(dir); len(got) != 3 {
+		t.Errorf("declared = %v, want three entries", got)
+	}
+
+	// No key, no frontmatter, no directory: all mean "declared nothing", which
+	// is what every node looks like before anyone edits its project.
+	write("description: just a description")
+	if got := declaredCapabilities(dir); len(got) != 0 {
+		t.Errorf("declared = %v with no capabilities key, want none", got)
+	}
+	if got := declaredCapabilities(""); got != nil {
+		t.Errorf("declared = %v with no core project", got)
+	}
+}
+
+// A declared capability that IS checkable and is not there gets dropped.
+// Believing it would route work to a machine that cannot do it, and the failure
+// lands after the handoff — on another machine, where it is most expensive to
+// work out what happened.
+func TestDetectionBeatsDeclarationForCheckableThings(t *testing.T) {
+	// Something certainly not installed, but inside the detectable vocabulary.
+	if !node.Detectable("gpu.nvidia") {
+		t.Skip("vocabulary changed")
+	}
+	if node.Detectable("meeting-room") {
+		t.Fatal("an unverifiable capability is claimed to be detectable")
+	}
+
+	detected := map[string]bool{}
+	for _, c := range node.Capabilities() {
+		detected[c] = true
+	}
+	if detected["gpu.nvidia"] {
+		t.Skip("this host really does have an nvidia GPU")
+	}
+
+	// The merge must not contain it, however loudly it is declared.
+	for _, c := range nodeCapabilities() {
+		if c == "gpu.nvidia" {
+			t.Error("a checkable capability that is absent was advertised anyway")
+		}
 	}
 }

@@ -64,6 +64,9 @@ func runNode(args []string) {
 		Node:    name,
 		Version: version,
 		KeyFile: *keyFile,
+		// Detected plus declared, merged here because the declaration lives in
+		// this node's own project and the node package knows nothing of those.
+		Capabilities: nodeCapabilities(),
 		// The adapter is the transport's `any`-typed seam; reportSessions itself
 		// is concretely typed so `serve` can use its result without asserting.
 	}, handleOp, func(ctx context.Context) (any, error) {

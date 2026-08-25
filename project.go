@@ -92,6 +92,18 @@ func projectName(dir string) string {
 // therefore safe. A malformed file must never break enumeration for the folders
 // around it.
 func projectDescription(root string) string {
+	return clampDescription(frontmatterValue(root, "description"))
+}
+
+// frontmatterValue reads one key from the leading `---` block of a project's
+// CLAUDE.md.
+//
+// Deliberately a strict, tiny parser rather than a YAML dependency. It
+// understands one shape — a leading fence, `key: value` on a line — and
+// anything it does not understand yields nothing, which leaves the project in
+// the state every project is in today and is therefore safe. A malformed file
+// must never break enumeration for the folders around it.
+func frontmatterValue(root, key string) string {
 	body, err := os.ReadFile(filepath.Join(root, "CLAUDE.md"))
 	if err != nil {
 		return ""
@@ -105,11 +117,11 @@ func projectDescription(root string) string {
 		if strings.TrimSpace(line) == "---" {
 			break // end of frontmatter; the key was not here
 		}
-		key, val, ok := strings.Cut(line, ":")
-		if !ok || strings.TrimSpace(key) != "description" {
+		k, val, ok := strings.Cut(line, ":")
+		if !ok || strings.TrimSpace(k) != key {
 			continue
 		}
-		return clampDescription(val)
+		return val
 	}
 	return ""
 }

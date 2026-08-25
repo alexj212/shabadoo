@@ -57,6 +57,12 @@ type Config struct {
 	// service has no interactive agent to borrow from, and spawning one from a
 	// unit file is fragile — so a daemon points at a key it owns.
 	KeyFile string
+
+	// Capabilities is what this host advertises at login. Supplied by the
+	// caller rather than computed here, because the full answer merges what this
+	// package can detect with what the node's own project declares — and this
+	// package deliberately knows nothing about projects.
+	Capabilities []string
 }
 
 // Handler executes one command locally and returns its result payload.
@@ -210,7 +216,7 @@ func (c *Client) login(ctx context.Context) error {
 			// What this machine can do. Sent at login rather than in the
 			// periodic report: it is a fact about the host, not about the
 			// moment, and it wants exactly the lifetime of the connection.
-			"capabilities": Capabilities(),
+			"capabilities": c.cfg.Capabilities,
 		})
 		if err != nil {
 			return err

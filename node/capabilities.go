@@ -92,3 +92,14 @@ func Capabilities() []string {
 	})
 	return capsList
 }
+
+// Detectable reports whether a capability is one this package can check.
+//
+// It exists so a declared capability can be refused when it is checkable and
+// absent, while an uncheckable one — "always on", "in the meeting room" — is
+// taken at its word. Without the distinction the choice would be to believe
+// everything or to allow nothing.
+func Detectable(name string) bool {
+	_, ok := software[name]
+	return ok
+}
