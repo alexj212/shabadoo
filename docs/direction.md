@@ -261,13 +261,27 @@ the meeting. Loopback on the default render endpoint captures what is playing
 while leaving playback untouched. Accepted cost: it captures *everything* —
 notification sounds and music land on the meeting track. Process-specific
 loopback (Windows 10 2004+, `ActivateAudioInterfaceAsync` with
-`AUDIOCLIENT_ACTIVATION_PARAMS`) would record only the meeting application and is
-the obvious later refinement, once the pipeline is proven end to end.
+`AUDIOCLIENT_ACTIVATION_PARAMS`) records only the meeting application and is the
+obvious refinement.
 
-**The helper is C++, cross-compiled with mingw-w64 from the Linux side**, so
-there is no MSVC and no second machine in the build: `make dist` can emit the
-`.exe` beside everything else. mingw ships the WASAPI headers and links against
-`ole32`/`uuid`.
+It is deferred for sequencing, not capability: every Windows SDK on the target
+machine ships `audioclientactivationparams.h`, so nothing blocks it. The reason
+to start system-wide is that it always works and needs no process discovery,
+and mis-targeting a process records silence — a failure you discover after the
+meeting.
+
+**The helper is C++ built with MSVC, driven from the Linux side through
+interop.** The alternative was mingw-w64, cross-compiling from Linux with no
+Microsoft toolchain at all — attractive until you notice what it risks: mingw's
+Windows SDK headers are community-maintained and lag, and the process-loopback
+declarations are exactly the kind of newer API that goes missing. The official
+SDK removes that whole class of question.
+
+It costs nothing in build ergonomics, which was mingw's real appeal. A WSL
+process can execute `cl.exe` directly, and the drive mount means a Linux path
+and a Windows path name the same file, so the build stays one command from the
+Linux side rather than a trip to another machine. Measured, not assumed: the
+compiler was invoked through interop and reported its version.
 
 **The transport is WSL–Windows interop, and it was measured rather than
 assumed.** A WSL process execs the Windows `.exe` directly and reads its stdout;
