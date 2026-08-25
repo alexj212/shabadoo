@@ -39,6 +39,23 @@ scan() {
     | grep -v 'publish-check:allow'
 }
 
+# Commit messages are as public as any tracked file, and were never checked.
+#
+# Not a theoretical gap: an account name reached a message here — quoted inside
+# the very commit that explained why the scanner had flagged it — and survived
+# until somebody went looking by hand. Removing it cost a history rewrite and a
+# force-push across sixteen tags.
+#
+# Scanned separately because the FIX is different. A file is edited; a message
+# is only fixable by rewriting history, which is cheap while a repository is
+# private and expensive once it is not. Knowing before publishing is the value.
+scan_messages() {
+  git log --format='%h %s %b' --all 2>/dev/null \
+    | grep -InEi "$1" \
+    | grep -v 'publish-check:allow' \
+    | cut -c1-160
+}
+
 # ---- structural: private by shape ------------------------------------------
 
 # 192.168.x only. 172.16/12 is where Docker allocates its default bridges, so
@@ -57,11 +74,17 @@ report 'email' "$(scan '[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}' \
 report 'home-dir' "$(scan '/(home|Users)/[a-z0-9._-]+' \
   | grep -viE '/(home|Users)/(user|operator|me|a|you|USERNAME|<)' )"
 
+# The same shapes in commit messages, which are published just as widely.
+report 'home-dir (in a commit message)' "$(scan_messages '/(home|Users)/[a-z0-9._-]+' \
+  | grep -viE '/(home|Users)/(user|operator|me|a|you|USERNAME|<)' )"
+report 'private IP (in a commit message)' "$(scan_messages '192\.168\.[0-9]+\.[0-9]+')"
+
 # ---- local: the specific names, from a file git never sees -----------------
 if [ -f .publish-deny ]; then
   while IFS= read -r tok; do
     case "$tok" in ''|'#'*) continue ;; esac
     report "$tok" "$(scan "$tok")"
+    report "$tok (in a commit message)" "$(scan_messages "$tok")"
   done < .publish-deny
 else
   echo "note: .publish-deny absent — structural checks only."

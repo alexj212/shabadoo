@@ -381,10 +381,35 @@ A session object:
 | `tmux_session` | string | send this in write bodies |
 | `index` | int | send this in write bodies |
 | `status` | string | `active` \| `idle` |
+| `pane` | int | which pane within the window; **0 unless a window has been split** |
 | `input_state` | string | `composer` \| `dialog` \| **absent** |
+| `tokens_in`, `tokens_out`, `tokens_cache` | int64 | what this session has spent; **absent** for anything with no transcript |
+| `note` | string | what the session says it is DOING, in its own words; **absent** unless set, and expires after 30 minutes |
 | `activity` | int64 | unix secs, last pane activity |
 | `pending` | int | undrained inbox count |
 | `panes`, `command`, `updated_at` | | display detail |
+
+**`pane` matters only on a window somebody has split.** It is 0 everywhere
+else, which is every window until a session spawns narrower work — and pane 0
+deliberately keeps the session id its window has always had, so nothing a client
+already stores changes.
+
+**Send it back on writes.** Omitting it means "whichever pane is active", which
+is what every client written before panes existed meant and remains the safe
+default. But a coordinator will REFUSE a write naming a pane above 0 when that
+node's agent is too old to honour it, rather than quietly writing to the active
+pane — so a 4xx there means upgrade the node, not retry without the field.
+
+**Tokens are cumulative for the session's whole transcript**, not since the
+client connected. Useful for showing what a session has cost; do not treat a
+difference between two polls as a rate, since a session that was cleared starts
+a new transcript and the number drops.
+
+**`note` is the session's own account of what it is doing**, which is the thing
+`status` cannot tell you — `active` and `idle` are tmux's view, and only the
+session knows it is waiting on a peer rather than merely quiet. It expires after
+thirty minutes, deliberately: a session that set one and then died would
+otherwise claim to be mid-task forever.
 
 **`kind` says what is running in the pane, and absence is meaningful.** A node
 on a build older than this reports nothing, which is not the same as `worker`.

@@ -69,3 +69,60 @@ func TestMobileSpecCoversHumanAPI(t *testing.T) {
 		}
 	}
 }
+
+// The same contract, one level down: a FIELD a client can read is as much part
+// of the spec as the endpoint that returns it.
+//
+// This gap is not hypothetical. `kind`, `description` and node `capabilities`
+// all shipped on the human plane while the spec said nothing about them, and
+// the endpoint test above passed the whole time — the convention was broken and
+// the guard that exists to enforce it could not see the breakage.
+//
+// Read out of the Session struct's json tags rather than a list written here,
+// for the same reason the endpoint list is extracted rather than hardcoded: a
+// list maintained by hand is written from the same stale understanding that
+// caused the drift.
+func TestMobileSpecCoversSessionFields(t *testing.T) {
+	src, err := os.ReadFile("hub/store.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec, err := os.ReadFile("docs/mobile-client.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Only the Session struct: other types in this file are not what a client
+	// reads out of /api/sessions.
+	body := string(src)
+	start := strings.Index(body, "type Session struct {")
+	if start < 0 {
+		t.Fatal("Session struct not found — this test is anchored on it")
+	}
+	end := strings.Index(body[start:], "\n}")
+	if end < 0 {
+		t.Fatal("could not find the end of the Session struct")
+	}
+	block := body[start : start+end]
+
+	tag := regexp.MustCompile("`json:\"([a-z_]+)")
+	var missing []string
+	for _, m := range tag.FindAllStringSubmatch(block, -1) {
+		field := m[1]
+		switch field {
+		// Internal plumbing a client neither sees nor needs: the coordinator
+		// fills `agent` in itself, and `updated_at` is bookkeeping.
+		case "agent", "updated_at":
+			continue
+		}
+		if !strings.Contains(string(spec), "`"+field+"`") {
+			missing = append(missing, field)
+		}
+	}
+	if len(missing) > 0 {
+		t.Errorf("these session fields are absent from docs/mobile-client.md:\n  %s\n\n"+
+			"That document is a contract with somebody building a client from another\n"+
+			"machine. A field they cannot see is one they design around the absence of.\n"+
+			"Document it, or drop it from the struct.", strings.Join(missing, ", "))
+	}
+}
