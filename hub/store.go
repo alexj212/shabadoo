@@ -377,6 +377,19 @@ const (
 
 var ErrNoRecipient = errors.New("message has no recipient")
 
+// ErrEmptyMessage is returned for a message with nothing in it.
+//
+// Reported from the field: three empty messages were accepted, stored,
+// acknowledged with an id, and delivered — so the sender believed it had handed
+// off work while the recipient received a notification containing nothing. The
+// send succeeded at every layer, which is what made it hard to see; it was only
+// caught because the recipient asked for a resend and got a second empty one.
+//
+// A handoff nobody can act on is worse than a refusal, and this is the same
+// argument that made an unresolvable recipient bounce rather than store.
+var ErrEmptyMessage = errors.New("message has no body: a send with nothing in it " +
+	"would be delivered as an empty notification and cannot be acted on")
+
 // ErrNoSuchSession is returned when a recipient cannot be resolved to a session
 // this tenant knows about.
 //
@@ -504,6 +517,9 @@ func (t *Tenant) Send(ctx context.Context, env Envelope, now time.Time) (string,
 	if env.ToSession == "" {
 		return "", ErrNoRecipient
 	}
+	if strings.TrimSpace(env.Body) == "" {
+		return "", ErrEmptyMessage
+	}
 	id, err := t.insertMessage(ctx, env, now)
 	if err != nil {
 		return "", err
@@ -525,6 +541,9 @@ func (t *Tenant) Send(ctx context.Context, env Envelope, now time.Time) (string,
 func (t *Tenant) Broadcast(ctx context.Context, env Envelope, now time.Time) (string, int, error) {
 	if env.Topic == "" {
 		return "", 0, ErrNoRecipient
+	}
+	if strings.TrimSpace(env.Body) == "" {
+		return "", 0, ErrEmptyMessage
 	}
 	env.ToSession = ""
 	id, err := t.insertMessage(ctx, env, now)

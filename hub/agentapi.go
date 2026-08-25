@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -445,12 +446,17 @@ func (h *Hub) notifyRoutes(mux *http.ServeMux) {
 // Shared by the session-facing relay above and the blocked-session watcher, so
 // both reach a phone by the same route and a deployment configures one URL
 // rather than one per producer.
+// appriseAllTag reaches every configured destination. Apprise treats tags as a
+// filter, so this is both the default and the fallback when a caller's tag
+// matches nothing.
+const appriseAllTag = "all"
+
 func postApprise(ctx context.Context, title, body, tag, typ string) error {
 	if AppriseURL == "" {
 		return fmt.Errorf("no notifier is configured")
 	}
 	if tag == "" {
-		tag = "all"
+		tag = appriseAllTag
 	}
 	if typ == "" {
 		typ = "info"
@@ -474,9 +480,19 @@ func postApprise(ctx context.Context, title, body, tag, typ string) error {
 	defer resp.Body.Close()
 	msg, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
 
+	if resp.StatusCode == http.StatusFailedDependency && tag != appriseAllTag {
+		// 424 is Apprise for "no destination matched that tag". The tag is a
+		// ROUTING filter, not a label — an unrecognised one delivers to nobody.
+		//
+		// Callers reasonably read it as a label and pass something descriptive,
+		// and the result was a notification silently reaching no one. Losing the
+		// message over a naming mistake is the wrong trade for something whose
+		// entire job is reaching a human, so it is retried unfiltered and the
+		// mistake is logged rather than charged to the reader.
+		log.Printf("hub: notification tag %q matched no destination; resending to all", tag)
+		return postApprise(ctx, title, body, appriseAllTag, typ)
+	}
 	if resp.StatusCode/100 != 2 {
-		// 424 is Apprise for "no destination matched that tag", which is a
-		// caller error worth distinguishing from the notifier being down.
 		return fmt.Errorf("notifier returned %s: %s", resp.Status, strings.TrimSpace(string(msg)))
 	}
 	return nil

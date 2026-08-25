@@ -2,6 +2,7 @@ package hub
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -718,5 +719,52 @@ func TestReplayReportsAcknowledgement(t *testing.T) {
 	}
 	if thread[0].Acked != 1 || thread[0].Recipients != 1 {
 		t.Errorf("Conversation disagrees with Replay: %+v", thread[0])
+	}
+}
+
+// An empty message must be refused, not delivered.
+//
+// From the field: three of these were accepted, stored, acknowledged with an id
+// and delivered. The sender believed it had handed off work; the recipient got a
+// notification containing nothing. It succeeded at every layer, which is what
+// made it invisible — it was only caught because the recipient asked for a
+// resend and got a second empty one.
+func TestEmptyMessagesAreRefused(t *testing.T) {
+	ctx, s, now := context.Background(), testStore(t), time.Now()
+
+	if err := s.UpsertSession(ctx, Session{
+		SessionID: "claude-target-1", Agent: "wsl", Project: "target", Alias: "target",
+	}, now); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, body := range []string{"", "   ", "\n\t\n"} {
+		_, err := s.Send(ctx, Envelope{ToSession: "claude-target-1", Body: body}, now)
+		if !errors.Is(err, ErrEmptyMessage) {
+			t.Errorf("Send with body %q returned %v, want ErrEmptyMessage", body, err)
+		}
+		if _, _, err := s.Broadcast(ctx, Envelope{Topic: "t", Body: body}, now); !errors.Is(err, ErrEmptyMessage) {
+			t.Errorf("Broadcast with body %q returned %v, want ErrEmptyMessage", body, err)
+		}
+	}
+
+	// A title is not a substitute. A subject line with no content is the same
+	// failure in a smaller form: nothing to act on.
+	if _, err := s.Send(ctx, Envelope{ToSession: "claude-target-1", Title: "just a title"}, now); !errors.Is(err, ErrEmptyMessage) {
+		t.Errorf("a title-only message was accepted: %v", err)
+	}
+
+	// And nothing was stored by any of those attempts.
+	msgs, err := s.Drain(ctx, "claude-target-1", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msgs) != 0 {
+		t.Errorf("%d empty message(s) reached the inbox", len(msgs))
+	}
+
+	// A real message still goes through — the guard must not refuse everything.
+	if _, err := s.Send(ctx, Envelope{ToSession: "claude-target-1", Body: "real work"}, now); err != nil {
+		t.Errorf("a normal message was refused: %v", err)
 	}
 }

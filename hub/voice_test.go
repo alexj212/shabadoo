@@ -326,3 +326,56 @@ func TestProviderErrorIsLoggedButNotReturned(t *testing.T) {
 		}
 	}
 }
+
+// A notification tag is a ROUTING filter, not a label. Callers reasonably read
+// it as a label and pass something descriptive, and Apprise then delivers to
+// nobody — which is how three notifications reached no one while every layer
+// reported an error nobody was watching for.
+//
+// Losing the message over a naming mistake is the wrong trade for something
+// whose entire job is reaching a human.
+func TestUnmatchedNotifyTagFallsBackToAll(t *testing.T) {
+	var tags []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var got map[string]string
+		json.NewDecoder(r.Body).Decode(&got)
+		tags = append(tags, got["tag"])
+		if got["tag"] != appriseAllTag {
+			// What Apprise does when a tag matches no destination.
+			w.WriteHeader(http.StatusFailedDependency)
+			w.Write([]byte(`{"error":"One or more notification could not be sent"}`))
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	prev := AppriseURL
+	AppriseURL = srv.URL
+	defer func() { AppriseURL = prev }()
+
+	if err := postApprise(context.Background(), "t", "b", "no-such-tag", "info"); err != nil {
+		t.Fatalf("an unmatched tag lost the notification: %v", err)
+	}
+	if len(tags) != 2 || tags[0] != "no-such-tag" || tags[1] != appriseAllTag {
+		t.Errorf("tags attempted = %v, want the caller's then the fallback", tags)
+	}
+
+	// It must not retry forever: a notifier refusing "all" is a real failure and
+	// has to surface rather than recurse.
+	tags = nil
+	srv2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var got map[string]string
+		json.NewDecoder(r.Body).Decode(&got)
+		tags = append(tags, got["tag"])
+		w.WriteHeader(http.StatusFailedDependency)
+	}))
+	defer srv2.Close()
+	AppriseURL = srv2.URL
+	if err := postApprise(context.Background(), "t", "b", "nope", "info"); err == nil {
+		t.Error("a notifier refusing everything reported success")
+	}
+	if len(tags) > 2 {
+		t.Errorf("retried %d times; the fallback must be attempted once", len(tags))
+	}
+}
