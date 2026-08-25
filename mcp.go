@@ -286,6 +286,35 @@ func (s *mcpServer) callTool(name string, rawArgs json.RawMessage) map[string]an
 			"type":  str("type"),
 		})
 
+	case "task_create":
+		if s.session == "" {
+			return toolResult("this session has no id, so it cannot hand work over", true)
+		}
+		return s.relay(ctx, "/task/create", map[string]any{
+			"from": s.session, "to": str("to"), "brief": str("brief"), "thread": str("thread"),
+		})
+
+	case "task_update":
+		return s.relay(ctx, "/task/update", map[string]any{
+			"id": str("id"), "state": str("state"), "note": str("note"),
+		})
+
+	case "task_list":
+		// Default to this session's own outstanding work. "What is on my plate"
+		// is the common question; "what did I hand out" needs asking for.
+		q := map[string]any{"include_done": args["include_done"] == true}
+		switch {
+		case str("requested_by") != "":
+			q["requested_by"] = str("requested_by")
+		case str("session") != "":
+			q["session"] = str("session")
+		case args["all"] == true:
+			// everything in the tenant
+		default:
+			q["session"] = s.session
+		}
+		return s.relay(ctx, "/task/list", q)
+
 	case "session_status_set":
 		// An empty status is a legitimate call, not a missing argument: it is
 		// how a session says it has finished rather than stopped.
@@ -353,6 +382,9 @@ func mcpTools() []mcpTool {
 	strProp := func(desc string) map[string]any {
 		return map[string]any{"type": "string", "description": desc}
 	}
+	boolProp := func(desc string) map[string]any {
+		return map[string]any{"type": "boolean", "description": desc}
+	}
 	obj := func(props map[string]any, required ...string) map[string]any {
 		if required == nil {
 			required = []string{}
@@ -407,6 +439,48 @@ func mcpTools() []mcpTool {
 			Description: "Fetch and acknowledge this session's pending messages. Draining is " +
 				"final: a drained message is never redelivered, so act on what it returns.",
 			InputSchema: obj(map[string]any{}),
+		},
+		{
+			Name: "task_create",
+			Description: "Hand a piece of work to another session AND record it, so it can " +
+				"be asked about later. Use this instead of session_send whenever you are " +
+				"asking someone to DO something rather than telling them something. The " +
+				"brief is delivered as mail, and the task is what makes the difference " +
+				"between delegating and hoping: an unanswered task is chased, an " +
+				"unanswered message is forgotten.",
+			InputSchema: obj(map[string]any{
+				"to": strProp("the project or session to hand it to, e.g. \"homelab\""),
+				"brief": strProp("what you are asking for, stated so somebody else could act " +
+					"on it without asking you a question first"),
+				"thread": strProp("optional label to group related tasks"),
+			}, "to", "brief"),
+		},
+		{
+			Name: "task_update",
+			Description: "Report where a task has got to. Move it to `active` when you pick " +
+				"it up, `blocked` with a note saying what you are stuck on, `done` when it " +
+				"is finished, or `dropped` if it should not be done after all — dropping is " +
+				"an answer, not a failure. Whoever asked is told automatically when a task " +
+				"ends, so they do not have to poll. A task left silent will be chased.",
+			InputSchema: obj(map[string]any{
+				"id":    strProp("the task id, given to you when the work arrived"),
+				"state": strProp("open, active, blocked, done, or dropped"),
+				"note": strProp("what happened, in a sentence. Matters most for `blocked`: " +
+					"a task stalled with no reason is a question for whoever asked."),
+			}, "id", "state"),
+		},
+		{
+			Name: "task_list",
+			Description: "What work is outstanding. With no arguments, what has been handed " +
+				"to THIS session. Pass `requested_by` with your own session id to answer the " +
+				"question that used to be unanswerable: what did I hand off, and where did " +
+				"it get to. Finished work is hidden unless you ask for it.",
+			InputSchema: obj(map[string]any{
+				"session":      strProp("whose plate to look at; defaults to yours"),
+				"requested_by": strProp("who asked; use your own id to see what you delegated"),
+				"include_done": boolProp("include done and dropped tasks"),
+				"all":          boolProp("every task in the tenant, whoever it belongs to"),
+			}),
 		},
 		{
 			Name: "session_status_set",

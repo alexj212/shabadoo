@@ -156,6 +156,11 @@ CREATE TABLE IF NOT EXISTS tasks (
   thread     TEXT NOT NULL DEFAULT '',
   state      TEXT NOT NULL,
   brief      TEXT NOT NULL DEFAULT '',
+  -- Who asked. The table shipped without it, which left the feature unable to
+  -- answer the question it exists for: what did I hand off that never came back.
+  requested_by TEXT NOT NULL DEFAULT '',
+  -- The assignee's last word on it — why it is blocked, or what was done.
+  note       TEXT NOT NULL DEFAULT '',
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL,
   PRIMARY KEY (tenant, id)
@@ -255,6 +260,8 @@ func (s *Store) migrate(ctx context.Context) error {
 		`ALTER TABLE sessions ADD COLUMN asking TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE sessions ADD COLUMN kind TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE sessions ADD COLUMN description TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE tasks ADD COLUMN requested_by TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE tasks ADD COLUMN note TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE devices ADD COLUMN scope TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE devices ADD COLUMN push_token TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE devices ADD COLUMN push_env TEXT NOT NULL DEFAULT ''`,

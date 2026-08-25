@@ -63,6 +63,9 @@ var relayPaths = map[string]string{
 	"/unsubscribe":       "/agent/unsubscribe",
 	"/notify":            "/agent/notify",
 	"/status":            "/agent/status",
+	"/task/create":       "/agent/task/create",
+	"/task/update":       "/agent/task/update",
+	"/task/list":         "/agent/task/list",
 }
 
 // ErrNotConnected is returned to a local caller when the agent has no live

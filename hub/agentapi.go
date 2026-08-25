@@ -37,6 +37,9 @@ func (h *Hub) AgentAPIRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /agent/unsubscribe", h.agentUnsubscribe)
 	mux.HandleFunc("GET /agent/peers", h.agentPeers)
 	mux.HandleFunc("POST /agent/status", h.agentStatus)
+	mux.HandleFunc("POST /agent/task/create", h.agentTaskCreate)
+	mux.HandleFunc("POST /agent/task/update", h.agentTaskUpdate)
+	mux.HandleFunc("POST /agent/task/list", h.agentTaskList)
 	h.notifyRoutes(mux)
 }
 
@@ -496,4 +499,148 @@ func postApprise(ctx context.Context, title, body, tag, typ string) error {
 		return fmt.Errorf("notifier returned %s: %s", resp.Status, strings.TrimSpace(string(msg)))
 	}
 	return nil
+}
+
+// Delegated work, on the session plane because the party handing something over
+// is a session rather than a person.
+//
+// Creating a task also SENDS the brief. Two calls for one act would let them
+// drift — a task nobody was told about, or a message with no record — and the
+// pair that drifts is the one that matters: work handed over with nothing
+// tracking it is exactly the situation this exists to remove.
+func (h *Hub) agentTaskCreate(w http.ResponseWriter, r *http.Request) {
+	c, ok := h.authed(r)
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	var req struct {
+		From   string `json:"from"`
+		To     string `json:"to"`
+		Brief  string `json:"brief"`
+		Thread string `json:"thread"`
+	}
+	if !readJSON(w, r, &req) {
+		return
+	}
+	if !h.guardSendRate(w, r, c.tenant, req.From) {
+		return
+	}
+	now := h.now()
+	tn := h.store.Tenant(c.tenant)
+
+	to, err := tn.ResolveSession(r.Context(), req.To, now)
+	if err != nil {
+		tn.Audit(r.Context(), AuditEntry{
+			Actor: "session:" + req.From, Action: "task.bounce",
+			Target: req.To, Detail: err.Error(),
+		}, now)
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	task, err := tn.CreateTask(r.Context(), Task{
+		SessionID: to, RequestedBy: req.From, Thread: req.Thread, Brief: req.Brief,
+	}, now)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// The brief travels as mail so it lands in the assignee's context the same
+	// way everything else does. The task id is in the body because the assignee
+	// needs it to report back, and asking it to go and look one up would be a
+	// step it can skip.
+	if _, err := tn.Send(r.Context(), Envelope{
+		FromSession: req.From, ToSession: to,
+		Title: "Task: " + firstLineOf(req.Brief),
+		Body: req.Brief + "\n\n---\nTask " + task.ID + ". Report progress with " +
+			"task_update — active when you pick it up, blocked with a reason if you " +
+			"stall, done or dropped when it ends. Something is chasing this, so a " +
+			"task left silent will be asked about.",
+		Type: "info",
+	}, now); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	h.nudge(r.Context(), c.tenant, to)
+
+	tn.Audit(r.Context(), AuditEntry{
+		Actor: "session:" + req.From, Action: "task.create", Target: to,
+		Detail: firstLineOf(req.Brief),
+	}, now)
+	writeJSON(w, task)
+}
+
+func (h *Hub) agentTaskUpdate(w http.ResponseWriter, r *http.Request) {
+	c, ok := h.authed(r)
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	var req struct {
+		ID    string `json:"id"`
+		State string `json:"state"`
+		Note  string `json:"note"`
+	}
+	if !readJSON(w, r, &req) {
+		return
+	}
+	now := h.now()
+	tn := h.store.Tenant(c.tenant)
+
+	before, _ := tn.Task(r.Context(), req.ID)
+	task, err := tn.UpdateTask(r.Context(), req.ID, req.State, req.Note, now)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Tell whoever asked, when it ends. They delegated and moved on; without
+	// this they would have to poll, which is the habit the task list exists to
+	// make unnecessary.
+	if terminalTask(task.State) && !terminalTask(before.State) && task.RequestedBy != "" {
+		body := "Task " + task.ID + " is " + task.State + ".\n\n" + task.Brief
+		if task.Note != "" {
+			body += "\n\n" + task.Note
+		}
+		if _, err := tn.Send(r.Context(), Envelope{
+			FromSession: task.SessionID, ToSession: task.RequestedBy,
+			Title: "Task " + task.State + ": " + firstLineOf(task.Brief),
+			Body:  body, Type: map[bool]string{true: "success", false: "warning"}[task.State == TaskDone],
+		}, now); err == nil {
+			h.nudge(r.Context(), c.tenant, task.RequestedBy)
+		}
+	}
+	writeJSON(w, task)
+}
+
+func (h *Hub) agentTaskList(w http.ResponseWriter, r *http.Request) {
+	c, ok := h.authed(r)
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	var req struct {
+		Session     string `json:"session"`
+		RequestedBy string `json:"requested_by"`
+		IncludeDone bool   `json:"include_done"`
+	}
+	if !readJSON(w, r, &req) {
+		return
+	}
+	tasks, err := h.store.Tenant(c.tenant).Tasks(r.Context(), req.Session, req.RequestedBy, req.IncludeDone, 0)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]any{"tasks": tasks})
+}
+
+// firstLineOf is a brief's headline, for titles and audit lines.
+func firstLineOf(s string) string {
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		s = s[:i]
+	}
+	return truncate(strings.TrimSpace(s), 80)
 }
