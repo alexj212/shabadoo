@@ -207,6 +207,10 @@ func (c *Client) login(ctx context.Context) error {
 			"signature": ssh.Marshal(sig),
 			"version":   c.cfg.Version,
 			"platform":  Platform(),
+			// What this machine can do. Sent at login rather than in the
+			// periodic report: it is a fact about the host, not about the
+			// moment, and it wants exactly the lifetime of the connection.
+			"capabilities": Capabilities(),
 		})
 		if err != nil {
 			return err

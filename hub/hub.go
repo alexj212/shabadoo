@@ -75,6 +75,7 @@ type conn struct {
 	node     string
 	token    string
 	platform string // GOOS/GOARCH, reported at login — see NodePlatform
+	caps     []string // what this host can do; lives and dies with the connection
 	expires  time.Time
 	out     chan command
 	closed  chan struct{}
@@ -305,6 +306,13 @@ type loginReq struct {
 	// would leave a host that cannot start and therefore cannot be told
 	// anything again.
 	Platform string `json:"platform,omitempty"`
+
+	// Capabilities is what this node can do — detected by the agent, so it
+	// reports what is true rather than what someone wrote down. Held for the
+	// life of the connection and cleared when it drops: a capability is a fact
+	// about a machine, so it does not age out on a timer the way a session's
+	// self-declared status does, but a node nobody can reach can do nothing.
+	Capabilities []string `json:"capabilities,omitempty"`
 }
 
 type loginResp struct {
@@ -333,6 +341,7 @@ func (h *Hub) handleLogin(w http.ResponseWriter, r *http.Request) {
 		node:     agent.Name,
 		token:    newToken(),
 		platform: req.Platform,
+		caps:     req.Capabilities,
 		expires:  now.Add(tokenTTL),
 		out:     make(chan command, sendQueue),
 		closed:  make(chan struct{}),

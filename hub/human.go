@@ -307,8 +307,14 @@ type nodeView struct {
 	// Version is the build the node reported at its last login, "" if it has
 	// never logged in. Surfaced so a silently downgraded host is visible as
 	// something other than healthy.
-	Version  string    `json:"version,omitempty"`
-	Sessions []Session `json:"sessions"`
+	Version string `json:"version,omitempty"`
+
+	// Capabilities is what this machine can do, detected by its agent. Present
+	// only while the node is connected — a node nobody can reach can do
+	// nothing, so an offline host advertising a microphone would be an
+	// invitation to route work that cannot arrive.
+	Capabilities []string  `json:"capabilities,omitempty"`
+	Sessions     []Session `json:"sessions"`
 }
 
 func (h *humanAPI) sessions(w http.ResponseWriter, r *http.Request) {
@@ -367,10 +373,11 @@ func (h *humanAPI) sessionsPayload(ctx context.Context) (map[string]any, error) 
 	nodes := make([]nodeView, 0, len(byNode))
 	for node, sessions := range byNode {
 		nodes = append(nodes, nodeView{
-			Node:     node,
-			Online:   online[node],
-			Version:  versions[node],
-			Sessions: sessions,
+			Node:         node,
+			Online:       online[node],
+			Version:      versions[node],
+			Capabilities: h.hub.NodeCapabilities(tenant, node),
+			Sessions:     sessions,
 		})
 	}
 

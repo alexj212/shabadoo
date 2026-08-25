@@ -326,6 +326,21 @@ func (h *Hub) upgradeNode(ctx context.Context, tenant, node, version string) (Re
 	return rel, err
 }
 
+// NodeCapabilities reports what a connected agent says its host can do.
+//
+// Held on the connection for the same reason as the platform: it describes the
+// machine currently answering to this node name, and a stale row would be a way
+// to route audio work to a host that no longer has a microphone. A node nobody
+// can reach can do nothing, so the answer for an offline node is nothing.
+func (h *Hub) NodeCapabilities(tenant, node string) []string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if c, ok := h.byNode[nodeKey(tenant, node)]; ok {
+		return c.caps
+	}
+	return nil
+}
+
 // NodePlatform reports a connected agent's GOOS/GOARCH, or "".
 //
 // Held on the connection rather than in the database on purpose: it is only
