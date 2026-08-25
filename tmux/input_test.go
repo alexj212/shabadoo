@@ -1,6 +1,9 @@
 package tmux
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // InputState reads another program's UI, so these cases are captured from real
 // Claude Code panes. The asymmetry matters: missing a dialog only restores the
@@ -99,5 +102,52 @@ func TestInputStateDetectsSelectListModals(t *testing.T) {
 		if got := InputState(tc.pane); got != tc.want {
 			t.Errorf("%s: InputState = %q, want %q", tc.name, got, tc.want)
 		}
+	}
+}
+
+// `session:window` is resolved by tmux to whichever pane is ACTIVE, so a
+// multi-pane window silently accepts writes aimed at a different one. That is
+// the failure pane addressing exists to remove — and it looks identical to
+// success from every side.
+func TestPaneTarget(t *testing.T) {
+	if got := paneTarget("claude", 3, 1); got != "claude:3.1" {
+		t.Errorf("paneTarget = %q, want claude:3.1", got)
+	}
+	// Negative keeps the old meaning: the active pane. That is what a caller
+	// which has never heard of panes means, and the only safe reading of
+	// silence — guessing a specific pane would send a keystroke somewhere else.
+	if got := paneTarget("claude", 3, -1); got != "claude:3" {
+		t.Errorf("paneTarget with no pane = %q, want claude:3", got)
+	}
+	if got := paneTarget("claude", 3, 0); got != "claude:3.0" {
+		t.Errorf("pane 0 = %q, want an explicit address", got)
+	}
+}
+
+// Windows() reports the active pane's command and path, which is right for a
+// single-pane window and a silent lie for any other.
+func TestParsePanes(t *testing.T) {
+	out := strings.Join([]string{
+		"claude" + FieldSep + "3" + FieldSep + "0" + FieldSep + "1" + FieldSep + "claude" + FieldSep + "111" + FieldSep + "/w/proj",
+		"claude" + FieldSep + "3" + FieldSep + "1" + FieldSep + "0" + FieldSep + "go" + FieldSep + "222" + FieldSep + "/w/proj/hub",
+	}, "\n")
+
+	panes, err := parsePanes(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(panes) != 2 {
+		t.Fatalf("parsed %d panes, want 2", len(panes))
+	}
+	// Each pane has its own directory, which is what makes a split window
+	// legible: the second pane is a different project.
+	if panes[0].Path == panes[1].Path {
+		t.Error("both panes reported the same path")
+	}
+	if !panes[0].Active || panes[1].Active {
+		t.Errorf("active flags wrong: %v %v", panes[0].Active, panes[1].Active)
+	}
+	if panes[1].Index != 1 || panes[1].Command != "go" {
+		t.Errorf("second pane = %+v", panes[1])
 	}
 }

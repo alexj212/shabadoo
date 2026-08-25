@@ -124,6 +124,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   updated_at INTEGER NOT NULL,
   tmux_session TEXT NOT NULL DEFAULT '',
   win_index    INTEGER NOT NULL DEFAULT 0,
+  pane_index   INTEGER NOT NULL DEFAULT 0,
   win_name     TEXT NOT NULL DEFAULT '',
   command      TEXT NOT NULL DEFAULT '',
   activity     INTEGER NOT NULL DEFAULT 0,
@@ -262,6 +263,7 @@ func (s *Store) migrate(ctx context.Context) error {
 		`ALTER TABLE sessions ADD COLUMN description TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE tasks ADD COLUMN requested_by TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE tasks ADD COLUMN note TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE sessions ADD COLUMN pane_index INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE devices ADD COLUMN scope TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE devices ADD COLUMN push_token TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE devices ADD COLUMN push_env TEXT NOT NULL DEFAULT ''`,
@@ -875,6 +877,10 @@ type Session struct {
 	CWD       string `json:"cwd"`
 	Alias     string `json:"alias"`
 	Window    string `json:"window"` // "<tmux session>:<index>"
+	// Pane within that window. Zero for a single-pane window, which is every
+	// window until somebody splits one — so this is additive and every existing
+	// caller keeps working by meaning what it already meant.
+	Pane      int    `json:"pane,omitempty"`
 	Status    string `json:"status"`
 	UpdatedAt int64  `json:"updated_at"`
 	Pending   int    `json:"pending"`
@@ -960,8 +966,8 @@ func (t *Tenant) UpsertSession(ctx context.Context, sess Session, now time.Time)
 	_, err := t.s.db.ExecContext(ctx, `
 		INSERT INTO sessions (tenant, session_id, agent, project, cwd, alias, window, status,
 		                      updated_at, tmux_session, win_index, win_name, command, activity, panes,
-		                      input_state, asking, kind, description)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		                      input_state, asking, kind, description, pane_index)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(tenant, session_id) DO UPDATE SET
 		  agent=excluded.agent, project=excluded.project, cwd=excluded.cwd,
 		  alias=excluded.alias, window=excluded.window, status=excluded.status,
@@ -969,11 +975,12 @@ func (t *Tenant) UpsertSession(ctx context.Context, sess Session, now time.Time)
 		  win_index=excluded.win_index, win_name=excluded.win_name,
 		  command=excluded.command, activity=excluded.activity, panes=excluded.panes,
 		  input_state=excluded.input_state, asking=excluded.asking,
-		  kind=excluded.kind, description=excluded.description`,
+		  kind=excluded.kind, description=excluded.description,
+		  pane_index=excluded.pane_index`,
 		t.id, sess.SessionID, sess.Agent, sess.Project, sess.CWD, sess.Alias,
 		sess.Window, sess.Status, now.Unix(), sess.TmuxSession, sess.Index,
 		sess.Name, sess.Command, sess.Activity, sess.Panes, sess.InputState, sess.Asking,
-		sess.Kind, sess.Description)
+		sess.Kind, sess.Description, sess.Pane)
 	return err
 }
 
@@ -983,6 +990,7 @@ func (t *Tenant) ListSessions(ctx context.Context, now time.Time) ([]Session, er
 		SELECT s.session_id, s.agent, s.project, s.cwd, s.alias, s.window, s.status,
 		       s.updated_at, s.tmux_session, s.win_index, s.win_name, s.command,
 		       s.activity, s.panes, s.input_state, s.asking, s.kind, s.description,
+		       s.pane_index,
 		       COALESCE(n.note, '')
 		  FROM sessions s
 		  LEFT JOIN session_status n
@@ -1000,7 +1008,7 @@ func (t *Tenant) ListSessions(ctx context.Context, now time.Time) ([]Session, er
 			&s2.Alias, &s2.Window, &s2.Status, &s2.UpdatedAt,
 			&s2.TmuxSession, &s2.Index, &s2.Name, &s2.Command,
 			&s2.Activity, &s2.Panes, &s2.InputState, &s2.Asking, &s2.Kind, &s2.Description,
-			&s2.Note); err != nil {
+			&s2.Pane, &s2.Note); err != nil {
 			return nil, err
 		}
 		out = append(out, s2)

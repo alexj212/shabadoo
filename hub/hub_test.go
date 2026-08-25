@@ -698,3 +698,45 @@ func TestAnUnknownNameStillBounces(t *testing.T) {
 		t.Errorf("status = %d, want 400 for a name that matches nothing", resp.StatusCode)
 	}
 }
+
+// Refuse, never degrade. An agent predating pane addressing ignores the field
+// and writes to whichever pane is active — the exact failure the addressing
+// removes, and indistinguishable from success at every layer. `upgrade --all`
+// is serial by design, so a mixed fleet happens during every upgrade.
+func TestPaneWriteRefusedOnAnOldAgent(t *testing.T) {
+	f := newHubFixture(t)
+	token := f.login(t)
+	defer f.fakeAgent(t, token, func(command) result { return result{OK: true} })()
+	ctx := context.Background()
+
+	// The fixture's login sends no protocol, so this node reads as pre-panes —
+	// which is exactly the state every deployed agent is in before an upgrade.
+	if level, connected := f.hub.NodeProtocol(DefaultTenant, "wsl"); !connected || level != ProtocolBase {
+		t.Fatalf("fixture node reports protocol %d connected=%v, want the base level", level, connected)
+	}
+
+	pane := 2
+	_, err := f.hub.Call(ctx, DefaultTenant, "wsl", "send", map[string]any{
+		"session": "claude", "window": 1, "pane": pane, "text": "hello",
+	})
+	if err == nil {
+		t.Fatal("a pane-targeted write was accepted by an agent that cannot honour it")
+	}
+	// The refusal has to be actionable: which node, and what to do.
+	for _, want := range []string{"wsl", "upgrade"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("refusal does not mention %q: %v", want, err)
+		}
+	}
+
+	// Everything that is not a pane write still works, or this would fail every
+	// operation to a node during the window before it is upgraded.
+	for _, payload := range []map[string]any{
+		{"session": "claude", "window": 1, "text": "hi"},
+		{"session": "claude", "window": 1, "pane": 0, "text": "hi"},
+	} {
+		if _, err := f.hub.Call(ctx, DefaultTenant, "wsl", "send", payload); err != nil {
+			t.Errorf("a non-pane write was refused: %v", err)
+		}
+	}
+}

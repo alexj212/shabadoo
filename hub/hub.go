@@ -74,12 +74,13 @@ type conn struct {
 	tenant   string
 	node     string
 	token    string
-	platform string // GOOS/GOARCH, reported at login — see NodePlatform
+	platform string   // GOOS/GOARCH, reported at login — see NodePlatform
 	caps     []string // what this host can do; lives and dies with the connection
+	protocol int      // what this agent's build understands; 0 predates negotiation
 	expires  time.Time
-	out     chan command
-	closed  chan struct{}
-	once    sync.Once
+	out      chan command
+	closed   chan struct{}
+	once     sync.Once
 }
 
 func (c *conn) close() {
@@ -113,9 +114,9 @@ type Hub struct {
 
 func New(auth *Authorizer, store *Store) *Hub {
 	return &Hub{
-		auth:    auth,
-		store:   store,
-		now:     time.Now,
+		auth:     auth,
+		store:    store,
+		now:      time.Now,
 		byNode:   map[string]*conn{},
 		byToken:  map[string]*conn{},
 		pending:  map[string]chan result{},
@@ -195,6 +196,17 @@ func (h *Hub) Call(ctx context.Context, tenant, node, op string, payload any) (j
 			return nil, err
 		}
 		raw = b
+	}
+
+	// Refuse rather than degrade. An agent that predates pane addressing ignores
+	// the field and writes to whichever pane is active — which is the failure
+	// this exists to remove, and is invisible from every side. `upgrade --all`
+	// is deliberately serial, so a mixed fleet is guaranteed during every
+	// upgrade rather than hypothetical.
+	if addressesAPane(raw) {
+		if err := h.RequireProtocol(tenant, node, ProtocolPanes, "addressing a pane"); err != nil {
+			return nil, err
+		}
 	}
 
 	h.mu.Lock()
@@ -321,6 +333,19 @@ type loginReq struct {
 	// anything again.
 	Platform string `json:"platform,omitempty"`
 
+	// Protocol is what this agent's build can be asked to do.
+	//
+	// Only a build stamp was exchanged before, which is a fact about a binary
+	// rather than a contract about behaviour. `upgrade --all` is deliberately
+	// serial, so mixed versions are GUARANTEED during every upgrade — and the
+	// first operation that an old node silently mishandles rather than rejects
+	// is a keystroke landing in the wrong pane, which is precisely the failure
+	// pane addressing exists to fix.
+	//
+	// Absent means 0: every build that predates this. That is a legitimate
+	// answer, not an error — it just cannot be asked for anything newer.
+	Protocol int `json:"protocol,omitempty"`
+
 	// Capabilities is what this node can do — detected by the agent, so it
 	// reports what is true rather than what someone wrote down. Held for the
 	// life of the connection and cleared when it drops: a capability is a fact
@@ -356,9 +381,10 @@ func (h *Hub) handleLogin(w http.ResponseWriter, r *http.Request) {
 		token:    newToken(),
 		platform: req.Platform,
 		caps:     req.Capabilities,
+		protocol: req.Protocol,
 		expires:  now.Add(tokenTTL),
-		out:     make(chan command, sendQueue),
-		closed:  make(chan struct{}),
+		out:      make(chan command, sendQueue),
+		closed:   make(chan struct{}),
 	}
 
 	h.mu.Lock()
@@ -579,4 +605,22 @@ func readJSON(w http.ResponseWriter, r *http.Request, v any) bool {
 		return false
 	}
 	return true
+}
+
+// addressesAPane reports whether a payload names a pane other than the first.
+//
+// Pane 0 and an absent pane both mean what every caller has always meant, so
+// neither needs a newer agent — which keeps this from failing every write to a
+// node during the window where it has not been upgraded yet.
+func addressesAPane(raw json.RawMessage) bool {
+	if len(raw) == 0 {
+		return false
+	}
+	var probe struct {
+		Pane *int `json:"pane"`
+	}
+	if json.Unmarshal(raw, &probe) != nil || probe.Pane == nil {
+		return false
+	}
+	return *probe.Pane > 0
 }

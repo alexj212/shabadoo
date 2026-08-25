@@ -326,6 +326,61 @@ func (h *Hub) upgradeNode(ctx context.Context, tenant, node, version string) (Re
 	return rel, err
 }
 
+// Protocol levels. Bumped when the coordinator gains an operation, or an
+// argument, that an older agent would MISHANDLE rather than reject.
+//
+// Not bumped for anything additive that an old build safely ignores — a level
+// that moves on every release teaches nobody anything and forces upgrades that
+// were not needed.
+const (
+	// ProtocolBase is every build before negotiation existed. Reported as 0.
+	ProtocolBase = 0
+
+	// ProtocolNegotiation is the first build that says what it understands.
+	ProtocolNegotiation = 1
+
+	// ProtocolPanes is the first build that addresses a pane rather than a
+	// window. An older agent ignores the field and writes to whichever pane is
+	// active, which is the exact failure this addressing removes — and it is
+	// indistinguishable from success at every layer.
+	ProtocolPanes = 2
+
+	// ProtocolCurrent is what this build speaks.
+	ProtocolCurrent = ProtocolPanes
+)
+
+// NodeProtocol reports what a connected agent understands, and whether it is
+// connected at all — the same empty-vs-absent distinction NodePlatform draws,
+// for the same reason: "0" and "not here" are different problems.
+func (h *Hub) NodeProtocol(tenant, node string) (level int, connected bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	c, ok := h.byNode[nodeKey(tenant, node)]
+	if !ok {
+		return 0, false
+	}
+	return c.protocol, true
+}
+
+// RequireProtocol refuses an operation a node's build cannot handle.
+//
+// **Refuse, never degrade.** Falling back to the older behaviour is what makes
+// a mixed-version fleet dangerous: the caller is told it worked, and the
+// difference between "sent to that pane" and "sent to whichever pane happened
+// to be active" is invisible until somebody reads a transcript. A refusal names
+// the node and what to do about it.
+func (h *Hub) RequireProtocol(tenant, node string, min int, what string) error {
+	level, connected := h.NodeProtocol(tenant, node)
+	if !connected {
+		return ErrAgentOffline
+	}
+	if level < min {
+		return fmt.Errorf("%s needs a newer agent on %s: it speaks protocol %d, "+
+			"this needs %d — run `shabadoo upgrade %s`", what, node, level, min, node)
+	}
+	return nil
+}
+
 // NodeCapabilities reports what a connected agent says its host can do.
 //
 // Held on the connection for the same reason as the platform: it describes the

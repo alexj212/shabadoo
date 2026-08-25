@@ -187,6 +187,64 @@ func parseWindows(out string) ([]Window, error) {
 	return windows, nil
 }
 
+// Pane is one pane inside a window.
+type Pane struct {
+	Session string `json:"session"`
+	Window  int    `json:"window"`
+	Index   int    `json:"index"`
+	Active  bool   `json:"active"`
+	Command string `json:"command"`
+	PID     int    `json:"pid"`
+	Path    string `json:"path"`
+}
+
+// Panes returns every pane across every session.
+//
+// Windows() reports the ACTIVE pane's command, path and pid, which is the right
+// answer for a single-pane window and a silent lie for any other. This is what
+// makes a split window legible: each pane has its own working directory, and
+// therefore its own project.
+func Panes(ctx context.Context) ([]Pane, error) {
+	out, err := run(ctx, "list-panes", "-a", "-F",
+		strings.Join([]string{
+			"#{session_name}", "#{window_index}", "#{pane_index}",
+			"#{pane_active}", "#{pane_current_command}", "#{pane_pid}",
+			"#{pane_current_path}",
+		}, FieldSep))
+	if err != nil {
+		if noServer(err, out) {
+			return []Pane{}, nil
+		}
+		return nil, err
+	}
+	return parsePanes(out)
+}
+
+// parsePanes splits `list-panes` output, separated from the call for the same
+// reason parseWindows is: the locale-mangling failure is testable without tmux.
+func parsePanes(out string) ([]Pane, error) {
+	var panes []Pane
+	unparsed := 0
+	for _, line := range splitLines(out) {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		f := strings.SplitN(line, FieldSep, 7)
+		if len(f) < 7 {
+			unparsed++
+			continue
+		}
+		panes = append(panes, Pane{
+			Session: f[0], Window: atoi(f[1]), Index: atoi(f[2]),
+			Active: f[3] == "1", Command: f[4], PID: atoi(f[5]), Path: f[6],
+		})
+	}
+	if len(panes) == 0 && unparsed > 0 {
+		return nil, unparsedError("pane", unparsed, out)
+	}
+	return panes, nil
+}
+
 // unparsedError explains output that tmux produced but this parser could not
 // split. It exists because the alternative — dropping the rows and returning an
 // empty list — is indistinguishable from a host with nothing running, and that
@@ -211,14 +269,40 @@ func target(session string, window int) string {
 	return session + ":" + strconv.Itoa(window)
 }
 
+// paneTarget addresses a specific pane.
+//
+// `session:window` is resolved by tmux to whichever pane is ACTIVE, so a
+// multi-pane window silently accepts writes aimed at a different one. That is
+// the bug this exists to remove: a keystroke landing in the wrong pane looks
+// exactly like one landing in the right pane, from every side.
+//
+// A negative pane keeps the old meaning — the active pane — which is what a
+// caller that has never heard of panes wants and is the only safe answer when
+// nobody said which.
+func paneTarget(session string, window, pane int) string {
+	if pane < 0 {
+		return target(session, window)
+	}
+	return target(session, window) + "." + strconv.Itoa(pane)
+}
+
 // Select makes the given window the active one in its session, switching the
 // attached client's view to it.
-func Select(ctx context.Context, session string, window int) error {
+func Select(ctx context.Context, session string, window, pane int) error {
 	if session == "" {
 		return fmt.Errorf("session required")
 	}
 	if out, err := run(ctx, "select-window", "-t", target(session, window)); err != nil {
 		return fmt.Errorf("select-window: %s", firstLine(out))
+	}
+	// Selecting the window is not enough once a window holds more than one
+	// pane: the keyboard follows the ACTIVE pane, so landing on the window and
+	// leaving the wrong pane focused is the same class of miss this addressing
+	// exists to remove.
+	if pane >= 0 {
+		if out, err := run(ctx, "select-pane", "-t", paneTarget(session, window, pane)); err != nil {
+			return fmt.Errorf("select-pane: %s", firstLine(out))
+		}
 	}
 	return nil
 }
@@ -384,14 +468,14 @@ func stripBox(line string) string {
 // Key names are passed to tmux verbatim, so this can send any key the terminal
 // can — including C-c. That is the point: answering a prompt from a phone
 // needs the same keys the keyboard has.
-func SendRawKeys(ctx context.Context, session string, window int, keys []string) error {
+func SendRawKeys(ctx context.Context, session string, window, pane int, keys []string) error {
 	if session == "" {
 		return fmt.Errorf("session required")
 	}
 	if len(keys) == 0 {
 		return fmt.Errorf("keys required")
 	}
-	args := append([]string{"send-keys", "-t", target(session, window)}, keys...)
+	args := append([]string{"send-keys", "-t", paneTarget(session, window, pane)}, keys...)
 	if out, err := run(ctx, args...); err != nil {
 		return fmt.Errorf("send-keys %v: %s", keys, firstLine(out))
 	}
@@ -407,11 +491,11 @@ func SendRawKeys(ctx context.Context, session string, window int, keys []string)
 // names, so a message containing "Enter" or "C-c" is typed verbatim rather
 // than acted on. Args are passed via exec without a shell, so there is no
 // shell-injection surface; "--" guards against text that starts with "-".
-func SendText(ctx context.Context, session string, window int, text string, enter bool) error {
+func SendText(ctx context.Context, session string, window, pane int, text string, enter bool) error {
 	if session == "" {
 		return fmt.Errorf("session required")
 	}
-	t := target(session, window)
+	t := paneTarget(session, window, pane)
 	// Clear anything already on the pane's input line first, so the sent text
 	// replaces it rather than appending to whatever was half-typed there.
 	if out, err := run(ctx, "send-keys", "-t", t, "C-u"); err != nil {
@@ -433,14 +517,14 @@ func SendText(ctx context.Context, session string, window int, text string, ente
 // SendCommand submits a command line (e.g. a slash command like "/clear" or
 // "/remote-control") to the pane. It first sends C-u to clear anything the
 // pane already has on its input line, types the command literally, then Enter.
-func SendCommand(ctx context.Context, session string, window int, cmd string) error {
+func SendCommand(ctx context.Context, session string, window, pane int, cmd string) error {
 	if session == "" {
 		return fmt.Errorf("session required")
 	}
 	if cmd == "" {
 		return fmt.Errorf("command required")
 	}
-	t := target(session, window)
+	t := paneTarget(session, window, pane)
 	if out, err := run(ctx, "send-keys", "-t", t, "C-u"); err != nil {
 		return fmt.Errorf("send-keys C-u: %s", firstLine(out))
 	}
@@ -458,11 +542,11 @@ func SendCommand(ctx context.Context, session string, window int, cmd string) er
 // When color is true it includes ANSI SGR escape sequences (capture-pane -e)
 // so the caller can render the terminal's colors. Read-only — capture-pane
 // does not disturb the pane.
-func Capture(ctx context.Context, session string, window, history int, color bool) (string, error) {
+func Capture(ctx context.Context, session string, window, pane, history int, color bool) (string, error) {
 	if session == "" {
 		return "", fmt.Errorf("session required")
 	}
-	args := []string{"capture-pane", "-p", "-t", target(session, window)}
+	args := []string{"capture-pane", "-p", "-t", paneTarget(session, window, pane)}
 	if color {
 		args = append(args, "-e")
 	}

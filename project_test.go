@@ -158,3 +158,24 @@ func TestKindOf(t *testing.T) {
 		t.Error("an unset core path matched a window")
 	}
 }
+
+// Session ids are how mail is addressed, so renaming them all at once would
+// orphan every undrained handoff. Pane 0 keeps exactly the id its window has
+// always had; only extra panes take a suffix, so nothing changes until somebody
+// actually splits a window.
+func TestPaneZeroKeepsTheExistingSessionID(t *testing.T) {
+	w := tmux.Window{Name: "iptv-wsl-10cac2b9", FriendlyName: "iptv-wsl"}
+
+	if got := paneSessionID(w, 0); got != "claude-iptv-wsl-10cac2b9" {
+		t.Errorf("pane 0 id = %q — this must not change", got)
+	}
+	if got := paneSessionID(w, -1); got != "claude-iptv-wsl-10cac2b9" {
+		t.Errorf("an unspecified pane changed the id: %q", got)
+	}
+	if got := paneSessionID(w, 1); got != "claude-iptv-wsl-10cac2b9.1" {
+		t.Errorf("pane 1 id = %q", got)
+	}
+	if paneAlias("iptv-wsl", 0) != "iptv-wsl" || paneAlias("iptv-wsl", 2) != "iptv-wsl.2" {
+		t.Error("alias suffixing is wrong")
+	}
+}

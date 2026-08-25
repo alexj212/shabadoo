@@ -24,7 +24,9 @@ import (
 	"time"
 
 	"golang.org/x/crypto/ssh"
+
 	"golang.org/x/crypto/ssh/agent"
+	"shabadoo/hub"
 )
 
 const (
@@ -217,6 +219,11 @@ func (c *Client) login(ctx context.Context) error {
 			// periodic report: it is a fact about the host, not about the
 			// moment, and it wants exactly the lifetime of the connection.
 			"capabilities": c.cfg.Capabilities,
+			// What this build understands, so the coordinator can REFUSE an
+			// operation an older agent would mishandle rather than let it
+			// silently do the wrong thing. Imported from hub so there is one
+			// definition: two constants that must agree are two that will not.
+			"protocol": hub.ProtocolCurrent,
 		})
 		if err != nil {
 			return err
