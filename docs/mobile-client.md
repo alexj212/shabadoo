@@ -382,12 +382,26 @@ A session object:
 | `index` | int | send this in write bodies |
 | `status` | string | `active` \| `idle` |
 | `pane` | int | which pane within the window; **0 unless a window has been split** |
+| `tools_stale` | bool | **absent unless true** — this session's tool surface predates the running agent |
 | `input_state` | string | `composer` \| `dialog` \| **absent** |
 | `tokens_in`, `tokens_out`, `tokens_cache` | int64 | what this session has spent; **absent** for anything with no transcript |
 | `note` | string | what the session says it is DOING, in its own words; **absent** unless set, and expires after 30 minutes |
 | `activity` | int64 | unix secs, last pane activity |
 | `pending` | int | undrained inbox count |
 | `panes`, `command`, `updated_at` | | display detail |
+
+**`tools_stale` means this session needs restarting to see new tools.**
+
+A session's MCP tool surface is fixed at the moment it starts. Upgrading the
+agent does nothing for anything already running, so a release that adds a tool
+reaches only sessions started afterwards — and the session itself cannot tell,
+which is the worst place for that fact to hide. It was found by a session being
+told about three new tools and not finding any of them.
+
+Worth surfacing: a badge on the row, and "restart to pick up new tools" rather
+than anything alarming. It is not an error and nothing is broken — the session
+works exactly as it did, it simply cannot reach anything added since it began.
+Recycling the window is the whole fix.
 
 **`pane` matters only on a window somebody has split.** It is 0 everywhere
 else, which is every window until a session spawns narrower work — and pane 0

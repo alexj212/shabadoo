@@ -151,6 +151,7 @@ func reportSessions(ctx context.Context) ([]hub.Session, error) {
 		return nil, err
 	}
 	core := coreProjectPath()
+	stale := staleToolPanes()
 
 	// Panes, not windows. A window's report carries the ACTIVE pane's command,
 	// path and pid, which is right for a single-pane window and a silent lie for
@@ -179,6 +180,7 @@ func reportSessions(ctx context.Context) ([]hub.Session, error) {
 					InputState:  state,
 					Asking:      asking,
 					Kind:        kindOf(w, core),
+					ToolsStale:  stale[pn.PID],
 					TokensIn:    tok.Input,
 					TokensOut:   tok.Output,
 					TokensCache: tok.CacheRead + tok.CacheWrite,
