@@ -282,3 +282,44 @@ func TestUninstallKeepsStateWithoutPurge(t *testing.T) {
 		t.Fatalf("uninstall removed the agent key without --purge: %v", err)
 	}
 }
+
+// --purge removes the state directory, and the node's own project lives inside
+// it. That project is hand-written knowledge about a machine — the same class
+// as the env file, which setup scaffolds and never overwrites because it does
+// not own it. Not owning something on the way in means not deleting it on the
+// way out.
+//
+// This calls stepState, never run(): run() disables real system services, and
+// an earlier draft of a test in this file uninstalled the developer's own node.
+func TestPurgeKeepsTheNodeProject(t *testing.T) {
+	state := t.TempDir()
+	label := hostLabel()
+	if label == "" {
+		t.Skip("no host label on this machine")
+	}
+
+	project := filepath.Join(state, label)
+	if err := os.MkdirAll(project, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	claudeMD := filepath.Join(project, "CLAUDE.md")
+	for _, f := range []string{claudeMD, filepath.Join(state, "hub.db"), filepath.Join(state, "agent_key")} {
+		if err := os.WriteFile(f, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	u := &uninstall{stateDir: state, purge: true}
+	u.stepState()
+
+	if _, err := os.Stat(claudeMD); err != nil {
+		t.Errorf("purge destroyed the node's own project: %v", err)
+	}
+	// ...and it really did purge the rest, or the test would pass by doing
+	// nothing at all.
+	for _, gone := range []string{filepath.Join(state, "hub.db"), filepath.Join(state, "agent_key")} {
+		if _, err := os.Stat(gone); err == nil {
+			t.Errorf("%s survived --purge", filepath.Base(gone))
+		}
+	}
+}

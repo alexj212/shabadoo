@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -116,5 +117,35 @@ func TestClaudeCommandCarriesAlias(t *testing.T) {
 	want := "claude --dangerously-skip-permissions -n 'homelab-wsl' --remote-control 'homelab-wsl'"
 	if got != want {
 		t.Errorf("claudeCommand =\n  %q\nwant\n  %q", got, want)
+	}
+}
+
+// The node's own main project is named for its host, so the ordinary
+// "<project>-<host>" formula would render it "wsl-wsl". Said twice it is noise
+// in every list an operator reads.
+//
+// This is a change to a compatibility contract, so it is deliberately narrow:
+// it differs ONLY when a folder's base name already is the host label, and no
+// window with that shape existed on any node when it was made. Every other name
+// is byte-identical to what it was, which the vectors above pin.
+func TestWindowNameDoesNotRepeatTheHostLabel(t *testing.T) {
+	c := launchConfig{HostLabel: "wsl"}
+
+	if got := c.sessionAlias("/var/lib/shabadoo/wsl"); got != "wsl" {
+		t.Errorf("core project alias = %q, want %q", got, "wsl")
+	}
+	if got := c.sessionAlias("/c/projects/iptv"); got != "iptv-wsl" {
+		t.Errorf("ordinary alias = %q, want %q — the common case must not change", got, "iptv-wsl")
+	}
+
+	// The hash still disambiguates, so two different folders that both end in
+	// the host label remain distinct windows.
+	a := c.windowName("/var/lib/shabadoo/wsl")
+	b := c.windowName("/somewhere/else/wsl")
+	if a == b {
+		t.Errorf("two different folders produced the same window name: %q", a)
+	}
+	if !strings.HasPrefix(a, "wsl-") || strings.HasPrefix(a, "wsl-wsl-") {
+		t.Errorf("core window name = %q, want a single host label", a)
 	}
 }

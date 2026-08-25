@@ -147,8 +147,24 @@ func unquoteEnvValue(v string) string {
 // host segment disambiguates the same project across hosts in the session list.
 func (c launchConfig) windowName(cwd string) string {
 	sum := sha1.Sum([]byte(cwd))
-	return fmt.Sprintf("%s-%s-%s",
-		sanitizeLabel(filepath.Base(cwd)), c.HostLabel, hex.EncodeToString(sum[:])[:8])
+	return fmt.Sprintf("%s-%s", c.labelFor(cwd), hex.EncodeToString(sum[:])[:8])
+}
+
+// labelFor is the readable half of a window's name: "<project>-<host>", except
+// for the node's own main project, which is NAMED for the host and would
+// otherwise render as "wsl-wsl". Saying it twice is noise in every list the
+// operator reads.
+//
+// Safe to special-case despite windowName being a compatibility contract: it
+// only differs for a folder whose base name already is the host label, and no
+// such window exists on any node — checked before it was written, because
+// changing this formula orphans every window that used the old one.
+func (c launchConfig) labelFor(cwd string) string {
+	base := sanitizeLabel(filepath.Base(cwd))
+	if base == c.HostLabel {
+		return base
+	}
+	return base + "-" + c.HostLabel
 }
 
 // sessionAlias is the human-readable half of the window name, used for the
@@ -156,7 +172,7 @@ func (c launchConfig) windowName(cwd string) string {
 // Collisions are possible across two folders sharing a basename; that is
 // accepted for readability, as it was in the script.
 func (c launchConfig) sessionAlias(cwd string) string {
-	return fmt.Sprintf("%s-%s", sanitizeLabel(filepath.Base(cwd)), c.HostLabel)
+	return c.labelFor(cwd)
 }
 
 // hasTranscripts reports whether Claude has prior history for this folder,

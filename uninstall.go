@@ -135,6 +135,31 @@ func (u *uninstall) run() {
 
 // stepState decides what happens to the directories setup did not generate.
 //
+// purgeStateExceptNodeProject empties the state directory but leaves this
+// node's own project behind, returning its path when one was found.
+func (u *uninstall) purgeStateExceptNodeProject() string {
+	keep := hostLabel()
+	entries, err := os.ReadDir(u.stateDir)
+	if err != nil {
+		// Nothing readable there: fall back to the blunt removal so an
+		// unreadable directory is still reported rather than silently skipped.
+		u.removeAll(u.stateDir)
+		return ""
+	}
+	kept := ""
+	for _, e := range entries {
+		if keep != "" && e.IsDir() && e.Name() == keep {
+			kept = filepath.Join(u.stateDir, e.Name())
+			continue
+		}
+		u.removeAll(filepath.Join(u.stateDir, e.Name()))
+	}
+	if kept == "" {
+		u.removeAll(u.stateDir) // nothing to preserve: take the directory too
+	}
+	return kept
+}
+
 // Split out of run() so it is testable: run() disables and removes real
 // system services, which is not something a test may do. See the note in
 // setup_test.go — an earlier draft of that test called run() and uninstalled
@@ -146,7 +171,20 @@ func (u *uninstall) stepState() {
 		// and takes the audit log — the entire record of who drove which pane —
 		// with it. That is a decision, not a cleanup.
 		u.warn("--purge removes enrolled device tokens and the audit log; they are not recoverable")
-		u.removeAll(u.stateDir)
+
+		// The node's own project sits inside the state directory, and purge
+		// must not take it. Its CLAUDE.md and memory are hand-written knowledge
+		// about a machine — the same class as the env file and ~/.claude, which
+		// setup scaffolds and never overwrites precisely because it does not own
+		// them. Not owning something on the way in means not deleting it on the
+		// way out.
+		//
+		// So the state directory is emptied entry by entry rather than removed
+		// whole. `removeAll(stateDir)` would be shorter and would silently
+		// destroy the one thing in there nobody can regenerate.
+		if kept := u.purgeStateExceptNodeProject(); kept != "" {
+			u.report("kept", "%s (this node's own project — not installed by setup's payload)", kept)
+		}
 	} else {
 		u.report("kept", "%s (agent key, hub.db, authorized_agents) — --purge to remove", u.stateDir)
 	}

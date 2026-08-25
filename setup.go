@@ -142,6 +142,7 @@ func (s *setup) run() {
 		{"deps", s.stepDeps, true},
 		{"env", s.stepEnv, true},
 		{"config", s.stepConfig, true},
+		{"node", s.stepNodeProject, true},
 		{"service", s.stepService, s.service},
 		{"boot", s.stepBoot, s.boot},
 		{"caddy", s.stepCaddy, s.caddy},
@@ -329,6 +330,72 @@ export CLAUDE_HOST_LABEL=%s
 `, rawHostname(), hostLabel())
 
 	return s.installFile(dst, []byte(body), 0o644)
+}
+
+// stepNodeProject scaffolds this machine's own project — the directory whose
+// session speaks for the node.
+//
+// It lives at <state dir>/<host label> because the agent already holds both
+// halves and can derive the path with nothing to configure and nothing to keep
+// in sync. It is named for the host because addressing the machine and
+// addressing its supervisor should be the same act.
+//
+// Scaffolded only when absent, exactly like the env file: what goes in it is
+// knowledge about a machine, written by whoever knows the machine. This
+// installs a starting point and then never touches it again — not owning it is
+// also why `uninstall --purge` leaves it behind.
+func (s *setup) stepNodeProject() error {
+	label := hostLabel()
+	if label == "" {
+		s.report("skipped", "no host label, so this node has no project name")
+		return nil
+	}
+	dir := filepath.Join(s.stateDir, label)
+	dst := filepath.Join(dir, "CLAUDE.md")
+
+	if _, err := os.Stat(dst); err == nil {
+		s.report("preserved", "%s already exists", dst)
+		return nil
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	if s.dryRun {
+		s.report("would create", "%s", dst)
+		return nil
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(dst, []byte(nodeProjectTemplate(label)), 0o644); err != nil {
+		return err
+	}
+	s.report("created", "%s", dst)
+	return nil
+}
+
+// nodeProjectTemplate is a starting point, not a format. The frontmatter
+// description is the one machine-read part — it is what a router consults to
+// decide whether work belongs to this machine — so it is filled in with
+// something true rather than left as a placeholder nobody edits.
+func nodeProjectTemplate(label string) string {
+	return "---\n" +
+		"description: Use for anything about the " + label + " machine itself — what is installed, what it can do, and starting or stopping sessions on it.\n" +
+		"---\n\n" +
+		"# " + label + "\n\n" +
+		"This machine's own project. Its session is " + label + "'s core session: it\n" +
+		"knows the environment, and it is the only thing that starts sessions here.\n\n" +
+		"Keep it cheap. It is always running, so a context that fills with the\n" +
+		"details of finished work is the one problem no mechanism here solves.\n" +
+		"Route and decide; delegate the doing.\n\n" +
+		"## Environment\n\n" +
+		"What is installed, where things live, what is peculiar about this host.\n\n" +
+		"## Capabilities\n\n" +
+		"What this machine can do that others cannot — an audio input, a GPU, a\n" +
+		"platform toolchain, being always on. Declared here; some are also detected.\n\n" +
+		"## Projects\n\n" +
+		"Nothing to maintain by hand: every project describes itself in the\n" +
+		"frontmatter of its own CLAUDE.md, and the live session list is the\n" +
+		"registry. A written copy here would only go stale.\n"
 }
 
 func (s *setup) stepConfig() error {
