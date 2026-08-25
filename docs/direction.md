@@ -73,11 +73,40 @@ One directory per node holds that node's configuration and knows its
 environment: what is installed, what the machine can do, where things live, what
 is peculiar about it. Its session is the node's **core session** — the
 addressable "you" of that machine, always running, the supervisor of what runs
-there, and the only actor permitted to start sessions on it.
+there, and the only actor permitted to start sessions on it. It runs in a tmux
+window like every other session, and it can be given instructions.
 
 No new concept is needed: the thing that knows the machine is a project like any
 other, with its own `CLAUDE.md` and memory, loaded only by the session that needs
 it.
+
+**It is named for the host and lives in the agent's own state directory** —
+`<shabadoo-dir>/<host label>/`. The name matters because addressing the machine
+and addressing its supervisor should be the same act: mail to `wsl` reaches the
+session that speaks for wsl. The location matters for a duller and better
+reason — **the agent already knows that path**. State directory plus host label
+derives it with no discovery, no configuration and nothing to keep in sync, and
+both halves are things the agent is already holding.
+
+Two consequences follow that would otherwise be found the hard way:
+
+- **`uninstall --purge` must not remove it.** Purge deletes the state directory
+  outright, warning about device tokens and the audit log. A node's `CLAUDE.md`
+  and memory are neither: they are hand-written knowledge about a machine, in the
+  same class as the env file and `~/.claude` — which `setup` scaffolds but never
+  overwrites, precisely because it does not own them. Not owning something on the
+  way in means not deleting it on the way out.
+- **The core session is exempt from deactivation.** Every other session may exit
+  and stay down until something needs it, but only the core session may start
+  sessions on its node — so a core session that exited and stayed down would
+  leave that machine unable to start anything, recoverable only by walking to it.
+  The watchdog always restores it. "Always running" is load-bearing, not a
+  preference.
+
+One wrinkle to handle rather than inherit: window names and aliases are built
+from a folder's base name plus the host label, which would render this project as
+`wsl-wsl`. When a project's name already is the host label, it should not be said
+twice.
 
 **A node is a machine that runs sessions, and the coordinator is deliberately
 not one.** It stays a single job: it is already the single point of failure for
@@ -357,13 +386,9 @@ capture boundary would make it unrecoverable downstream.
 
 ## Still open
 
-Everything else that was open has been decided and folded into the text above.
-What remains is one naming choice.
+Nothing structural. Every question raised while writing this was put to the
+operator and answered, and the answers are in the text above with the costs they
+carry.
 
-- **What each node's main project is called.** Only two machines need one today —
-  the coordinator is not a node, and no other host runs sessions. Consistency
-  matters more than the name: the same convention on every machine, so a session
-  can find the node's main project without being told where it is. The obvious
-  candidate is a directory named for the node's own host label, holding that
-  machine's `CLAUDE.md`, its memory, and its capability declaration. Nothing
-  turns on it except that it be the same everywhere.
+What remains is the work itself — none of which is started, and none of which
+should begin without re-reading the decision it depends on.
