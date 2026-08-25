@@ -419,6 +419,12 @@ and a Windows path name the same file, so the build stays one command from the
 Linux side rather than a trip to another machine. Measured, not assumed: the
 compiler was invoked through interop and reported its version.
 
+**Select a toolchain by completeness, not by version.** Found while building the
+recorder against this: an installation can have `vcvars64.bat` and lack the
+`vcvarsall.bat` it calls. "Newest wins" then chooses one that cannot compile and
+fails a level down, naming the wrong file — an afternoon lost to a message that
+points somewhere else. Probe for both.
+
 **The transport is WSL–Windows interop, and it was measured rather than
 assumed.** A WSL process execs the Windows `.exe` directly and reads its stdout;
 all 256 byte values survive the pipe intact, with no CRLF translation. That
