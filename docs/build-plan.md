@@ -4,8 +4,44 @@
 says **in what order, and why that order** — and it goes stale as things ship,
 which is the difference between the two.
 
-Nothing here is built. Every phase is independently useful and independently
-abandonable: stopping after any one of them leaves a system that works.
+Every phase is independently useful and independently abandonable: stopping
+after any one of them leaves a system that works.
+
+## Where this stands
+
+| Phase | | Status |
+|---|---|---|
+| **0** | the window diff | **shipped** — v0.2.0 |
+| **1** | `kind`, and projects that describe themselves | **shipped** — v0.2.0 |
+| **2** | the node's main project and its core session | **shipped** — v0.2.0 |
+| **3** | lifecycle, deferred delivery, the loop guard | **shipped** — v0.3.0 |
+| **4** | tasks, and a reaper | not started |
+| **5** | protocol negotiation | not started |
+| **6** | pane addressing | not started |
+| **7** | token accounting | not started |
+
+Running on both nodes and the coordinator, with a core session live on each
+machine. Phases 4-7 are untouched.
+
+**Three things came out differently from the plan**, and each is written up in
+its phase below rather than quietly corrected:
+
+- Phase 2 was to hang the core-session restart on the window diff. It asks
+  whether the session is running *now* instead — "always running" is a state,
+  and asking the state also catches an agent that starts while the session is
+  already down, and a relaunch that silently failed.
+- Phase 3's loop guard was to be message provenance. There is no mechanical
+  causal link between a message received and one later sent, so only the sender
+  could supply it — and a guard that depends on the sender to declare itself is
+  not a guard. It is a rate limit.
+- Capabilities were to be reported upward by the core session. Once Phase 1 gave
+  the agent a structured frontmatter parser, reading the file directly removed
+  an endpoint, a storage decision and a lifecycle rule.
+
+**Two defects arrived from the field rather than from tests**, both fixed: an
+empty message was accepted, stored and delivered while looking successful at
+every layer, and a notification tag that matched no destination lost the
+notification rather than falling back.
 
 ## The ordering principle
 

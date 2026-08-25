@@ -239,6 +239,14 @@ typing a code becomes annoying.
 | `main.go`            | Subcommand dispatch (serve / node / hub / pair / sessions / folders / open / send / keys / setup / doctor). |
 | `cmd.go`             | `node` and `hub` wiring: flags, units' entry points.   |
 | `cli.go`             | Operator CLI over the human API, authenticating with a device token. |
+| `project.go`         | Project identity: which directory owns a session, its path-derived name, and the one-line description read from that directory's `CLAUDE.md` frontmatter. |
+| `watch.go`           | The agent's window diff — a window that was present and is now gone is an event. Foundation under deactivation and core-session recovery. |
+| `core.go`            | Keeps this node's core session running, with backoff; merges detected and declared capabilities. |
+| `deactivate.go`      | A session closed on purpose stays closed. Per-host state beside the boot list. |
+| `inbox.go`           | `shabadoo inbox` — drains this session's mail for a prompt hook. |
+| `node/capabilities.go` | What this host can do, detected from a curated toolchain vocabulary. |
+| `hub/ratelimit.go`   | A windowed per-key limiter, shared by the voice mint and the message loop guard. |
+| `hub/stopped.go`     | Reaching a project that exists but is not running: find it, store the mail against the id it will have, ask that node's core session. |
 | `ops.go`             | The agent's command handlers — the seam to tmux/claudelog.      |
 | `launch.go`          | Launcher core: env file, window naming, launch, window resolution. Every path that starts a window goes through it. |
 | `win.go`             | Local commands: `attach`, `win list/open/close/reopen/clear`, `boot`. |
@@ -406,6 +414,86 @@ human-readable line. What it does:
 | this binary is **unstamped** (plain `go build`) over a stamped one | **refuses** — same hazard from the other side |
 | installed binary predates `version --json`, or is not this program | installs; "cannot tell" must not become "refuse" |
 | nothing installed yet | installs — the fresh-machine case is never blocked |
+
+## Nodes, projects and sessions (phases 0-3 of `docs/direction.md`)
+
+The system used to see one kind of thing: a tmux window. These four changes make
+it see what is actually there. **`docs/direction.md`** is why; this is what runs.
+
+**A session has a `kind`** — `claude`, `worker`, or `core`. The table used to
+claim every window held a Claude session, so `top` in one reported itself as a
+project, and `ResolveSession` only passed `claude-`-prefixed ids so a non-Claude
+tool could not be addressed at all. Classification keys on the launcher's 8-hex
+window suffix, **not** the pane command: tmux misreports that on macOS, where a
+real session reads as `2_1_220`.
+
+**A project is a directory, named by path.** Its root is the nearest ancestor
+`CLAUDE.md` **that is also a git root** — the git qualifier is load-bearing, or a
+`CLAUDE.md` in a workspace or home directory swallows every project beneath it.
+A session scoped into a subfolder reports `shabadoo/hub` rather than a bare `hub`
+belonging to nobody. Checked before shipping that no existing project was
+renamed, because project names are how mail is addressed.
+
+**A project describes itself** in one line of its `CLAUDE.md` frontmatter
+(`description:`). It is the routing card, and it is trigger text rather than a
+summary — *when should this be reached for* — because if sessions route work to
+each other then the quality of the description IS the quality of the routing. A
+vague line does not fail loudly; it delivers work to the wrong expert.
+
+**A node reports what it can do.** The agent detects a curated toolchain
+vocabulary (`go`, `ffmpeg`, `gpu.nvidia`, `ios.build`, …) — presence only, no
+versions, since "can this node build Go" is the routing question and "which Go"
+is answerable by whoever gets the work. The node's own project declares what no
+probe can establish (`always-on`, `apple-toolchain`). **Detection wins on
+conflict**: a declared capability that is checkable and absent is dropped, not
+believed, because the cost of believing it lands after a handoff.
+
+### Each node has a core session
+
+`<shabadoo-dir>/<host label>/` — a project like any other, holding what that
+machine knows about itself. The agent derives the path from state directory plus
+host label, so there is nothing to configure. `setup` scaffolds it when absent
+and never again; **`uninstall --purge` skips it**, because hand-written knowledge
+about a machine is the same class as the env file.
+
+It is the addressable "you" of that machine and the only thing permitted to start
+sessions there. **The agent restarts it** — one report cycle rather than the
+ten-minute watchdog — with backoff, or a core session that fails instantly turns
+its supervisor into the outage. It is exempt from deactivation: marking the only
+thing that may start sessions as deliberately not running is a deadlock.
+
+Keep it cheap. Always-on plus unbounded context is the one problem no mechanism
+here solves; it routes and decides, and delegates the doing.
+
+### A closed session stays closed, and mail still reaches it
+
+An exit records intent in a file beside the boot list, and `boot` honours it —
+otherwise the watchdog reopens within ten minutes, which defeats closing one to
+free resources. **Opening clears it**: the file says "do not start this on your
+own", never "refuse to start this".
+
+Mail to a closed project no longer bounces. Every startable folder carries the
+session id it *would* have, so the message is stored against it and drains when
+that session starts. **Stored first, core session asked second** — the message is
+safe whatever that session decides, so a slow decision costs latency rather than
+a handoff. The coordinator never starts it directly: otherwise any peer could
+spend a machine's resources by writing to it.
+
+An unknown name still bounces and an ambiguous one is still refused. Waking the
+wrong project also delivers somebody's work to the wrong expert.
+
+### Two guards on messaging
+
+**A send rate limit** — 60/hour per sending session, audited as
+`message.throttled`. This is the loop guard, in place *before* mail could start
+sessions rather than alongside it. A hop chain was planned and abandoned on
+contact: there is no mechanical causal link between a message received and one
+later sent, and a guard relying on the sender to declare itself is not a guard.
+
+**An empty message is refused.** Reported from the field: three were accepted,
+stored, acknowledged with an id and delivered, so a sender believed it had handed
+off work while the recipient got a notification containing nothing. It succeeded
+at every layer, which is what made it invisible.
 
 ## Blocked-session notifications
 

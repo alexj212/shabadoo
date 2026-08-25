@@ -345,11 +345,25 @@ All JSON, all behind the bearer token unless noted.
       "node": "wsl",
       "online": true,
       "version": "734c6b4",
+        "capabilities": ["docker", "ffmpeg", "go", "gpu.nvidia", "tmux"],
       "sessions": [ … ]
     }
   ]
 }
 ```
+
+**`capabilities` is what that machine can do**, and is **absent for an offline
+node** — a host nobody can reach can do nothing, so an offline machine
+advertising a microphone would invite work that cannot arrive.
+
+Most of it is detected (a curated toolchain vocabulary — presence only, never
+versions); the node's own project may also declare what no probe can establish,
+such as `always-on` or `apple-toolchain`. Where the two disagree about something
+checkable, detection wins.
+
+Useful for shaping what a client offers: do not present "build the iOS app" on a
+node without `ios.build`. It is **not** a permission — nothing here grants
+anything, and the API refuses on its own terms whatever a client chose to show.
 
 A session object:
 
@@ -357,7 +371,9 @@ A session object:
 |---|---|---|
 | `session_id` | string | stable id, unique per tenant — use as the list identity |
 | `agent` | string | which node owns it |
-| `project` | string | short project name |
+| `project` | string | project name, **path-derived** — a session scoped into a subfolder reads as `shabadoo/hub`, not a bare `hub` |
+| `kind` | string | `claude` \| `worker` \| `core` \| **absent** — see below |
+| `description` | string | the project's one-line routing card; **absent** unless its `CLAUDE.md` declares one |
 | `cwd` | string | absolute path |
 | `alias` | string | friendly name; **display this** |
 | `name` | string | raw tmux window name — what `/api/reopen` takes, not `alias` |
@@ -369,6 +385,23 @@ A session object:
 | `activity` | int64 | unix secs, last pane activity |
 | `pending` | int | undrained inbox count |
 | `panes`, `command`, `updated_at` | | display detail |
+
+**`kind` says what is running in the pane, and absence is meaningful.** A node
+on a build older than this reports nothing, which is not the same as `worker`.
+
+- `claude` — a Claude session started by this toolchain. What almost everything
+  in this document assumes.
+- `worker` — something else entirely in a tmux window: a build, a recorder, a
+  shell. **Do not offer Claude-shaped actions on one.** `/api/keys` still works
+  because tmux does not care, but slash commands, transcripts and dialog
+  handling are all meaningless there.
+- `core` — the node's own session. It speaks for the machine and is the only
+  thing permitted to start sessions on it. Always running; killing it is not a
+  useful thing to offer, since the agent restarts it within seconds.
+
+**`description` is trigger text, not a summary.** It answers *when should this
+be reached for*. Reasonable to show under a project name; it is what a router
+consults to decide where work belongs, so it is short by construction.
 
 > **`command` is whatever tmux says, and tmux can be unhelpful.** On the Mac it
 > reads `2_1_220` rather than `claude`, because `~/.local/bin/claude` is a
