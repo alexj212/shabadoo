@@ -257,33 +257,48 @@ context into the wrong brain.
 - **The anti-pattern to resist:** every project's `CLAUDE.md` growing to know
   about every other project.
 
-**Each project describes itself in one line, in a small file the agent reads.**
-The agent already enumerates folders for `/api/folders` and reads the description
-in the same pass. Two properties a central list cannot have: the description is
-owned by the project it describes, so it cannot drift out of sync; and a project
-with no running session is still routable — which is exactly when routing
-matters. The node's main project becomes a *router over live data* rather than a
-maintained catalogue.
+**Each project describes itself in one line — as frontmatter on the `CLAUDE.md`
+that already marks it as a project.** There is no new file, and that is the
+point: the project root rule is *the nearest `CLAUDE.md` that is a git root*, so
+`CLAUDE.md` is already the marker. Putting the description there makes **"is a
+project" and "can be routed to" the same fact** rather than two facts that can
+disagree.
 
-**The file is git-ignored: it is per-machine state, not project content.** That
-places it in the same class as `~/.config/claude/env` and the boot folder list —
-things this software scaffolds but does not own, holding a decision rather than
-content. Ignoring it globally (`~/.config/git/ignore`, which git reads by
-default) costs one line per machine and keeps every repository's own
-`.gitignore` untouched; per-repo entries would mean editing every project to
-support a feature none of them are part of.
+The agent reads it during the folder enumeration it already performs — a
+structured block, not prose, so the objection that kept the capability manifest
+out of `CLAUDE.md` does not apply here. It is committed, so it travels: a fresh
+clone is routable immediately.
 
-Two consequences, and the first is arguably a feature:
+The two tiers fall out without being designed: **frontmatter is tier 1**, cheap
+enough that a router can hold every project at once, and **the body is tier 2**,
+loaded only by sessions actually working in that project.
 
-- **The same project can describe itself differently on different machines.** A
-  checkout that is where the mobile app actually gets built is not the same
-  thing as a reference copy elsewhere, and a committed description would force
-  them to lie about one of the two.
-- **A fresh clone has no description**, so a project is not routable until
-  someone writes one. That is real onboarding friction, and it argues for the
-  file being written by a command rather than by hand — the surgical,
-  one-line-at-a-time treatment `config set` and `boot add` already give to the
-  other per-host files, rather than a fourth format for an operator to remember.
+*Considered and rejected:* a dedicated dotfile — a fourth hand-edited format,
+marking something already marked. And a per-project **skill**, whose frontmatter
+is genuinely the right shape but whose body would be a second document
+describing how to work in a project that already has one, which is the drift
+this codebase keeps legislating against. A skill would win if sessions were
+expected to load each other's manuals; they are not. They talk instead.
+
+*Accepted cost:* a committed description cannot differ per machine. That was the
+argument for keeping it local, and it is real but uncommon — a project's purpose
+does not usually change with the checkout.
+
+### The description is trigger text, not a summary
+
+If the working mode is sessions talking to each other, then **the quality of the
+description is the quality of the routing.** A vague line does not fail
+loudly — it delivers work to the wrong expert, who does it worse and slower than
+the right one.
+
+So it should be written the way a skill's `description` is written, because that
+field solves the identical problem: *when should this be reached for*, phrased
+for the reader deciding, not for someone browsing a catalogue. "Use for X, Y,
+Z" rather than "this project is about X".
+
+And brevity is a constraint rather than a preference. A router holds every
+description at once; that is the whole reason this is separate from the body.
+One line, with a real limit, not a paragraph that happens to be short today.
 
 ## The three primitives that are missing
 

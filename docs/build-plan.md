@@ -58,25 +58,23 @@ a project. Until a non-Claude tool can register *as itself*, workers cannot be
 first-class, and `ResolveSession` only passes through `claude-`-prefixed ids so
 they cannot even be addressed.
 
-**The self-description file.** One line, in a dotfile at the project root, read
-by the agent during the folder enumeration it already performs. It does two jobs:
-it is the routing card, and it is what makes a project **known while stopped**.
+**The self-description.** Frontmatter on the project's existing `CLAUDE.md`,
+read by the agent during the folder enumeration it already performs. No new
+file: `CLAUDE.md` is already what marks a project root, so this makes "is a
+project" and "can be routed to" the same fact. Committed, so a fresh clone is
+routable immediately.
 
-**It is git-ignored** — per-machine state, the same class as the env file and
-the boot list. Ignore it globally in `~/.config/git/ignore`, which git reads
-without configuration: one line per machine, and no project's own `.gitignore`
-is touched to support a feature it is not part of.
-
-Two things still to settle, both small: the file name, and whether a command
-writes it. A fresh clone has no description and is therefore unroutable until
-someone creates one, so writing it by hand is the friction — `config set` and
-`boot add` already established the surgical one-line-at-a-time treatment for
-per-host files, and a fourth hand-edited format is a fourth thing to remember.
+Write it as **trigger text** — when should this be reached for — not as a
+summary, and keep it to one line with an enforced limit. A router holds every
+description at once, and a vague line does not fail loudly: it delivers work to
+the wrong expert.
 
 Both changes are additive fields, so no protocol risk.
 
 **Verify:** a folder with a description and no session appears as routable. A
-non-Claude window reports `kind: worker` and stops claiming to be a project.
+non-Claude window reports `kind: worker` and stops claiming to be a project. A
+`CLAUDE.md` with no frontmatter, or malformed frontmatter, leaves the project
+undescribed rather than breaking enumeration — every other folder still reports.
 
 ---
 
