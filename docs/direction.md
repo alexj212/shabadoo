@@ -79,10 +79,23 @@ No new concept is needed: the thing that knows the machine is a project like any
 other, with its own `CLAUDE.md` and memory, loaded only by the session that needs
 it.
 
+**A node is a machine that runs sessions, and the coordinator is deliberately
+not one.** It stays a single job: it is already the single point of failure for
+every node's dashboard, and putting workload on it widens what one bad session
+can disturb. The consequence is accepted rather than overlooked — an always-on
+machine that would make an excellent capability host is not offering itself to
+the hive.
+
 **The discipline that makes it work:** an always-on session is the one that must
 stay cheap. The core session routes, decides and starts; it should not do the
 work itself, or a context that never ends fills with the details of finished
 jobs. *Mechanical facts are data, judgment is a session.*
+
+There is no mechanism proposed for this, and that is the decision: the main
+project's `CLAUDE.md` is the routing card and stays small, the core session
+delegates rather than works, and ordinary compaction handles the rest. Clearing
+it on a timer was considered and rejected — the context it holds is the thing it
+exists for, and a scheduled amnesia would discard exactly what makes it useful.
 
 ### A project narrows into its subfolders, and spawns into panes
 
@@ -147,6 +160,16 @@ while enumerating folders.
 straight back within ten minutes — which defeats closing it to save resources. An
 exit records intent, and the watchdog honours it.
 
+**The agent records it, by noticing the window is gone.** It already reports
+every five seconds, so it can diff its previous view: a window that was there
+and is not is a deactivation. That catches every case including the most natural
+one — somebody typing `exit` in the pane — which an explicit-close-only rule
+would miss, leaving the watchdog to reopen the session ten minutes later.
+
+*Requirement, not a detail:* a tmux server restart or a reboot makes **every**
+window vanish at once, and that must not deactivate the whole machine. The agent
+has to tell a lost window from a lost tmux before writing anything down.
+
 *Accepted cost, worth stating plainly:* a vanished window and a crashed window
 look identical, and this design does not distinguish them (the alternative,
 tmux's `remain-on-exit`, was considered and not taken). So **the watchdog stops
@@ -160,14 +183,16 @@ Mail for a stopped project **starts it** rather than waiting for someone to
 notice. That is what the premise promises: hand work to the domain expert and it
 gets picked up.
 
-> **This is a reconciliation, not an instruction.** Two decisions conflict read
-> literally — mail auto-starts a stopped session, *and* only humans and the core
-> session may start anything. The only way both hold is that the **core session
-> is the actor**: mail for a stopped project reaches that node's core session,
-> which starts the target and lets the message deliver. Automatic from the
-> sender's point of view, with exactly one permitted actor on each machine, and
-> the judgment about whether a wake is warranted lands where judgment belongs.
-> If auto-start was meant to bypass the core session, this needs revisiting.
+> **The core session is the actor.** Mail for a stopped project reaches that
+> node's core session, which starts the target and lets the message deliver.
+> Automatic from the sender's point of view, with exactly one permitted actor on
+> each machine, and the judgment about whether a wake is warranted landing where
+> judgment belongs. The coordinator deliberately does not start it directly: that
+> would let any peer's message spend a node's resources with nothing exercising
+> judgment in between.
+>
+> (This was reconciled from two answers that conflicted read literally, then
+> confirmed.)
 
 **Only humans and the node's core session start sessions.** A peer may ask; it
 cannot spawn. One confused or looping session must not be able to start work
@@ -206,6 +231,13 @@ blocked-session watcher applies Claude-shaped heuristics to whatever is on scree
 reads its own `CLAUDE.md` and reports upward, the way `session_status_set`
 reports status — so the agent never parses prose.
 
+**Detection and declaration divide along the line already drawn:** the agent
+detects what is checkable — platform, whether ffmpeg is present, audio devices,
+a GPU — and the core session declares what is not, like "always on" or "this is
+the machine that builds the iOS app". Where they disagree about a detectable
+fact, detection wins: a declared microphone that is not there is simply wrong,
+and a capability nobody can act on is worse than one nobody claimed.
+
 **Capabilities persist while the agent is connected and clear when it
 disconnects.** They are facts about a machine, not claims about work: a node does
 not lose its microphone because its core session got busy. Deliberately unlike
@@ -239,7 +271,7 @@ Platform facts, hard-won and worth keeping regardless of design:
 | Platform | Microphone | System audio | Status |
 |---|---|---|---|
 | Windows | WASAPI capture | **WASAPI loopback** on the default render endpoint | needs a Windows-side process — a WSL node cannot see Windows audio |
-| macOS | avfoundation | none without a helper | ScreenCaptureKit or CoreAudio process taps; a virtual device (BlackHole/Loopback) avoids native code at the cost of a prerequisite |
+| macOS | avfoundation | **CoreAudio process taps** | `AudioHardwareTapping.h` and `CATapDescription.h` are in the SDK; Swift toolchain present |
 | Linux (real desktop) | pulse source | `<sink>.monitor` | works with ffmpeg alone |
 | WSL | `RDPSource` works | **trap** — `RDPSink.monitor` carries only audio from Linux apps inside WSL | a meeting in Teams/Zoom/a browser never touches it; must refuse rather than record silence |
 
@@ -250,7 +282,8 @@ worth more than any diarization model. Mixing is irreversible.
 ### The shape: a native capture helper per OS, one orchestrator
 
 Each platform contributes a small helper that does nothing but capture and write
-**raw PCM to stdout**. One cross-platform orchestrator runs the helper, segments
+**timestamped PCM to stdout** — a small frame header carrying the capture clock
+in front of each chunk of samples. One cross-platform orchestrator runs the helper, segments
 the stream, transcribes, summarises and delivers. Linux's "helper" is just
 ffmpeg; Windows and macOS get native ones.
 
@@ -292,11 +325,25 @@ Linux process, so it keeps authenticating to the agent socket by file
 permissions, exactly as decided above. A Windows-side orchestrator would have
 needed a device token and broken that rule.
 
+**macOS uses CoreAudio process taps**, not ScreenCaptureKit. Both can capture
+system audio and both are available, but ScreenCaptureKit requires Screen
+Recording permission — a far broader grant than sound needs, and a considerably
+more alarming prompt for a tool that only wants to hear a meeting. Taps are
+audio-only and are the direct analogue of WASAPI loopback, so the two platforms
+end up the same shape, including the later refinement to a single process.
+
 **Take both tracks from the same side.** Capturing the microphone through
 Windows as well as the loopback keeps both streams in one clock domain. Two
 independently started capture streams drift, and drift is invisible until you try
-to align a ninety-minute transcript — so a shared time reference across the two
-tracks is a requirement, not a refinement.
+to align a ninety-minute transcript.
+
+**The platform hands us the fix, so this is construction rather than
+correction.** `IAudioCaptureClient::GetBuffer` returns a QueryPerformanceCounter
+position with every packet, and CoreAudio exposes host time the same way — so
+both tracks carry stamps from one system clock, and alignment is arithmetic
+rather than cross-correlation. That is why the helper's output is framed instead
+of raw: the timestamp has to survive the pipe, and throwing it away at the
+capture boundary would make it unrecoverable downstream.
 
 ## What this does not change
 
@@ -310,22 +357,13 @@ tracks is a requirement, not a refinement.
 
 ## Still open
 
-- **Whether auto-start should route through the core session** — the
-  reconciliation above, flagged for confirmation.
-- **Where deactivation state lives.** The pattern for per-host state is a small
-  file outside the repo, edited surgically (`~/.config/claude/env`, the boot
-  folder list). Deactivation belongs there, and every path that opens a window
-  must honour it or the state is decorative.
-- **What each node's main project is, concretely.** Every node needs one; naming
-  them consistently matters more than the names.
-- **Keeping the core session cheap.** Always-on plus unbounded context is a
-  problem no mechanism here solves; it needs a working discipline.
-- **Clock drift between the two tracks.** Two capture streams started
-  independently drift apart; aligning a long transcript needs a shared time
-  reference. Named here because it is invisible until the first long meeting.
-- **The macOS helper is undesigned.** Native helpers being acceptable means
-  ScreenCaptureKit or CoreAudio taps can remove the virtual-device prerequisite,
-  but that is a Swift component and nothing has been decided about it.
-- **Detection could complement declaration.** Capabilities are declared; some are
-  also detectable (ffmpeg present, audio devices, GPU), and detected facts cannot
-  go stale.
+Everything else that was open has been decided and folded into the text above.
+What remains is one naming choice.
+
+- **What each node's main project is called.** Only two machines need one today —
+  the coordinator is not a node, and no other host runs sessions. Consistency
+  matters more than the name: the same convention on every machine, so a session
+  can find the node's main project without being told where it is. The obvious
+  candidate is a directory named for the node's own host label, holding that
+  machine's `CLAUDE.md`, its memory, and its capability declaration. Nothing
+  turns on it except that it be the same everywhere.
