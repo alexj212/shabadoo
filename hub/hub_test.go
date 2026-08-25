@@ -515,3 +515,92 @@ func TestBounceIsAudited(t *testing.T) {
 		t.Errorf("bounce count = %d, want 1 (a delivered message logged one too)", n)
 	}
 }
+
+// The loop guard. Mail is passive today, so this is here BEFORE the change that
+// makes it urgent: once a message can start a stopped session, A→B→A is
+// unbounded spend on a machine running with permissions disabled.
+func TestSendRateLimit(t *testing.T) {
+	f := newHubFixture(t)
+	token := f.login(t)
+	ctx := context.Background()
+	sendLimits = newRateLimiter(sendRateWindow, sendRateLimit) // isolate from other tests
+
+	if err := f.store.UpsertSession(ctx, Session{
+		SessionID: "claude-homelab-wsl-1", Agent: "wsl", Project: "homelab", Alias: "homelab-wsl",
+	}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+
+	send := func(from string) int {
+		body, _ := json.Marshal(Envelope{FromSession: from, ToSession: "homelab", Body: "x"})
+		req, _ := http.NewRequest("POST", f.server.URL+"/agent/message/send", bytes.NewReader(body))
+		req.Header.Set("Authorization", "Bearer "+token)
+		resp, err := f.server.Client().Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		return resp.StatusCode
+	}
+
+	for i := 0; i < sendRateLimit; i++ {
+		if code := send("claude-chatty-1"); code != http.StatusOK {
+			t.Fatalf("message %d of %d refused with %d — the limit must not bite during normal work",
+				i+1, sendRateLimit, code)
+		}
+	}
+	if code := send("claude-chatty-1"); code != http.StatusTooManyRequests {
+		t.Errorf("past the limit got %d, want 429", code)
+	}
+
+	// Per sender. One session in a loop must not silence every other session on
+	// the machine — that would turn a contained fault into an outage.
+	if code := send("claude-quiet-1"); code != http.StatusOK {
+		t.Errorf("an unrelated session was refused with %d", code)
+	}
+
+	// Throttling is audited. A session that has been throttled otherwise looks
+	// exactly like one that went quiet, and the difference is the whole question
+	// when someone asks why a handoff never arrived.
+	entries, err := f.store.AuditTail(ctx, 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, e := range entries {
+		if e.Action == "message.throttled" && strings.Contains(e.Actor, "chatty") {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("a throttled send left nothing in the audit log")
+	}
+}
+
+// A broadcast is one send however many subscribers it reaches: the limit bounds
+// how often a session speaks, not how many hear it.
+func TestBroadcastIsOneSendAgainstTheLimit(t *testing.T) {
+	f := newHubFixture(t)
+	token := f.login(t)
+	sendLimits = newRateLimiter(sendRateWindow, sendRateLimit)
+
+	for i := 0; i < 3; i++ {
+		for _, s := range []string{"a", "b", "c", "d"} {
+			f.store.Subscribe(context.Background(), "claude-"+s, "topic")
+		}
+	}
+	body, _ := json.Marshal(Envelope{FromSession: "claude-caster-1", Topic: "topic", Body: "x"})
+	req, _ := http.NewRequest("POST", f.server.URL+"/agent/message/broadcast", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := f.server.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("broadcast refused with %d", resp.StatusCode)
+	}
+	if n := len(sendLimits.at["claude-caster-1"]); n != 1 {
+		t.Errorf("a broadcast to four subscribers cost %d of the sender's budget, want 1", n)
+	}
+}

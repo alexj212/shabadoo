@@ -39,6 +39,63 @@ func (h *Hub) AgentAPIRoutes(mux *http.ServeMux) {
 	h.notifyRoutes(mux)
 }
 
+// How often one session may send.
+//
+// This is the loop guard, and it is here BEFORE the change that makes it
+// urgent. Today mail is passive: a message waits in an inbox. Once mail can
+// start a stopped session, an inbound message causes code to run — a Claude
+// session launching with permissions disabled — and A→B→A becomes unbounded
+// spend with nothing in the way.
+//
+// The previous implementation had a recursion guard. It was deleted as dead
+// code when agents began dialling out, because the fan-out it protected went
+// with it. The hazard did not go away; it changed shape.
+//
+// # Why a rate limit rather than a hop chain
+//
+// The plan called for provenance — a chain of the sessions a message passed
+// through, refused past a depth. Building it showed why that cannot work here:
+// there is no mechanical causal link between a message a session RECEIVES and
+// one it later SENDS. Only the sender could supply it, and a guard that depends
+// on the thing it is guarding against to declare itself is not a guard.
+//
+// A rate limit needs no cooperation. It does not identify the cycle, which a
+// chain would have, but it bounds the damage, which is what a guard is for.
+//
+// Generous on purpose: sessions in normal use hand work to each other a few
+// times an hour. Anything sustaining one a minute is not collaborating.
+const (
+	sendRateWindow = time.Hour
+	sendRateLimit  = 60
+)
+
+var sendLimits = newRateLimiter(sendRateWindow, sendRateLimit)
+
+// guardSendRate reports whether this sender may send, refusing loudly and
+// audibly when it may not.
+//
+// Audited rather than only refused, because a session that has been throttled
+// looks exactly like a session that went quiet — and the difference matters at
+// the moment somebody is asking why a handoff never arrived. It is the same
+// argument that put `message.bounce` in the audit log.
+func (h *Hub) guardSendRate(w http.ResponseWriter, r *http.Request, tenant, from string) bool {
+	if from == "" {
+		from = "unattributed"
+	}
+	now := h.now()
+	if sendLimits.allow(from, now) {
+		return true
+	}
+	h.store.Tenant(tenant).Audit(r.Context(), AuditEntry{
+		Actor: "session:" + from, Action: "message.throttled",
+		Detail: fmt.Sprintf("more than %d messages in an hour", sendRateLimit),
+	}, now)
+	http.Error(w, fmt.Sprintf(
+		"this session has sent more than %d messages in the last hour", sendRateLimit),
+		http.StatusTooManyRequests)
+	return false
+}
+
 func (h *Hub) agentSend(w http.ResponseWriter, r *http.Request) {
 	c, ok := h.authed(r)
 	if !ok {
@@ -47,6 +104,9 @@ func (h *Hub) agentSend(w http.ResponseWriter, r *http.Request) {
 	}
 	var env Envelope
 	if !readJSON(w, r, &env) {
+		return
+	}
+	if !h.guardSendRate(w, r, c.tenant, env.FromSession) {
 		return
 	}
 	now := h.now()
@@ -99,6 +159,11 @@ func (h *Hub) agentBroadcast(w http.ResponseWriter, r *http.Request) {
 	}
 	var env Envelope
 	if !readJSON(w, r, &env) {
+		return
+	}
+	// A broadcast is one send however many subscribers it reaches: the limit
+	// bounds how often a session speaks, not how many hear it.
+	if !h.guardSendRate(w, r, c.tenant, env.FromSession) {
 		return
 	}
 	id, n, err := h.store.Tenant(c.tenant).Broadcast(r.Context(), env, h.now())

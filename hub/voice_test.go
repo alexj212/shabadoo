@@ -1,9 +1,9 @@
 package hub
 
 import (
-	"log"
 	"context"
 	"encoding/json"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -15,7 +15,7 @@ import (
 // every voice session is billed per minute — so the limit is about SPEND, not
 // about guessing, which is what the redeem throttle is for.
 func TestVoiceRateLimitIsPerDevice(t *testing.T) {
-	v := &voiceLimiter{at: map[string][]time.Time{}}
+	v := newRateLimiter(voiceRateWindow, voiceRateLimit)
 	now := time.Unix(1_700_000_000, 0)
 
 	for i := 0; i < voiceRateLimit; i++ {
@@ -156,7 +156,7 @@ func TestVoiceSessionEndToEnd(t *testing.T) {
 
 	st := testStore(t)
 	h := &humanAPI{store: st.s, now: time.Now}
-	voiceMints = &voiceLimiter{at: map[string][]time.Time{}} // isolate from other tests
+	voiceMints = newRateLimiter(voiceRateWindow, voiceRateLimit) // isolate from other tests
 
 	call := func(sub, scope string) *httptest.ResponseRecorder {
 		r := httptest.NewRequest("POST", "/api/voice/session", nil)
@@ -240,7 +240,7 @@ func TestFailedMintDoesNotConsumeQuota(t *testing.T) {
 
 	st := testStore(t)
 	h := &humanAPI{store: st.s, now: time.Now}
-	voiceMints = &voiceLimiter{at: map[string][]time.Time{}}
+	voiceMints = newRateLimiter(voiceRateWindow, voiceRateLimit)
 
 	call := func() *httptest.ResponseRecorder {
 		r := httptest.NewRequest("POST", "/api/voice/session", nil)
@@ -272,7 +272,7 @@ func TestFailedMintDoesNotConsumeQuota(t *testing.T) {
 
 // refund removes exactly one reservation, not the device's whole history.
 func TestRefundRemovesOneReservation(t *testing.T) {
-	v := &voiceLimiter{at: map[string][]time.Time{}}
+	v := newRateLimiter(voiceRateWindow, voiceRateLimit)
 	now := time.Unix(1_700_000_000, 0)
 
 	v.allow("d", now)

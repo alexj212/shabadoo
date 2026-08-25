@@ -37,7 +37,6 @@ import (
 	"log"
 	"net/http"
 	"net/url"
-	"sync"
 	"time"
 )
 
@@ -76,57 +75,10 @@ const (
 	voiceRateLimit  = 30
 )
 
-// voiceLimiter tracks mints per device.
-type voiceLimiter struct {
-	mu sync.Mutex
-	at map[string][]time.Time
-}
-
-var voiceMints = &voiceLimiter{at: map[string][]time.Time{}}
-
-func (v *voiceLimiter) allow(id string, now time.Time) bool {
-	v.mu.Lock()
-	defer v.mu.Unlock()
-
-	cutoff := now.Add(-voiceRateWindow)
-	kept := v.at[id][:0]
-	for _, t := range v.at[id] {
-		if t.After(cutoff) {
-			kept = append(kept, t)
-		}
-	}
-	if len(kept) >= voiceRateLimit {
-		v.at[id] = kept
-		return false
-	}
-	v.at[id] = append(kept, now)
-	return true
-}
-
-// refund returns a reservation that allow took but which never became a mint.
-//
-// The limit bounds SPEND, and a call that never reached the provider spent
-// nothing — so charging for it is simply wrong. It matters at the moment it is
-// least affordable: when the provider is refusing, the retries that diagnose
-// the problem eat the budget for the retries that fix it. Not hypothetical —
-// it happened while configuring this, where four consecutive 401s from a key
-// missing convai_write each cost a slot.
-//
-// Reserve-then-refund rather than check-then-record, because the latter lets
-// concurrent callers all pass the check before any of them records, which is a
-// hole in the one guarantee this exists to give.
-func (v *voiceLimiter) refund(id string, at time.Time) {
-	v.mu.Lock()
-	defer v.mu.Unlock()
-
-	ts := v.at[id]
-	for i := len(ts) - 1; i >= 0; i-- {
-		if ts[i].Equal(at) {
-			v.at[id] = append(ts[:i], ts[i+1:]...)
-			return
-		}
-	}
-}
+// voiceMints bounds how often one device may mint. See rateLimiter — the same
+// mechanism now bounds session-to-session messages, which is the other place a
+// cost can run away.
+var voiceMints = newRateLimiter(voiceRateWindow, voiceRateLimit)
 
 // voiceSession mints a short-lived signed URL for a conversational session.
 //
