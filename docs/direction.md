@@ -96,12 +96,30 @@ Two consequences follow that would otherwise be found the hard way:
   same class as the env file and `~/.claude` — which `setup` scaffolds but never
   overwrites, precisely because it does not own them. Not owning something on the
   way in means not deleting it on the way out.
-- **The core session is exempt from deactivation.** Every other session may exit
-  and stay down until something needs it, but only the core session may start
-  sessions on its node — so a core session that exited and stayed down would
-  leave that machine unable to start anything, recoverable only by walking to it.
-  The watchdog always restores it. "Always running" is load-bearing, not a
-  preference.
+- **The core session is exempt from deactivation, and the agent restarts it.**
+  Every other session may exit and stay down until something needs it. The core
+  session may not: it is the only actor permitted to start sessions on its node,
+  so one that exited and stayed down would leave that machine unable to start
+  anything, recoverable only by walking to it. "Always running" is load-bearing,
+  not a preference.
+
+  **The agent restores it, not the ten-minute watchdog.** The agent is already
+  running, already reports every five seconds, and already diffs its own view of
+  the windows — which is how a deactivation is noticed in the first place. The
+  same observation that would record "this session went away" instead means
+  "start it again", and recovery is one report cycle rather than up to ten
+  minutes of a node that cannot start anything. It has the machinery already; the
+  `open` op launches a window today.
+
+  Two things this must not become. It needs **backoff**: a core session that
+  fails immediately — a missing binary, a broken config — would otherwise be
+  relaunched every five seconds forever, and the supervisor becomes the outage.
+  And it is **not** a hole in "only humans and the core session start sessions":
+  that rule stops peers spawning work across the hive, whereas this is a machine
+  restoring its own supervisor, which is the thing the rule presumes exists.
+
+  The escape hatch is deliberate and coarse: to stop a node's core session, stop
+  the node's agent. A machine you are not using should be off, not half-on.
 
 One wrinkle to handle rather than inherit: window names and aliases are built
 from a folder's base name plus the host label, which would render this project as
