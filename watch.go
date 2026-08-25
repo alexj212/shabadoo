@@ -15,6 +15,7 @@ package main
 // See docs/direction.md and docs/build-plan.md (Phase 0).
 
 import (
+	"context"
 	"log"
 
 	"shabadoo/hub"
@@ -81,15 +82,19 @@ func (w *windowWatcher) observe(current []hub.Session) []hub.Session {
 // It sits here rather than in the node package because what to DO about a
 // window that went away is a decision about this host's sessions, and the node
 // package deliberately knows nothing about them — it moves bytes.
-func watchedReporter() func(current []hub.Session) {
+func watchedReporter() func(ctx context.Context, current []hub.Session) {
 	w := newWindowWatcher()
-	return func(current []hub.Session) {
+	keeper := newCoreKeeper(coreProjectPath())
+
+	return func(ctx context.Context, current []hub.Session) {
 		for _, s := range w.observe(current) {
-			// Phases 2 and 3 act on this. Logging it first is not a placeholder:
-			// an event nobody can see is one nobody can debug, and the first
-			// question when a session is unexpectedly down will be whether the
-			// agent noticed it going.
+			// Phase 3 records this as a deactivation. Logging it meanwhile is
+			// not a placeholder: an event nobody can see is one nobody can
+			// debug, and the first question when a session is unexpectedly down
+			// will be whether the agent noticed it going.
 			log.Printf("node: session ended: %s (%s) in %s", s.Alias, s.Kind, s.CWD)
 		}
+		// Asked as a state rather than an event — see coreKeeper.observe.
+		keeper.observe(ctx, current)
 	}
 }

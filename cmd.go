@@ -74,7 +74,7 @@ func runNode(args []string) {
 		// Every report is also a diff: a window that was here and is not is an
 		// event. Only the agent is positioned to see it — the coordinator is
 		// told what exists, never what stopped existing.
-		observe(sessions)
+		observe(ctx, sessions)
 		return sessions, nil
 	})
 
