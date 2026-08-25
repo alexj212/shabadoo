@@ -238,14 +238,51 @@ Platform facts, hard-won and worth keeping regardless of design:
 
 | Platform | Microphone | System audio | Status |
 |---|---|---|---|
-| Windows | dshow | a virtual cable (VB-Audio / Voicemeeter) | best target where one is installed; needs a Windows-side process — a WSL node cannot see Windows audio |
-| macOS | avfoundation | none by default | needs BlackHole/Loopback, or a native ScreenCaptureKit / CoreAudio-tap helper |
-| Linux (real desktop) | pulse source | `<sink>.monitor` | works |
+| Windows | WASAPI capture | **WASAPI loopback** on the default render endpoint | needs a Windows-side process — a WSL node cannot see Windows audio |
+| macOS | avfoundation | none without a helper | ScreenCaptureKit or CoreAudio process taps; a virtual device (BlackHole/Loopback) avoids native code at the cost of a prerequisite |
+| Linux (real desktop) | pulse source | `<sink>.monitor` | works with ffmpeg alone |
 | WSL | `RDPSource` works | **trap** — `RDPSink.monitor` carries only audio from Linux apps inside WSL | a meeting in Teams/Zoom/a browser never touches it; must refuse rather than record silence |
 
-`ffmpeg` is the portable capture engine on all three, which avoids writing native
-audio code three times. Record **two tracks, never one mix** — separate mic and
-system tracks make speaker attribution free, and mixing is irreversible.
+**Record two tracks, never one mix.** Separate mic and system tracks make speaker
+attribution free — your track is you, the other is everyone else — and that is
+worth more than any diarization model. Mixing is irreversible.
+
+### The shape: a native capture helper per OS, one orchestrator
+
+Each platform contributes a small helper that does nothing but capture and write
+**raw PCM to stdout**. One cross-platform orchestrator runs the helper, segments
+the stream, transcribes, summarises and delivers. Linux's "helper" is just
+ffmpeg; Windows and macOS get native ones.
+
+**Windows uses system-wide WASAPI loopback**, not a virtual cable. Routing audio
+through VB-Cable or Voicemeeter works, but it changes the machine's audio setup
+and risks the failure where the recording succeeds and the human stops hearing
+the meeting. Loopback on the default render endpoint captures what is playing
+while leaving playback untouched. Accepted cost: it captures *everything* —
+notification sounds and music land on the meeting track. Process-specific
+loopback (Windows 10 2004+, `ActivateAudioInterfaceAsync` with
+`AUDIOCLIENT_ACTIVATION_PARAMS`) would record only the meeting application and is
+the obvious later refinement, once the pipeline is proven end to end.
+
+**The helper is C++, cross-compiled with mingw-w64 from the Linux side**, so
+there is no MSVC and no second machine in the build: `make dist` can emit the
+`.exe` beside everything else. mingw ships the WASAPI headers and links against
+`ole32`/`uuid`.
+
+**The transport is WSL–Windows interop, and it was measured rather than
+assumed.** A WSL process execs the Windows `.exe` directly and reads its stdout;
+all 256 byte values survive the pipe intact, with no CRLF translation. That
+matters more than it looks: it means no TCP listener, no named pipe, no shared
+filesystem, and — critically — **no new credential**. The orchestrator stays a
+Linux process, so it keeps authenticating to the agent socket by file
+permissions, exactly as decided above. A Windows-side orchestrator would have
+needed a device token and broken that rule.
+
+**Take both tracks from the same side.** Capturing the microphone through
+Windows as well as the loopback keeps both streams in one clock domain. Two
+independently started capture streams drift, and drift is invisible until you try
+to align a ninety-minute transcript — so a shared time reference across the two
+tracks is a requirement, not a refinement.
 
 ## What this does not change
 
@@ -269,8 +306,12 @@ system tracks make speaker attribution free, and mixing is irreversible.
   them consistently matters more than the names.
 - **Keeping the core session cheap.** Always-on plus unbounded context is a
   problem no mechanism here solves; it needs a working discipline.
-- **A Windows recorder is a separate artifact** regardless — a WSL node cannot
-  reach Windows audio.
+- **Clock drift between the two tracks.** Two capture streams started
+  independently drift apart; aligning a long transcript needs a shared time
+  reference. Named here because it is invisible until the first long meeting.
+- **The macOS helper is undesigned.** Native helpers being acceptable means
+  ScreenCaptureKit or CoreAudio taps can remove the virtual-device prerequisite,
+  but that is a Swift component and nothing has been decided about it.
 - **Detection could complement declaration.** Capabilities are declared; some are
   also detectable (ffmpeg present, audio devices, GPU), and detected facts cannot
   go stale.
