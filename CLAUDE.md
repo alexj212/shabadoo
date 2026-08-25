@@ -31,6 +31,12 @@ tenant — and serves a browser and (by device token) an iOS app.
 
 > **Architecture, decisions, and cutover: `docs/shabadoo.md`.** Read it before
 > changing the auth planes, the tenancy model, or the agent protocol.
+>
+> **Where this is going: `docs/direction.md`.** What the project is becoming —
+> an OS whose processes are agents — and the decisions already taken about node
+> capabilities, session lifecycle, pane addressing and project naming. Direction,
+> not spec: nothing in it is built. Read it before designing anything new, so a
+> settled question is not reopened by accident.
 
 ## Deployed
 
