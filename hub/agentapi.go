@@ -117,6 +117,33 @@ func (h *Hub) agentSend(w http.ResponseWriter, r *http.Request) {
 	// reported as sent, and drained by nobody.
 	to, err := tn.ResolveSession(r.Context(), env.ToSession, now)
 	if err != nil {
+		// Before bouncing: is this a real project that simply is not running?
+		// Closing a session to save resources must not make its owner
+		// unreachable, which is what bouncing here amounted to.
+		if p, found := h.findStoppedProject(r.Context(), c.tenant, env.ToSession); found {
+			env.ToSession = p.SessionID
+			id, serr := tn.Send(r.Context(), env, now)
+			if serr != nil {
+				http.Error(w, serr.Error(), http.StatusBadRequest)
+				return
+			}
+			// Stored first, asked second. The message is safe whatever the core
+			// session decides or how long it takes; a failure to ask is a
+			// latency problem, never a lost handoff.
+			askErr := h.askCoreToStart(r.Context(), c.tenant, p, env.FromSession)
+			tn.Audit(r.Context(), AuditEntry{
+				Actor: "session:" + env.FromSession, Action: "message.deferred",
+				Target: p.Project,
+				Detail: fmt.Sprintf("not running on %s; %s", p.Node,
+					map[bool]string{true: "core session asked to start it",
+						false: "no core session to ask"}[askErr == nil]),
+			}, now)
+			writeJSON(w, map[string]any{
+				"id": id, "to_session": p.SessionID, "deferred": true, "node": p.Node,
+			})
+			return
+		}
+
 		// A bounce is recorded, because until it was, a failed handoff existed
 		// only in the sender's own context: the recipient never learned anyone
 		// had tried to reach it, and nothing an operator can read said so

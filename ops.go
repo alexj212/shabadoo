@@ -341,6 +341,25 @@ type Folder struct {
 	Source     string `json:"source"`                // "configured" or "recent"
 	Open       bool   `json:"open"`                  // already has a window
 	LastActive int64  `json:"last_active,omitempty"` // unix, recent folders only
+
+	// Project is the addressable name — path-derived, so a subfolder reads as
+	// `shabadoo/hub` rather than a bare `hub` that belongs to nobody.
+	Project string `json:"project,omitempty"`
+
+	// Description is the project's routing card, from the frontmatter of the
+	// CLAUDE.md that marks it.
+	Description string `json:"description,omitempty"`
+
+	// SessionID is the id this folder's session WOULD have. It is derivable
+	// from the path and the host label, and it is what makes a stopped project
+	// addressable: mail can be stored against it now and drained when the
+	// session starts, rather than bouncing because nothing is running yet.
+	SessionID string `json:"session_id,omitempty"`
+
+	// Deactivated marks a folder closed on purpose. A caller deciding whether
+	// to wake something should know the difference between "not running" and
+	// "deliberately not running".
+	Deactivated bool `json:"deactivated,omitempty"`
 }
 
 // folders merges the three places a startable folder can come from: the boot
@@ -382,6 +401,10 @@ func folders(ctx context.Context) ([]Folder, error) {
 		}
 		seen[key] = true
 		f.Name = filepath.Base(f.Path)
+		f.Project = projectName(f.Path)
+		f.Description = projectDescription(projectRoot(f.Path))
+		f.SessionID = "claude-" + loadLaunchConfig().windowName(f.Path)
+		f.Deactivated = isDeactivated(f.Path)
 		f.Open = open[key]
 		out = append(out, f)
 	}

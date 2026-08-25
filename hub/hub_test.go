@@ -604,3 +604,97 @@ func TestBroadcastIsOneSendAgainstTheLimit(t *testing.T) {
 		t.Errorf("a broadcast to four subscribers cost %d of the sender's budget, want 1", n)
 	}
 }
+
+// Mail to a project whose session is closed must not bounce. Closing a session
+// to save resources should not make its owner unreachable — that would make the
+// two features contradict each other.
+func TestMailToAStoppedProjectIsStoredNotBounced(t *testing.T) {
+	f := newHubFixture(t)
+	token := f.login(t)
+	ctx := context.Background()
+	sendLimits = newRateLimiter(sendRateWindow, sendRateLimit)
+
+	// The node answers `folders` with one stopped project and one that is open.
+	stop := f.fakeAgent(t, token, func(cmd command) result {
+		if cmd.Op != "folders" {
+			return result{OK: true}
+		}
+		return result{OK: true, Payload: json.RawMessage(`[
+			{"path":"/w/sleepy","project":"sleepy","session_id":"claude-sleepy-wsl-aaaa1111","open":false},
+			{"path":"/w/running","project":"running","session_id":"claude-running-wsl-bbbb2222","open":true}
+		]`)}
+	})
+	defer stop()
+
+	body, _ := json.Marshal(Envelope{FromSession: "claude-sender-1", ToSession: "sleepy", Body: "please look"})
+	req, _ := http.NewRequest("POST", f.server.URL+"/agent/message/send", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := f.server.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200 — a stopped project must not bounce", resp.StatusCode)
+	}
+	var out struct {
+		ToSession string `json:"to_session"`
+		Deferred  bool   `json:"deferred"`
+	}
+	json.NewDecoder(resp.Body).Decode(&out)
+	if !out.Deferred {
+		t.Error("the sender was not told this was deferred")
+	}
+	// Addressed to the id the session WILL have, so it drains when it starts.
+	if out.ToSession != "claude-sleepy-wsl-aaaa1111" {
+		t.Errorf("to_session = %q, want the prospective session id", out.ToSession)
+	}
+
+	// And it is really waiting for it, not merely acknowledged.
+	msgs, err := f.store.Drain(ctx, "claude-sleepy-wsl-aaaa1111", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msgs) != 1 || msgs[0].Body != "please look" {
+		t.Fatalf("the stopped project's inbox holds %d messages", len(msgs))
+	}
+
+	// Audited as deferred rather than delivered: an operator asking why nothing
+	// happened deserves to see that it is waiting on a session that is not up.
+	entries, _ := f.store.AuditTail(ctx, 10)
+	found := false
+	for _, e := range entries {
+		if e.Action == "message.deferred" && e.Target == "sleepy" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("deferring left nothing in the audit log")
+	}
+}
+
+// A name that matches nothing must still bounce. Softening that would undo the
+// reason bouncing exists: a typo that is quietly stored is a handoff nobody
+// ever receives and nobody can find.
+func TestAnUnknownNameStillBounces(t *testing.T) {
+	f := newHubFixture(t)
+	token := f.login(t)
+	sendLimits = newRateLimiter(sendRateWindow, sendRateLimit)
+
+	stop := f.fakeAgent(t, token, func(cmd command) result {
+		return result{OK: true, Payload: json.RawMessage(`[]`)}
+	})
+	defer stop()
+
+	body, _ := json.Marshal(Envelope{FromSession: "claude-sender-1", ToSession: "nosuchthing", Body: "x"})
+	req, _ := http.NewRequest("POST", f.server.URL+"/agent/message/send", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := f.server.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400 for a name that matches nothing", resp.StatusCode)
+	}
+}
