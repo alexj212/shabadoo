@@ -16,6 +16,7 @@ import (
 
 	"shabadoo/claudelog"
 	"shabadoo/hub"
+	"shabadoo/node"
 	"shabadoo/tmux"
 )
 
@@ -131,15 +132,19 @@ func reportSessions(ctx context.Context) ([]hub.Session, error) {
 	if err != nil {
 		return nil, err
 	}
+	core := coreProjectPath()
 	var out []hub.Session
 	for _, s := range sessions {
 		for _, w := range s.WindowsL {
 			state, asking := windowInput(ctx, s.Name, w.Index)
+			root := projectRoot(w.Path)
 			out = append(out, hub.Session{
 				InputState:  state,
 				Asking:      asking,
+				Kind:        kindOf(w, core),
+				Description: projectDescription(root),
 				SessionID:   sessionID(w),
-				Project:     projectOf(w),
+				Project:     projectName(w.Path),
 				CWD:         w.Path,
 				Alias:       w.FriendlyName,
 				Window:      fmt.Sprintf("%s:%d", s.Name, w.Index),
@@ -163,13 +168,50 @@ func reportSessions(ctx context.Context) ([]hub.Session, error) {
 // and the MCP bridge subprocess inside it agree on the session's name.
 func sessionID(w tmux.Window) string { return "claude-" + w.Name }
 
-// projectOf is the window's friendly name minus the host suffix.
-func projectOf(w tmux.Window) string {
-	name := w.FriendlyName
-	if i := strings.LastIndex(name, "-"); i > 0 {
-		return name[:i]
+// kindOf classifies what is running in a window.
+//
+// The launcher appends an 8-hex suffix to every window it creates, which
+// `FriendlyName` strips — so a name that differs from its friendly form was
+// created by this toolchain and holds a Claude session. Anything else in tmux is
+// some other program, and saying so is the whole point: until now the session
+// table claimed `top` in a window was a project.
+//
+// Deliberately not keyed on the pane's current command. tmux reports that
+// wrongly on at least one platform — a real Claude session on macOS reports a
+// mangled value — so a classifier built on it would be wrong in exactly the
+// place it matters.
+func kindOf(w tmux.Window, corePath string) string {
+	if corePath != "" && sameDir(w.Path, corePath) {
+		return hub.KindCore
 	}
-	return name
+	if w.FriendlyName != w.Name {
+		return hub.KindClaude
+	}
+	return hub.KindWorker
+}
+
+// coreProjectPath is where this node's own main project lives: the agent's
+// state directory plus the host label. Derived rather than configured — the
+// agent is already holding both halves, so there is nothing to keep in sync.
+func coreProjectPath() string {
+	label := loadLaunchConfig().HostLabel
+	if label == "" {
+		return ""
+	}
+	return filepath.Join(filepath.Dir(node.SocketPath()), label)
+}
+
+func sameDir(a, b string) bool {
+	if a == "" || b == "" {
+		return false
+	}
+	if ra, err := filepath.EvalSymlinks(a); err == nil {
+		a = ra
+	}
+	if rb, err := filepath.EvalSymlinks(b); err == nil {
+		b = rb
+	}
+	return filepath.Clean(a) == filepath.Clean(b)
 }
 
 func statusOf(w tmux.Window) string {

@@ -135,6 +135,12 @@ CREATE TABLE IF NOT EXISTS sessions (
   -- The question a modal is asking, when input_state is 'dialog'. Reported by
   -- the agent from the same capture that classified the state.
   asking       TEXT NOT NULL DEFAULT '',
+  -- What is running here: 'claude', 'worker', or 'core'. Empty on rows written
+  -- by an agent that predates the field.
+  kind         TEXT NOT NULL DEFAULT '',
+  -- The project's one-line self-description, read by the agent from the
+  -- frontmatter of the CLAUDE.md that marks the project. The routing card.
+  description  TEXT NOT NULL DEFAULT '',
   -- Keyed by (tenant, session_id), not session_id alone: session ids are derived
   -- from project path and host label, so two tenants can legitimately produce
   -- the same one. With a bare session_id key, one tenant's report silently
@@ -247,6 +253,8 @@ func (s *Store) migrate(ctx context.Context) error {
 	for _, alter := range []string{
 		`ALTER TABLE sessions ADD COLUMN input_state TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE sessions ADD COLUMN asking TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE sessions ADD COLUMN kind TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE sessions ADD COLUMN description TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE devices ADD COLUMN scope TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE devices ADD COLUMN push_token TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE devices ADD COLUMN push_env TEXT NOT NULL DEFAULT ''`,
@@ -358,6 +366,14 @@ type Envelope struct {
 	Acked      int   `json:"acked,omitempty"`      // how many have drained it
 	AckedAt    int64 `json:"acked_at,omitempty"`   // most recent drain, unix seconds
 }
+
+// What a session is. A pane holds a Claude session, some other program a
+// worker registered, or the node's own core session.
+const (
+	KindClaude = "claude"
+	KindWorker = "worker"
+	KindCore   = "core"
+)
 
 var ErrNoRecipient = errors.New("message has no recipient")
 
@@ -846,6 +862,19 @@ type Session struct {
 
 	// InputState is "composer", "dialog", or "" when the agent did not say.
 	// A "dialog" session is blocked on a human answering a prompt.
+	// Kind is what is running in this pane. Until this existed the session table
+	// silently claimed every tmux window was a Claude session — `top` in a window
+	// reported itself as a project — and ResolveSession only passed through
+	// `claude-`-prefixed ids, so a non-Claude tool could not be addressed at all.
+	// A worker cannot be first-class until it can register as itself.
+	Kind string `json:"kind,omitempty"`
+
+	// Description is the project's one-line self-description, read from the
+	// frontmatter of the CLAUDE.md that marks it. It is the routing card: what a
+	// session consults to decide where work belongs, which is why it is bounded
+	// and why it lives apart from the body of the file it is written in.
+	Description string `json:"description,omitempty"`
+
 	InputState string `json:"input_state,omitempty"`
 
 	// Asking is the question a modal is waiting on, when InputState is
@@ -905,18 +934,20 @@ func (t *Tenant) UpsertSession(ctx context.Context, sess Session, now time.Time)
 	_, err := t.s.db.ExecContext(ctx, `
 		INSERT INTO sessions (tenant, session_id, agent, project, cwd, alias, window, status,
 		                      updated_at, tmux_session, win_index, win_name, command, activity, panes,
-		                      input_state, asking)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		                      input_state, asking, kind, description)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(tenant, session_id) DO UPDATE SET
 		  agent=excluded.agent, project=excluded.project, cwd=excluded.cwd,
 		  alias=excluded.alias, window=excluded.window, status=excluded.status,
 		  updated_at=excluded.updated_at, tmux_session=excluded.tmux_session,
 		  win_index=excluded.win_index, win_name=excluded.win_name,
 		  command=excluded.command, activity=excluded.activity, panes=excluded.panes,
-		  input_state=excluded.input_state, asking=excluded.asking`,
+		  input_state=excluded.input_state, asking=excluded.asking,
+		  kind=excluded.kind, description=excluded.description`,
 		t.id, sess.SessionID, sess.Agent, sess.Project, sess.CWD, sess.Alias,
 		sess.Window, sess.Status, now.Unix(), sess.TmuxSession, sess.Index,
-		sess.Name, sess.Command, sess.Activity, sess.Panes, sess.InputState, sess.Asking)
+		sess.Name, sess.Command, sess.Activity, sess.Panes, sess.InputState, sess.Asking,
+		sess.Kind, sess.Description)
 	return err
 }
 
@@ -925,7 +956,7 @@ func (t *Tenant) ListSessions(ctx context.Context, now time.Time) ([]Session, er
 	rows, err := t.s.db.QueryContext(ctx, `
 		SELECT s.session_id, s.agent, s.project, s.cwd, s.alias, s.window, s.status,
 		       s.updated_at, s.tmux_session, s.win_index, s.win_name, s.command,
-		       s.activity, s.panes, s.input_state, s.asking,
+		       s.activity, s.panes, s.input_state, s.asking, s.kind, s.description,
 		       COALESCE(n.note, '')
 		  FROM sessions s
 		  LEFT JOIN session_status n
@@ -942,7 +973,8 @@ func (t *Tenant) ListSessions(ctx context.Context, now time.Time) ([]Session, er
 		if err := rows.Scan(&s2.SessionID, &s2.Agent, &s2.Project, &s2.CWD,
 			&s2.Alias, &s2.Window, &s2.Status, &s2.UpdatedAt,
 			&s2.TmuxSession, &s2.Index, &s2.Name, &s2.Command,
-			&s2.Activity, &s2.Panes, &s2.InputState, &s2.Asking, &s2.Note); err != nil {
+			&s2.Activity, &s2.Panes, &s2.InputState, &s2.Asking, &s2.Kind, &s2.Description,
+			&s2.Note); err != nil {
 			return nil, err
 		}
 		out = append(out, s2)
