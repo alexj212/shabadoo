@@ -495,6 +495,46 @@ stored, acknowledged with an id and delivered, so a sender believed it had hande
 off work while the recipient got a notification containing nothing. It succeeded
 at every layer, which is what made it invisible.
 
+## Delegated work (`tasks`)
+
+Handing work to a peer was mail: acknowledged when drained, and after that the
+system knew nothing. There was no way to ask what had been handed off and never
+came back — the sender remembered, or nobody did. The `tasks` table sat in the
+schema from the beginning with nothing reading it; this is that, wired.
+
+`task_create` hands work over **and sends the brief in one call**. Two calls for
+one act would drift, and the drift that matters is work handed over with nothing
+tracking it. The task id travels in the message body, because the assignee needs
+it to report back and making it look one up is a step it will skip.
+
+States are `open`, `active`, `blocked`, `done`, `dropped` — five and no more.
+Every state a session must choose between is a decision it has to get right, and
+a vocabulary nobody can remember gets used vaguely rather than precisely.
+**`dropped` exists because deciding not to do something is an answer**, and
+without it that outcome has nowhere to go but silence.
+
+Whoever asked is **told automatically when a task ends**. They delegated and
+moved on; without that they would have to poll, which is the habit a task list
+exists to remove.
+
+An empty brief is refused, for the reason an empty message is. An unknown state
+is refused with the valid set named. An update with no note leaves the previous
+one alone rather than erasing the assignee's last word.
+
+**A task nobody chases is a row in a table**, so `taskwatch.go` chases them —
+`blocked.go`'s shape reused in full, because every mistake in edge detection has
+the same form and it is not one anyone spots from a single observation.
+Untouched for **6 hours** raises it once, then **daily** while it stands, and
+touching it resets the state so a task that stalls twice is two events. The
+thresholds are far longer than the blocked-session grace deliberately: a dialog
+blocks a machine and is answered in seconds, while chasing somebody else's work
+after an hour is nagging — and a notifier that mostly cries wolf gets muted,
+which costs the one that mattered.
+
+The sweep rides the coordinator's existing hourly maintenance tick. Tasks do not
+arrive on a timer the way agent reports do, so without it nothing would ever
+look.
+
 ## Blocked-session notifications
 
 When a session sits at a prompt for **90 seconds**, the coordinator sends a

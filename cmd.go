@@ -286,7 +286,7 @@ func runHub(args []string) {
 	// the database without limit.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	go vacuumLoop(ctx, store)
+	go vacuumLoop(ctx, store, h)
 
 	srv := &http.Server{
 		Addr:              listen,
@@ -352,7 +352,7 @@ func splitList(v string) []string {
 	return out
 }
 
-func vacuumLoop(ctx context.Context, store *hub.Store) {
+func vacuumLoop(ctx context.Context, store *hub.Store, h *hub.Hub) {
 	t := time.NewTicker(time.Hour)
 	defer t.Stop()
 	for {
@@ -360,6 +360,11 @@ func vacuumLoop(ctx context.Context, store *hub.Store) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
+			// Chase work that has gone quiet. Piggybacked on the existing
+			// maintenance tick rather than given its own: the watcher is
+			// edge-triggered, so looking hourly costs nothing and only bounds
+			// how late the first mention can be.
+			h.SweepTasks(ctx)
 			if res, err := store.Vacuum(ctx, time.Now()); err != nil {
 				log.Printf("hub: vacuum: %v", err)
 			} else if res.Any() {

@@ -108,6 +108,7 @@ type Hub struct {
 	// blocked notices sessions stuck at a prompt. nil until a notifier is
 	// configured — see EnableBlockedNotifications.
 	blocked *blockedWatcher
+	tasks   *taskWatcher
 }
 
 func New(auth *Authorizer, store *Store) *Hub {
@@ -143,6 +144,19 @@ func (h *Hub) EnableBlockedNotifications() {
 		}, h.now())
 	}
 	h.blocked = w
+
+	// The same notifier, and the same reason for gating on it: a watcher that
+	// computed notifications and dropped them would be pure overhead.
+	tw := newTaskWatcher(h.now)
+	tw.send = func(ctx context.Context, tenant, title, body, tag string) error {
+		return postApprise(ctx, title, body, tag, "warning")
+	}
+	tw.audit = func(ctx context.Context, tenant, target, detail string) {
+		h.store.Tenant(tenant).Audit(ctx, AuditEntry{
+			Actor: "coordinator", Action: "notify.task.quiet", Target: target, Detail: detail,
+		}, h.now())
+	}
+	h.tasks = tw
 }
 
 // nodeKey scopes a node name to its tenant. Two tenants may each run a node
