@@ -125,6 +125,9 @@ CREATE TABLE IF NOT EXISTS sessions (
   tmux_session TEXT NOT NULL DEFAULT '',
   win_index    INTEGER NOT NULL DEFAULT 0,
   pane_index   INTEGER NOT NULL DEFAULT 0,
+  tokens_in    INTEGER NOT NULL DEFAULT 0,
+  tokens_out   INTEGER NOT NULL DEFAULT 0,
+  tokens_cache INTEGER NOT NULL DEFAULT 0,
   win_name     TEXT NOT NULL DEFAULT '',
   command      TEXT NOT NULL DEFAULT '',
   activity     INTEGER NOT NULL DEFAULT 0,
@@ -264,6 +267,9 @@ func (s *Store) migrate(ctx context.Context) error {
 		`ALTER TABLE tasks ADD COLUMN requested_by TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE tasks ADD COLUMN note TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE sessions ADD COLUMN pane_index INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE sessions ADD COLUMN tokens_in INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE sessions ADD COLUMN tokens_out INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE sessions ADD COLUMN tokens_cache INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE devices ADD COLUMN scope TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE devices ADD COLUMN push_token TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE devices ADD COLUMN push_env TEXT NOT NULL DEFAULT ''`,
@@ -907,6 +913,17 @@ type Session struct {
 	// and why it lives apart from the body of the file it is written in.
 	Description string `json:"description,omitempty"`
 
+	// Tokens is what this session has spent, summed from its own transcript.
+	//
+	// The direction document calls context the scarce resource and then measured
+	// none of it at fleet level: the numbers were parsed already and served one
+	// session at a time on request, so nothing aggregated, nothing noticed a
+	// session that burned two million overnight, and a router could not weigh
+	// cost. Absent for anything with no transcript, which is every worker.
+	TokensIn    int64 `json:"tokens_in,omitempty"`
+	TokensOut   int64 `json:"tokens_out,omitempty"`
+	TokensCache int64 `json:"tokens_cache,omitempty"`
+
 	InputState string `json:"input_state,omitempty"`
 
 	// Asking is the question a modal is waiting on, when InputState is
@@ -966,8 +983,9 @@ func (t *Tenant) UpsertSession(ctx context.Context, sess Session, now time.Time)
 	_, err := t.s.db.ExecContext(ctx, `
 		INSERT INTO sessions (tenant, session_id, agent, project, cwd, alias, window, status,
 		                      updated_at, tmux_session, win_index, win_name, command, activity, panes,
-		                      input_state, asking, kind, description, pane_index)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		                      input_state, asking, kind, description, pane_index,
+		                      tokens_in, tokens_out, tokens_cache)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(tenant, session_id) DO UPDATE SET
 		  agent=excluded.agent, project=excluded.project, cwd=excluded.cwd,
 		  alias=excluded.alias, window=excluded.window, status=excluded.status,
@@ -976,11 +994,13 @@ func (t *Tenant) UpsertSession(ctx context.Context, sess Session, now time.Time)
 		  command=excluded.command, activity=excluded.activity, panes=excluded.panes,
 		  input_state=excluded.input_state, asking=excluded.asking,
 		  kind=excluded.kind, description=excluded.description,
-		  pane_index=excluded.pane_index`,
+		  pane_index=excluded.pane_index, tokens_in=excluded.tokens_in,
+		  tokens_out=excluded.tokens_out, tokens_cache=excluded.tokens_cache`,
 		t.id, sess.SessionID, sess.Agent, sess.Project, sess.CWD, sess.Alias,
 		sess.Window, sess.Status, now.Unix(), sess.TmuxSession, sess.Index,
 		sess.Name, sess.Command, sess.Activity, sess.Panes, sess.InputState, sess.Asking,
-		sess.Kind, sess.Description, sess.Pane)
+		sess.Kind, sess.Description, sess.Pane,
+		sess.TokensIn, sess.TokensOut, sess.TokensCache)
 	return err
 }
 
@@ -990,7 +1010,7 @@ func (t *Tenant) ListSessions(ctx context.Context, now time.Time) ([]Session, er
 		SELECT s.session_id, s.agent, s.project, s.cwd, s.alias, s.window, s.status,
 		       s.updated_at, s.tmux_session, s.win_index, s.win_name, s.command,
 		       s.activity, s.panes, s.input_state, s.asking, s.kind, s.description,
-		       s.pane_index,
+		       s.pane_index, s.tokens_in, s.tokens_out, s.tokens_cache,
 		       COALESCE(n.note, '')
 		  FROM sessions s
 		  LEFT JOIN session_status n
@@ -1008,7 +1028,8 @@ func (t *Tenant) ListSessions(ctx context.Context, now time.Time) ([]Session, er
 			&s2.Alias, &s2.Window, &s2.Status, &s2.UpdatedAt,
 			&s2.TmuxSession, &s2.Index, &s2.Name, &s2.Command,
 			&s2.Activity, &s2.Panes, &s2.InputState, &s2.Asking, &s2.Kind, &s2.Description,
-			&s2.Pane, &s2.Note); err != nil {
+			&s2.Pane, &s2.TokensIn, &s2.TokensOut, &s2.TokensCache,
+			&s2.Note); err != nil {
 			return nil, err
 		}
 		out = append(out, s2)

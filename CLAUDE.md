@@ -535,6 +535,42 @@ The sweep rides the coordinator's existing hourly maintenance tick. Tasks do not
 arrive on a timer the way agent reports do, so without it nothing would ever
 look.
 
+## Panes, protocol, and what a session costs
+
+**A session is a pane, not a window.** `session:window` is resolved by tmux to
+whichever pane is ACTIVE, so a split window already accepted writes aimed at a
+different one — a keystroke in the wrong pane looks identical to one in the
+right pane, from every side. Every read and write now takes a pane; a negative
+pane keeps the old meaning, because that is what a caller which never heard of
+panes means and the only safe reading of silence.
+
+Reporting moved from windows to panes for the same reason: a window's report
+carries the active pane's command, path and pid, which is right for one pane and
+a silent lie for two. Each pane has its own directory and therefore its own
+project — that is what makes a split window legible rather than a place two
+projects hide behind one name.
+
+**Pane 0 keeps the session id its window has always had.** Ids are how mail is
+addressed, so renaming them together would orphan every undrained handoff, and
+nothing changes at all until somebody splits a window.
+
+**The protocol is negotiated, and mismatches are refused rather than degraded.**
+Only a build stamp was exchanged before — a fact about a binary, not a contract
+about behaviour. `upgrade --all` is deliberately serial, so a mixed fleet happens
+during *every* upgrade; an agent predating pane addressing ignores the field and
+writes to the active pane, which is the failure the addressing removes. One
+guard, at the single point every operation passes through. Pane 0 and an absent
+pane do not trip it, or this would fail every write to a node in the window
+before it is upgraded.
+
+**Sessions report what they have spent.** Context is the scarce resource this
+design is arranged around, and it was measured nowhere at fleet level: the
+numbers were already parsed and served one session at a time, so nothing
+aggregated them and a router could not weigh cost. Affordable on a five-second
+report only because `claudelog` caches incrementally — an unchanged transcript
+costs a stat, a grown one costs its new lines. Measured across eleven live
+sessions: 1.57s cold, 122ms warm.
+
 ## Blocked-session notifications
 
 When a session sits at a prompt for **90 seconds**, the coordinator sends a

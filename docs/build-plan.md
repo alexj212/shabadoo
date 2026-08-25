@@ -15,13 +15,19 @@ after any one of them leaves a system that works.
 | **1** | `kind`, and projects that describe themselves | **shipped** — v0.2.0 |
 | **2** | the node's main project and its core session | **shipped** — v0.2.0 |
 | **3** | lifecycle, deferred delivery, the loop guard | **shipped** — v0.3.0 |
-| **4** | tasks, and a reaper | not started |
-| **5** | protocol negotiation | not started |
-| **6** | pane addressing | not started |
-| **7** | token accounting | not started |
+| **4** | tasks, and a reaper | **built** — awaiting deploy |
+| **5** | protocol negotiation | **built** — awaiting deploy |
+| **6** | pane addressing | **built** — awaiting deploy |
+| **7** | token accounting | **built** — awaiting deploy |
 
-Running on both nodes and the coordinator, with a core session live on each
-machine. Phases 4-7 are untouched.
+Every phase is written. 0-3 are running on both nodes and the coordinator, with
+a core session live on each machine; 4-7 are committed and not yet deployed.
+
+Two of the later phases turned out smaller than planned, both because work
+already done was doing more than the plan credited it with. Phase 7 was billed
+as "the caching is the real work" — `claudelog` already caches incrementally, so
+an unchanged transcript costs a stat and a grown one costs only its new lines.
+Measured on eleven live sessions: a cold report 1.57s, a warm one 122ms.
 
 **Three things came out differently from the plan**, and each is written up in
 its phase below rather than quietly corrected:

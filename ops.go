@@ -174,10 +174,14 @@ func reportSessions(ctx context.Context) ([]hub.Session, error) {
 			for _, pn := range panesOf(panesByWindow, s.Name, w) {
 				state, asking := windowInput(ctx, s.Name, w.Index, pn.Index)
 				root := projectRoot(pn.Path)
+				tok := sessionTokens(pn.Path)
 				out = append(out, hub.Session{
 					InputState:  state,
 					Asking:      asking,
 					Kind:        kindOf(w, core),
+					TokensIn:    tok.Input,
+					TokensOut:   tok.Output,
+					TokensCache: tok.CacheRead + tok.CacheWrite,
 					Description: projectDescription(root),
 					SessionID:   paneSessionID(w, pn.Index),
 					Project:     projectName(pn.Path),
@@ -598,4 +602,27 @@ func opOpen(ctx context.Context, path string) (any, error) {
 		return nil, err
 	}
 	return map[string]string{"output": fmt.Sprintf("opened %q in %s\n", name, cwd)}, nil
+}
+
+// sessionTokens is what a session has spent, read from its own transcript.
+//
+// Context is the scarce resource this whole design is arranged around, and it
+// was measured nowhere at fleet level — the numbers were already parsed and
+// served one session at a time on request, so nothing aggregated them, nothing
+// noticed a session that burned two million overnight, and a router could not
+// weigh cost when deciding where work should go.
+//
+// Affordable on a five-second report only because claudelog already caches
+// incrementally: an unchanged transcript costs a stat, and a grown one costs
+// only the new lines. Reparsing a ninety-minute transcript every five seconds
+// would not be a feature, it would be a load generator.
+//
+// A folder with no transcript — every worker, and any project that has never
+// run — returns zero, which is the truth rather than a gap.
+func sessionTokens(cwd string) claudelog.Tokens {
+	sum, err := claudelog.Summarize(cwd)
+	if err != nil {
+		return claudelog.Tokens{}
+	}
+	return sum.Tokens
 }
