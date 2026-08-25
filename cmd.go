@@ -56,6 +56,9 @@ func runNode(args []string) {
 		name = hostLabel()
 	}
 
+	// Every report is also a diff, so the agent notices a window that has gone.
+	observe := watchedReporter()
+
 	c := node.New(node.Config{
 		Coord:   *coord,
 		Node:    name,
@@ -63,7 +66,17 @@ func runNode(args []string) {
 		KeyFile: *keyFile,
 		// The adapter is the transport's `any`-typed seam; reportSessions itself
 		// is concretely typed so `serve` can use its result without asserting.
-	}, handleOp, func(ctx context.Context) (any, error) { return reportSessions(ctx) })
+	}, handleOp, func(ctx context.Context) (any, error) {
+		sessions, err := reportSessions(ctx)
+		if err != nil {
+			return nil, err
+		}
+		// Every report is also a diff: a window that was here and is not is an
+		// event. Only the agent is positioned to see it — the coordinator is
+		// told what exists, never what stopped existing.
+		observe(sessions)
+		return sessions, nil
+	})
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
