@@ -100,6 +100,11 @@ func handleOp(ctx context.Context, op string, payload json.RawMessage) (any, err
 		if a.Path == "" {
 			return nil, fmt.Errorf("open: path required")
 		}
+		// An explicit request to start something forgets that it was closed on
+		// purpose. The file says "do not start this on your own", never "refuse
+		// to start this" — honouring it here would decline the thing it was
+		// just asked to do, for a reason nobody can see.
+		clearDeactivated(a.Path)
 		return opOpen(ctx, a.Path)
 
 	case "folders":

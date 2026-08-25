@@ -334,6 +334,13 @@ func runBoot(args []string) {
 			failed = true
 			continue
 		}
+		// Closed on purpose stays closed. Without this the watchdog reopens a
+		// session within ten minutes, which defeats closing one to free
+		// resources — the thing deactivation exists for.
+		if isDeactivated(cwd) {
+			fmt.Fprintf(os.Stderr, "boot: deactivated, skipping: %s\n", cwd)
+			continue
+		}
 		name := c.windowName(cwd)
 		if c.sessionExists(ctx) {
 			names, _ := c.windowNames(ctx)

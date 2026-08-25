@@ -88,11 +88,18 @@ func watchedReporter() func(ctx context.Context, current []hub.Session) {
 
 	return func(ctx context.Context, current []hub.Session) {
 		for _, s := range w.observe(current) {
-			// Phase 3 records this as a deactivation. Logging it meanwhile is
-			// not a placeholder: an event nobody can see is one nobody can
-			// debug, and the first question when a session is unexpectedly down
-			// will be whether the agent noticed it going.
+			// An event nobody can see is one nobody can debug, and the first
+			// question when a session is unexpectedly down is whether the agent
+			// noticed it going.
 			log.Printf("node: session ended: %s (%s) in %s", s.Alias, s.Kind, s.CWD)
+
+			// The core session is exempt: it is restarted, not deactivated.
+			// Recording it would be a deadlock — the only actor permitted to
+			// start sessions on this node, marked as deliberately not running.
+			if s.Kind == hub.KindCore {
+				continue
+			}
+			markDeactivated(s.CWD)
 		}
 		// Asked as a state rather than an event — see coreKeeper.observe.
 		keeper.observe(ctx, current)
