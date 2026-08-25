@@ -265,6 +265,26 @@ with no running session is still routable — which is exactly when routing
 matters. The node's main project becomes a *router over live data* rather than a
 maintained catalogue.
 
+**The file is git-ignored: it is per-machine state, not project content.** That
+places it in the same class as `~/.config/claude/env` and the boot folder list —
+things this software scaffolds but does not own, holding a decision rather than
+content. Ignoring it globally (`~/.config/git/ignore`, which git reads by
+default) costs one line per machine and keeps every repository's own
+`.gitignore` untouched; per-repo entries would mean editing every project to
+support a feature none of them are part of.
+
+Two consequences, and the first is arguably a feature:
+
+- **The same project can describe itself differently on different machines.** A
+  checkout that is where the mobile app actually gets built is not the same
+  thing as a reference copy elsewhere, and a committed description would force
+  them to lie about one of the two.
+- **A fresh clone has no description**, so a project is not routable until
+  someone writes one. That is real onboarding friction, and it argues for the
+  file being written by a command rather than by hand — the surgical,
+  one-line-at-a-time treatment `config set` and `boot add` already give to the
+  other per-host files, rather than a fourth format for an operator to remember.
+
 ## The three primitives that are missing
 
 **1. `kind` on a session — `claude` | `worker` | `core`.**

@@ -62,12 +62,16 @@ they cannot even be addressed.
 by the agent during the folder enumeration it already performs. It does two jobs:
 it is the routing card, and it is what makes a project **known while stopped**.
 
-Decide before writing code, because it is awkward to change later:
+**It is git-ignored** — per-machine state, the same class as the env file and
+the boot list. Ignore it globally in `~/.config/git/ignore`, which git reads
+without configuration: one line per machine, and no project's own `.gitignore`
+is touched to support a feature it is not part of.
 
-- the file name and format — plain text so it cannot be malformed;
-- **whether it is committed.** Committed means the description travels with the
-  repository to every machine; ignored means each machine keeps its own. These
-  are different products and the choice should be deliberate.
+Two things still to settle, both small: the file name, and whether a command
+writes it. A fresh clone has no description and is therefore unroutable until
+someone creates one, so writing it by hand is the friction — `config set` and
+`boot add` already established the surgical one-line-at-a-time treatment for
+per-host files, and a fourth hand-edited format is a fourth thing to remember.
 
 Both changes are additive fields, so no protocol risk.
 
