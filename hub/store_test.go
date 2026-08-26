@@ -3,6 +3,7 @@ package hub
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -766,5 +767,119 @@ func TestEmptyMessagesAreRefused(t *testing.T) {
 	// A real message still goes through — the guard must not refuse everything.
 	if _, err := s.Send(ctx, Envelope{ToSession: "claude-target-1", Body: "real work"}, now); err != nil {
 		t.Errorf("a normal message was refused: %v", err)
+	}
+}
+
+// A node's session list must never be observable half-written.
+//
+// Reported from the field: `session_send to="minutes"` was refused as unknown
+// while `minutes` was in `session_list`, and the refusal listed 8 of the 16
+// live sessions as though that were the fleet. The cause was the report handler
+// doing DELETE-then-N-upserts without a transaction, so any concurrent reader
+// caught an arbitrary prefix. Agents report every 5 s and the node in question
+// had 11 windows, so the exposed window was a real fraction of the time.
+//
+// The resolver is what made it visible, by turning an incomplete view into a
+// confident claim about the world. The dashboard raced identically and merely
+// flickered, which is why it went unnoticed there.
+func TestReportedSessionsAreNeverHalfVisible(t *testing.T) {
+	tn := testStore(t)
+	ctx := context.Background()
+	now := time.Unix(1_700_000_000, 0)
+
+	const node, count = "wsl", 11
+	sessions := make([]Session, count)
+	for i := range sessions {
+		sessions[i] = Session{
+			SessionID: fmt.Sprintf("claude-p%d-wsl-0000000%d", i, i),
+			Agent:     node,
+			Project:   fmt.Sprintf("p%d", i),
+			Alias:     fmt.Sprintf("p%d-wsl", i),
+			Status:    "idle",
+		}
+	}
+	if err := tn.ReplaceAgentSessions(ctx, node, sessions, now); err != nil {
+		t.Fatal(err)
+	}
+
+	// Hammer the report path while reading, the way a live agent and a live
+	// resolver do.
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				if err := tn.ReplaceAgentSessions(ctx, node, sessions, now); err != nil {
+					return
+				}
+			}
+		}
+	}()
+	defer func() { close(stop); <-done }()
+
+	for i := 0; i < 300; i++ {
+		got, err := tn.ListSessions(ctx, now)
+		if err != nil {
+			t.Fatalf("read %d: %v", i, err)
+		}
+		if len(got) != count {
+			t.Fatalf("read %d saw %d of %d sessions — a reader observed a "+
+				"half-written report, which is what makes the resolver refuse "+
+				"a project that exists", i, len(got), count)
+		}
+	}
+}
+
+// The resolver must find a project by name while its node is reporting.
+//
+// The layer above the race, pinned separately: the store being consistent is
+// only interesting because this is what depends on it, and addressing BY
+// PROJECT is the documented primary path that broke.
+func TestResolveFindsAProjectDuringAReport(t *testing.T) {
+	tn := testStore(t)
+	ctx := context.Background()
+	now := time.Unix(1_700_000_000, 0)
+
+	sessions := make([]Session, 11)
+	for i := range sessions {
+		sessions[i] = Session{
+			SessionID: fmt.Sprintf("claude-p%d-wsl-0000000%d", i, i),
+			Agent:     "wsl",
+			Project:   fmt.Sprintf("p%d", i),
+			Alias:     fmt.Sprintf("p%d-wsl", i),
+			Status:    "idle",
+		}
+	}
+	// The last one is the analogue of `minutes`: high window index, so it is
+	// exactly the entry a truncated read loses.
+	target := sessions[len(sessions)-1].Project
+
+	if err := tn.ReplaceAgentSessions(ctx, "wsl", sessions, now); err != nil {
+		t.Fatal(err)
+	}
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				_ = tn.ReplaceAgentSessions(ctx, "wsl", sessions, now)
+			}
+		}
+	}()
+	defer func() { close(stop); <-done }()
+
+	for i := 0; i < 200; i++ {
+		if _, err := tn.ResolveSession(ctx, target, now); err != nil {
+			t.Fatalf("attempt %d: project %q was refused while its node was "+
+				"reporting: %v", i, target, err)
+		}
 	}
 }

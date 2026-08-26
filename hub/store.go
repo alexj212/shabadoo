@@ -988,9 +988,19 @@ func (t *Tenant) SetSessionStatus(ctx context.Context, sessionID, note string, n
 	return err
 }
 
+// execer is satisfied by both *sql.DB and *sql.Tx, so one statement serves the
+// single-session upsert and the transactional whole-node replace below.
+type execer interface {
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+}
+
 // UpsertSession records what an agent reports about one of its windows.
 func (t *Tenant) UpsertSession(ctx context.Context, sess Session, now time.Time) error {
-	_, err := t.s.db.ExecContext(ctx, `
+	return t.upsertSession(ctx, t.s.db, sess, now)
+}
+
+func (t *Tenant) upsertSession(ctx context.Context, db execer, sess Session, now time.Time) error {
+	_, err := db.ExecContext(ctx, `
 		INSERT INTO sessions (tenant, session_id, agent, project, cwd, alias, window, status,
 		                      updated_at, tmux_session, win_index, win_name, command, activity, panes,
 		                      input_state, asking, kind, description, pane_index,
@@ -1013,6 +1023,44 @@ func (t *Tenant) UpsertSession(ctx context.Context, sess Session, now time.Time)
 		sess.Kind, sess.Description, sess.Pane,
 		sess.TokensIn, sess.TokensOut, sess.TokensCache, sess.ToolsStale)
 	return err
+}
+
+// ReplaceAgentSessions swaps a node's whole session list in ONE transaction.
+//
+// It used to be a DELETE followed by N separate upserts, each in its own
+// implicit transaction, so for the duration of a report any concurrent reader
+// saw an arbitrary prefix of that node's sessions — or none of them. Agents
+// report every 5 seconds and a busy node reports eleven windows, so the window
+// was not theoretical.
+//
+// It surfaced through the recipient resolver, which is the reader that turns an
+// incomplete view into a hard error: `session_send to="minutes"` was refused as
+// unknown, and the refusal helpfully listed the eight sessions the resolver
+// could see out of sixteen. That reads as a statement about the world — "that
+// project is not there" — when it is a statement about a half-written table.
+// The dashboard had the same race and merely flickered, which is why nobody
+// caught it there.
+//
+// WAL means readers take the pre-transaction snapshot until this commits, so
+// the swap is invisible: a reader sees the old list or the new one, never a
+// prefix of either.
+func (t *Tenant) ReplaceAgentSessions(ctx context.Context, agent string, sessions []Session, now time.Time) error {
+	tx, err := t.s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(ctx,
+		`DELETE FROM sessions WHERE tenant = ? AND agent = ?`, t.id, agent); err != nil {
+		return err
+	}
+	for i := range sessions {
+		if err := t.upsertSession(ctx, tx, sessions[i], now); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 // ListSessions returns every known session with its undrained mail count.

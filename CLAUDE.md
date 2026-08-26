@@ -611,6 +611,38 @@ process table** and requires them to agree, because a fixture only ever agrees
 with whatever its author assumed — which is precisely how the `/proc`-only
 version shipped looking correct.
 
+## An agent's report is one transaction
+
+A node's session list is replaced wholesale on every report — the agent is the
+authority on its own tmux server, so a window that vanished must vanish here.
+That was a `DELETE` followed by N separate upserts, each in its own implicit
+transaction, which meant **every reader during a report saw an arbitrary prefix
+of that node's sessions, or none of them.** Agents report every 5 seconds and a
+busy node has eleven windows, so the exposed window was a real fraction of the
+time.
+
+The dashboard raced identically and merely flickered, which is why it was never
+caught there. What made it visible was the **recipient resolver**, the one
+reader that turns an incomplete view into a hard error: `session_send
+to="minutes"` was refused as unknown while `minutes` was live, and the refusal
+listed the 8 sessions it could see out of 16 as though that were the fleet.
+
+That is the part worth remembering. **A refusal that enumerates what exists
+reads as authoritative**, so an incomplete index becomes a claim about the world
+— "that project is not there" rather than "I could not see it". The peer that
+hit it nearly concluded the session had exited and started it again, which would
+have spent a machine's resources on a lie. Same shape as the broadcast that
+reached zero recipients: the mechanism was confidently silent about its own
+incompleteness.
+
+`ReplaceAgentSessions` does the swap in one transaction. WAL means readers take
+the pre-transaction snapshot until it commits, so a reader sees the old list or
+the new one, never a prefix of either. `store_test.go` hammers the report path
+while reading and pins both layers — the store never half-visible, and the
+resolver still finding a project by name while its node reports. Both were
+confirmed to **fail against the previous implementation** before being kept; a
+race test that has not been seen to fail is decoration.
+
 ## Blocked-session notifications
 
 When a session sits at a prompt for **90 seconds**, the coordinator sends a

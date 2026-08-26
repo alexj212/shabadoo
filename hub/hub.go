@@ -518,17 +518,18 @@ func (h *Hub) handleReport(w http.ResponseWriter, r *http.Request) {
 
 	// Replace this agent's view wholesale: a window that vanished must vanish
 	// here too, and the agent is the authority on its own tmux server.
+	//
+	// In ONE transaction. As a DELETE plus N separate upserts, every reader
+	// during a report saw an arbitrary prefix of this node's sessions — which
+	// the recipient resolver then reported as "no session matches", listing the
+	// half of the fleet it could see as though that were the fleet.
 	tn := h.store.Tenant(c.tenant)
-	if err := tn.DropAgentSessions(ctx, c.node); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
 	for i := range req.Sessions {
 		req.Sessions[i].Agent = c.node // never trust an agent's claim about which node it is
-		if err := tn.UpsertSession(ctx, req.Sessions[i], now); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
+	}
+	if err := tn.ReplaceAgentSessions(ctx, c.node, req.Sessions, now); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	// After the store is consistent, so neither a notification nor a pushed
