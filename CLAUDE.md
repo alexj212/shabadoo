@@ -1325,6 +1325,32 @@ documentation, and a scanner that cries wolf gets ignored.
   answer is genuinely acceptable, say so in the response — never in a comment
   the caller will not read.
 
+- **Nothing verifies itself. Check from somewhere else.** The companion to the
+  rule above, and the reason every instance of it was found by a peer rather
+  than by review: a component reporting on its own state is the one thing that
+  cannot detect the failure mode where it stops looking. Green because checked
+  and green because unexamined are indistinguishable from the inside.
+
+  Counted in one evening: `make check` passing because it never read commit
+  messages, `tools_stale: false` on a node with no `/proc`, an Email Routing
+  dashboard saying ready when it meant recorded (a message 76 s earlier bounced
+  `550` off Cloudflare's own MX), and a published address that greps as missing
+  because the CDN rewrote it. Four self-reports, four wrong, none caught by the
+  thing reporting.
+
+  This is already how the load-bearing tests here work, and it is worth naming
+  so it keeps happening: `serve_test.go` reads its endpoint list **out of
+  `static/index.html`** rather than a hardcoded copy written from the same
+  stale understanding that caused the drift; `qr_ref_test.go` pins against
+  `qrencode`; `launch_test.go`'s expected hashes were computed with `sha1sum`;
+  `stale_test.go` runs **both** process-table readers and requires them to
+  agree. A fixture only ever agrees with whatever its author assumed.
+
+  Operationally the same: verify a deploy by reading the served page, not the
+  green checkmark; verify an email alias from an unrelated account, never from
+  the mailbox it forwards to — Gmail dedupes by `Message-ID`, so a self-addressed
+  test vanishes into its own Sent copy and proves nothing either way.
+
 
 - **A change to the human API is a change to `docs/mobile-client.md`.** That
   document is a contract with someone building a client from another machine,
