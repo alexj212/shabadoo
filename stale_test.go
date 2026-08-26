@@ -68,7 +68,7 @@ func TestPSTableFindsMCPChildren(t *testing.T) {
 	// numbers, an absolute command path, and etime in three different widths.
 	const sample = `  501     1    03:11:07 /bin/zsh --login
   733   501 2-04:22:10 claude --dangerously-skip-permissions
-  899   733    11:12:00 /Users/someone/bin/shabadoo mcp
+  899   733    11:12:00 /usr/local/bin/shabadoo mcp
   950     1       04:31 /usr/bin/ssh-agent -l
 `
 	table := parsePS(sample, now)
@@ -112,7 +112,7 @@ func TestPSTableFindsMCPChildren(t *testing.T) {
 func TestPSTableRespectsTheBuildStamp(t *testing.T) {
 	now := time.Date(2026, 8, 25, 12, 0, 0, 0, time.UTC)
 	const sample = `  501     1    03:11:07 /bin/zsh --login
-  899   501    01:12:00 /Users/someone/bin/shabadoo mcp
+  899   501    01:12:00 /usr/local/bin/shabadoo mcp
 `
 	table := parsePS(sample, now)
 	if got := stalePanesIn(table, now.Add(-24*time.Hour)); len(got) != 0 {
