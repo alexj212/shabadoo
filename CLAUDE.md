@@ -1034,6 +1034,18 @@ per minute**, so a copy inside a shipped app is a copy on every phone that
 installs it. Requires both `--elevenlabs-key` and `--elevenlabs-agent`; half a
 configuration leaves the endpoint disabled and says so at startup.
 
+**Configure it through the environment, never the command line.** A compose
+file's `--elevenlabs-key=${VAR}` expands at compose time and bakes the secret
+into the process argv, where `/proc/<pid>/cmdline` is mode **444** — every user
+on the host can read an account-wide, per-minute-billed key with `ps`. The
+environment is mode 400, owner only, and `hub` reads `SHABADOO_ELEVENLABS_KEY`
+as the flag's own default, so nothing about the configuration changes except
+who can see it. The flag stays, because removing a documented interface is a
+worse surprise than a warning — `hub` says once at startup when a non-empty key
+arrived in argv. Found on the live deployment, whose compose comment already
+said the values were "read from the environment below" while passing them as
+flags: the intent was right and the expansion published the value anyway.
+
 **Nothing here grants a permission.** The agent's tools run on the CLIENT,
 against this same API, with the device's own token — so a read-scoped phone's
 attempt to dictate into a pane is refused by `requireWrite` without the voice

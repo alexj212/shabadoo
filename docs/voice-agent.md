@@ -19,7 +19,7 @@ says so at startup rather than failing when somebody is holding a phone.
 
 | Flag | Environment | What |
 |---|---|---|
-| `--elevenlabs-key` | `SHABADOO_ELEVENLABS_KEY` | account API key |
+| `--elevenlabs-key` | `SHABADOO_ELEVENLABS_KEY` | account API key. **Set the environment variable, not the flag** — a value in argv is world-readable via `/proc/<pid>/cmdline` (mode 444), and this key is billed per minute |
 | `--elevenlabs-agent` | `SHABADOO_ELEVENLABS_AGENT` | the agent's id, from the dashboard |
 
 **Read at startup, not per request** — they land in package variables when the
