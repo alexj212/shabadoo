@@ -313,8 +313,18 @@ type nodeView struct {
 	// only while the node is connected — a node nobody can reach can do
 	// nothing, so an offline host advertising a microphone would be an
 	// invitation to route work that cannot arrive.
-	Capabilities []string  `json:"capabilities,omitempty"`
-	Sessions     []Session `json:"sessions"`
+	Capabilities []string `json:"capabilities,omitempty"`
+
+	// CapabilitiesKnown separates "reported none" from "could not tell us".
+	//
+	// An absent list means nothing on its own: it is equally an old build that
+	// cannot report and a machine with nothing to report. Rendering the second
+	// as the first is the same mistake as a staleness detector reporting clean
+	// on a platform it cannot inspect, and a resolver listing the half of the
+	// fleet it can see as though that were the fleet — all three shipped in one
+	// evening, which is what turned it into a rule. See Conventions.
+	CapabilitiesKnown bool      `json:"capabilities_known"`
+	Sessions          []Session `json:"sessions"`
 }
 
 func (h *humanAPI) sessions(w http.ResponseWriter, r *http.Request) {
@@ -373,11 +383,12 @@ func (h *humanAPI) sessionsPayload(ctx context.Context) (map[string]any, error) 
 	nodes := make([]nodeView, 0, len(byNode))
 	for node, sessions := range byNode {
 		nodes = append(nodes, nodeView{
-			Node:         node,
-			Online:       online[node],
-			Version:      versions[node],
-			Capabilities: h.hub.NodeCapabilities(tenant, node),
-			Sessions:     sessions,
+			Node:              node,
+			Online:            online[node],
+			Version:           versions[node],
+			Capabilities:      h.hub.NodeCapabilities(tenant, node),
+			CapabilitiesKnown: h.hub.CapabilitiesKnown(tenant, node),
+			Sessions:          sessions,
 		})
 	}
 

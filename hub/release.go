@@ -381,6 +381,25 @@ func (h *Hub) RequireProtocol(tenant, node string, min int, what string) error {
 	return nil
 }
 
+// CapabilitiesKnown reports whether this node's build says anything about its
+// capabilities at all.
+//
+// Without it, an online node with an empty capability list is ambiguous between
+// "this machine can do nothing" and "this build predates capability reporting" —
+// and a router reading the first when the second is true will decline to send
+// work a host could perfectly well have done.
+//
+// It costs nothing on the wire: capability reporting arrived with protocol
+// negotiation, so an agent that negotiates is an agent that reports. `upgrade
+// --all` is deliberately serial, so a mixed fleet exists during every upgrade
+// and this is reachable rather than theoretical.
+func (h *Hub) CapabilitiesKnown(tenant, node string) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	c, ok := h.byNode[nodeKey(tenant, node)]
+	return ok && c.protocol >= ProtocolNegotiation
+}
+
 // NodeCapabilities reports what a connected agent says its host can do.
 //
 // Held on the connection for the same reason as the platform: it describes the

@@ -1294,6 +1294,38 @@ documentation, and a scanner that cries wolf gets ignored.
 
 ## Conventions
 
+- **Empty and "could not determine" are different answers, and a fleet-wide
+  report must never render the second as the first.** This is a rule rather
+  than three fixes because three instances of it shipped in a single evening,
+  each one plausible on its own:
+
+  | Where | Said | Meant |
+  |---|---|---|
+  | `session_broadcast` | delivered | reached zero subscribers |
+  | the recipient resolver | `no session matches (known: …8 of 16…)` | my index is half-written |
+  | `tools_stale` on macOS | every session clean | `/proc` does not exist here |
+
+  The shape is always the same: a component that cannot see the whole fleet
+  presents its partial view *as* the fleet, and the caller reasonably reads a
+  confident answer as a fact about the world. The resolver case is the sharpest
+  — a refusal that helpfully enumerates what exists reads as authoritative, and
+  the peer that hit it nearly started a session that was already running.
+
+  Worth noting how each was found, because none was found by review: the
+  broadcast and the resolver were reported by a peer session using the system,
+  and the macOS blindness by a peer reasoning from `ps` when my own
+  instrumentation said the node was clean. **A component degrading silently is
+  invisible from inside it** — the dashboard raced identically to the resolver
+  for months and merely flickered.
+
+  So: distinguish the two at the point of measurement, not in the caller.
+  `capabilities_known` separates "this machine reports nothing" from "this build
+  cannot tell you"; `staleToolPanes` reads the process table two ways rather
+  than returning an empty map on a platform it cannot inspect. Where a partial
+  answer is genuinely acceptable, say so in the response — never in a comment
+  the caller will not read.
+
+
 - **A change to the human API is a change to `docs/mobile-client.md`.** That
   document is a contract with someone building a client from another machine,
   and a stale contract is worse than a missing one: they design around an

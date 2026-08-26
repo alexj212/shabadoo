@@ -62,3 +62,43 @@ func TestReleasesPruneToKeepVersions(t *testing.T) {
 }
 
 func versionName(i int) string { return string(rune('a'+i)) + "000000" }
+
+// "Reported none" and "could not tell us" must not render the same.
+//
+// The rule this pins was extracted by a peer session after three instances of
+// the same shape shipped in one evening: a broadcast that reached zero
+// recipients and said nothing, a resolver that listed the half of the fleet it
+// could see as though that were the fleet, and a staleness detector that
+// reported clean on the platform it could not inspect. Each took "I could not
+// see" and rendered it as "there is nothing there".
+//
+// An empty capability list is the same trap: equally an old build that cannot
+// report and a machine with nothing to report. A router reading the first when
+// the second is true declines work a host could have done.
+func TestCapabilitiesDistinguishUnknownFromNone(t *testing.T) {
+	h := &Hub{byNode: map[string]*conn{}}
+
+	h.byNode[nodeKey("t1", "modern")] = &conn{protocol: ProtocolCurrent, caps: nil}
+	h.byNode[nodeKey("t1", "ancient")] = &conn{protocol: ProtocolBase, caps: nil}
+
+	// Both report no capabilities...
+	if got := h.NodeCapabilities("t1", "modern"); len(got) != 0 {
+		t.Fatalf("modern node reported %v", got)
+	}
+	if got := h.NodeCapabilities("t1", "ancient"); len(got) != 0 {
+		t.Fatalf("ancient node reported %v", got)
+	}
+	// ...but only one of them was asked in a language it speaks.
+	if !h.CapabilitiesKnown("t1", "modern") {
+		t.Error("a negotiating agent's empty list should be believable as 'none'")
+	}
+	if h.CapabilitiesKnown("t1", "ancient") {
+		t.Error("a pre-negotiation build's silence was reported as a real answer — " +
+			"this is the bug shape, not a missing feature")
+	}
+
+	// An offline node is not 'none' either; it is not there at all.
+	if h.CapabilitiesKnown("t1", "absent") {
+		t.Error("an unconnected node claimed its capabilities were known")
+	}
+}
