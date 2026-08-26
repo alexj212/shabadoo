@@ -464,6 +464,24 @@ capture boundary would make it unrecoverable downstream.
   driving every pane, and the answer is still scoped credentials rather than
   trusting the network.
 
+## Rejected
+
+**A default `fleet` topic.** Broadcast reaches nobody, because nothing
+subscribes to anything. The proposal was one auto-subscribed topic carrying
+substrate changes — "the tool surface you are holding moved" — on the grounds
+that a session cannot discover that alone.
+
+Not built, and the reasoning is worth keeping so it is not re-proposed.
+Subscribing every session to a channel makes broadcast a wake-and-interrupt
+amplifier: each message costs every session a turn, most of which will do
+nothing with it, and a channel that mostly wastes turns gets ignored exactly as
+a notifier that cries wolf gets muted.
+
+The one case that motivated it is now covered without a channel: a session's
+stale tool surface is reported as `tools_stale` and visible through
+`session_list`, so the fact is reachable by anything that looks. Directed mail
+carries the things that need doing; nothing needed a broadcast.
+
 ## Still open
 
 Nothing structural. Every question raised while writing this was put to the
