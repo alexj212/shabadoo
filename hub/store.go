@@ -57,7 +57,23 @@ func Open(path string) (*Store, error) {
 	// WAL so a long read (the timeline view) doesn't block an agent's write;
 	// busy_timeout so concurrent writers wait rather than erroring immediately;
 	// foreign_keys because deliveries reference messages.
-	dsn := path + "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)"
+	//
+	// _txlock=immediate is the one that is not obvious. A DEFERRED transaction
+	// takes its read snapshot at the first SELECT and only asks for the write
+	// lock later, so if anything committed in between SQLite fails it with
+	// SQLITE_BUSY_SNAPSHOT (517) — and **busy_timeout does not help**, because
+	// that is not a lock to wait for: the snapshot is unresolvably stale and the
+	// transaction can only be retried from the start.
+	//
+	// `Drain` is exactly that shape (SELECT the mail, then ack it), and it was
+	// seen failing with 517 in the field once agent reports became transactional
+	// and started committing a write every few seconds. Taking the write lock up
+	// front turns an error into a short wait, which busy_timeout already covers.
+	//
+	// Safe here because every transaction in this store writes; there is no
+	// read-only transaction to serialize needlessly.
+	dsn := path + "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)" +
+		"&_pragma=foreign_keys(1)&_txlock=immediate"
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err

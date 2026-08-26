@@ -883,3 +883,64 @@ func TestResolveFindsAProjectDuringAReport(t *testing.T) {
 		}
 	}
 }
+
+// Draining mail must not fail because something else wrote.
+//
+// Reported from the field: `POST /message/drain` returned "database is locked
+// (517)" — SQLITE_BUSY_SNAPSHOT. A DEFERRED transaction takes its read snapshot
+// at the first SELECT and asks for the write lock later, so a commit in between
+// makes the snapshot unresolvably stale. busy_timeout does NOT cover this: there
+// is no lock to wait for.
+//
+// Drain is exactly that shape — SELECT the mail, then ack it — and it started
+// failing once agent reports became transactional and began committing a write
+// every few seconds. The report was correct that drain is the call where this
+// matters most, though not for the reason feared: the ack and the read are in
+// one transaction, so a failure rolls back and acks nothing. The cost is a
+// failed drain, not lost mail.
+func TestDrainSurvivesConcurrentWrites(t *testing.T) {
+	tn := testStore(t)
+	ctx := context.Background()
+	now := time.Unix(1_700_000_000, 0)
+
+	sessions := make([]Session, 11)
+	for i := range sessions {
+		sessions[i] = Session{
+			SessionID: fmt.Sprintf("claude-p%d-wsl-0000000%d", i, i),
+			Agent:     "wsl",
+			Project:   fmt.Sprintf("p%d", i),
+			Alias:     fmt.Sprintf("p%d-wsl", i),
+		}
+	}
+	const inbox = "claude-p0-wsl-00000000"
+
+	// A writer committing constantly, as two reporting agents do.
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				_ = tn.ReplaceAgentSessions(ctx, "wsl", sessions, now)
+			}
+		}
+	}()
+	defer func() { close(stop); <-done }()
+
+	for i := 0; i < 60; i++ {
+		if _, err := tn.Send(ctx, Envelope{
+			FromSession: "claude-p1-wsl-00000001", ToSession: inbox,
+			Title: "t", Body: "b",
+		}, now); err != nil {
+			t.Fatalf("send %d: %v", i, err)
+		}
+		if _, err := tn.Drain(ctx, inbox, now); err != nil {
+			t.Fatalf("drain %d failed while another writer was committing: %v\n"+
+				"a deferred transaction cannot upgrade its snapshot, and "+
+				"busy_timeout does not cover SQLITE_BUSY_SNAPSHOT", i, err)
+		}
+	}
+}

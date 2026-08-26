@@ -643,6 +643,28 @@ resolver still finding a project by name while its node reports. Both were
 confirmed to **fail against the previous implementation** before being kept; a
 race test that has not been seen to fail is decoration.
 
+### Transactions take the write lock up front
+
+`_txlock=immediate` in the DSN, and it is the least obvious line in `Open`.
+
+A DEFERRED transaction takes its read snapshot at the first `SELECT` and only
+asks for the write lock later. If anything committed in between, SQLite fails it
+with **`SQLITE_BUSY_SNAPSHOT` (517)** — and `busy_timeout` does not help, because
+that is not a lock to wait for: the snapshot is unresolvably stale and the
+transaction can only be retried from the start.
+
+`Drain` is exactly that shape — select the mail, then ack it — and it was seen
+failing with 517 in the field within minutes of agent reports becoming
+transactional, which is to say the fix above caused it. Taking the write lock at
+`BEGIN` turns the error into a short wait that `busy_timeout` already covers.
+Safe because every transaction in this store writes; there is no read-only
+transaction being needlessly serialized.
+
+**Drain's own ordering was already right**, which was the reporter's real worry:
+the select and the ack share a transaction, so a failure rolls back and
+acknowledges nothing. The cost of a 517 was a failed drain, never mail marked
+delivered to nobody.
+
 ## Blocked-session notifications
 
 When a session sits at a prompt for **90 seconds**, the coordinator sends a
