@@ -434,6 +434,7 @@ type cliSession struct {
 	Pending    int    `json:"pending"`
 	Note       string `json:"note"`
 	Asking     string `json:"asking"`
+	ToolsStale bool   `json:"tools_stale"`
 
 	TmuxSession string `json:"tmux_session"`
 	Index       int    `json:"index"`
@@ -592,6 +593,7 @@ func runSessions(args []string) {
 	}
 
 	waiting := 0
+	stale := 0
 	for _, n := range nodes {
 		state := "offline"
 		if n.Online {
@@ -608,6 +610,13 @@ func runSessions(args []string) {
 			if s.Pending > 0 {
 				mail = fmt.Sprintf("  %d unread", s.Pending)
 			}
+			if s.ToolsStale {
+				// Not a `!`: this session is not waiting on anybody and needs
+				// nothing answered. It simply cannot see tools added since it
+				// started, which is a different kind of attention.
+				mail += "  ~stale tools"
+				stale++
+			}
 			fmt.Printf("  %s %-28s %-10s %-8s %s%s\n", mark, s.Alias, s.Window, s.Status, s.CWD, mail)
 			// The session's own words go on their own line: they are prose, and
 			// squeezing them into a column would truncate the useful half.
@@ -621,6 +630,26 @@ func runSessions(args []string) {
 				fmt.Printf("      ? %s\n", s.Asking)
 			}
 		}
+	}
+	if stale > 0 {
+		// Measured and rendered nowhere is how `acked_at` sat unread in the
+		// deliveries table from the beginning: the number existed, went out over
+		// the API, and stopped there. A count nobody can see does not tell
+		// anybody to recycle a window.
+		subject := "session cannot see tools"
+		if stale != 1 {
+			subject = "sessions cannot see tools"
+		}
+		// The remedy has to restart the PROCESS. `shabadoo mcp` is launched by
+		// the session and lives as long as it does, so clearing context leaves
+		// the same child — and the same tool list — in place. Naming /clear here
+		// would be advice that runs cleanly and fixes nothing.
+		fmt.Printf("\n~ %d %s added since they started\n"+
+			"    a session's MCP tool surface is fixed when the session starts, so\n"+
+			"    `upgrade` never reaches one already running. Restarting the window\n"+
+			"    is the fix; clearing context is not, since the MCP child survives it.\n"+
+			"    shabadoo kill NAME && shabadoo open NAME\n",
+			stale, subject)
 	}
 	if waiting > 0 {
 		// Read before answering: `tail` first, deliberately. Sending Enter to a

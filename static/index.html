@@ -76,6 +76,11 @@
      by the same command from the same binary, so a mismatch is a downgrade
      until proven otherwise. */
   .badge.skew { color: var(--warn); border-color: rgba(230,184,80,.45); background: rgba(230,184,80,.08); }
+  /* A stale tool surface is not a request for attention the way a prompt is —
+     nobody is blocked and nothing needs answering — so it is deliberately
+     quieter than .prompt, and muted rather than warning-coloured. */
+  .stale { font-size: 11px; padding: 1px 5px; border-radius: 4px; margin-left: 6px;
+           color: var(--muted); border: 1px solid rgba(148,163,184,.35); cursor: help; }
   .badge.ver { text-transform: none; font-family: var(--mono, ui-monospace, monospace); }
 
   /* ---- audit: who drove which pane. The only record that survives a pane. ---- */
@@ -654,7 +659,8 @@ function renderAgent(n, now, hubVersion) {
               <td class="idx">${w.index}</td>
               <td class="name" title="${esc(w.name)}">${esc(w.alias)}${
                 waiting ? ` <span class="prompt" title="waiting on a prompt">prompt</span>` : ""}${
-                w.note ? ` <span class="note" title="what this session says it is doing">${esc(w.note)}</span>` : ""}</td>
+                w.note ? ` <span class="note" title="what this session says it is doing">${esc(w.note)}</span>` : ""}${
+                w.tools_stale ? ` <span class="stale" title="This session's MCP tool surface was fixed when it started, so tools added since are invisible to it. Restarting the window is the fix — clearing context is not, because the MCP child survives it.">stale tools</span>` : ""}</td>
               <td class="cmd">${esc(w.command || "")}</td>
               <td class="idle">${ago(now, w.activity)}</td>
               <td class="hide-sm">${w.pending ? `<b>${w.pending}</b>` : ""}</td>

@@ -571,6 +571,46 @@ report only because `claudelog` caches incrementally — an unchanged transcript
 costs a stat, a grown one costs its new lines. Measured across eleven live
 sessions: 1.57s cold, 122ms warm.
 
+## A session cannot see tools added after it started
+
+Each Claude session launches `shabadoo mcp` as a child **at start**, and that
+child advertises its tool list once. Upgrading the binary does nothing for it:
+the session keeps the surface it was born with until the window is restarted.
+
+So a release that adds a tool reaches nobody already running, and the failure is
+invisible from exactly where it matters — inside the affected session, which has
+no way to know its own surface is behind. Found by a session being told about
+three new tools, trying one, and not finding it.
+
+`stale.go` reports it as `tools_stale`, rendered as a quiet badge on the
+dashboard row and a count under `shabadoo sessions`. Measured on this fleet the
+day it shipped: **11 of 11** sessions on the node that could measure. It is the
+default outcome of an upgrade, not a corner case.
+
+**The remedy restarts the process.** `/clear` does not work and saying so
+matters, because it runs cleanly and fixes nothing — the MCP child is launched
+by the session and outlives a context clear. Verified rather than reasoned:
+every MCP child on this host is within seconds of its `claude` parent's age,
+several of them 12 days old across many clears.
+
+**It reads the process table two ways, and that is the whole point.** The first
+version was `/proc`-only with no build tag, so on macOS `os.ReadDir("/proc")`
+simply failed and the empty result became `tools_stale: false` on *every*
+session — a node reporting "all clean" when it had not looked. It surfaced as
+mac reporting 0 of 5 while wsl reported 11 of 11, minutes after both were
+upgraded, which is not a plausible difference between two machines. **A detector
+that answers "fine" when it means "I cannot tell" is worse than an absent one**,
+because nobody checks behind a clean answer. `ps -Ao pid=,ppid=,etime=,command=`
+is the portable reader, and it is the fallback on Linux too rather than only the
+macOS path.
+
+Elapsed time rather than start time: `ps -o lstart=` emits a locale-formatted
+date that has to be parsed back, and this only feeds a comparison against a build
+stamp hours or days away. `stale_test.go` runs **both readers over the same live
+process table** and requires them to agree, because a fixture only ever agrees
+with whatever its author assumed — which is precisely how the `/proc`-only
+version shipped looking correct.
+
 ## Blocked-session notifications
 
 When a session sits at a prompt for **90 seconds**, the coordinator sends a
