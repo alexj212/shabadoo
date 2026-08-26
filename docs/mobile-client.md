@@ -346,11 +346,22 @@ All JSON, all behind the bearer token unless noted.
       "online": true,
       "version": "734c6b4",
         "capabilities": ["docker", "ffmpeg", "go", "gpu.nvidia", "tmux"],
+        "capabilities_known": true,
       "sessions": [ … ]
     }
   ]
 }
 ```
+
+**`node`** is that machine's name, and it is the value every write puts in its
+`node` field — it is how the coordinator decides which agent to route to, so a
+client should carry it around rather than reconstruct it.
+
+**`online`** is whether that node's agent currently holds its command stream
+open. It is the difference between a node whose panes can be driven and one that
+can only be looked at: the sessions of an offline node are its last reported
+view, and any write aimed at it will fail. Show it; a stale session list that
+looks live is the thing this field exists to prevent.
 
 **`capabilities` is what that machine can do**, and is **absent for an offline
 node** — a host nobody can reach can do nothing, so an offline machine
@@ -360,6 +371,14 @@ Most of it is detected (a curated toolchain vocabulary — presence only, never
 versions); the node's own project may also declare what no probe can establish,
 such as `always-on` or `apple-toolchain`. Where the two disagree about something
 checkable, detection wins.
+
+**Check `capabilities_known` before concluding anything from an empty list.** An
+absent `capabilities` means nothing on its own: it is equally a machine with
+nothing to report and an agent whose build predates capability reporting. Only
+when `capabilities_known` is `true` does an empty list mean "this host can do
+none of these things". Treating the two as the same is how a router declines to
+send work a machine could perfectly well have done — and `upgrade --all` is
+deliberately serial, so a mixed fleet exists during every upgrade.
 
 Useful for shaping what a client offers: do not present "build the iOS app" on a
 node without `ios.build`. It is **not** a permission — nothing here grants

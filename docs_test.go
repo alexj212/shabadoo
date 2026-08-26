@@ -126,3 +126,53 @@ func TestMobileSpecCoversSessionFields(t *testing.T) {
 			"Document it, or drop it from the struct.", strings.Join(missing, ", "))
 	}
 }
+
+// The same contract, for the NODE object rather than the session.
+//
+// `TestMobileSpecCoversSessionFields` is anchored on the Session struct alone,
+// so `capabilities_known` was added to the node object and shipped with the
+// spec untouched and every test green. The guard existed precisely to prevent
+// that and could not see the field, which makes this the second half of a check
+// that was only ever half-written — a client reads both objects out of the same
+// response and cannot tell which struct a field came from.
+func TestMobileSpecCoversNodeFields(t *testing.T) {
+	src, err := os.ReadFile("hub/human.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec, err := os.ReadFile("docs/mobile-client.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	body := string(src)
+	start := strings.Index(body, "type nodeView struct {")
+	if start < 0 {
+		// Anchored by name so a rename fails loudly rather than silently
+		// checking nothing, which is how a guard becomes decoration.
+		t.Fatal("nodeView struct not found — this test is anchored on it")
+	}
+	end := strings.Index(body[start:], "\n}")
+	if end < 0 {
+		t.Fatal("could not find the end of the nodeView struct")
+	}
+	block := body[start : start+end]
+
+	tag := regexp.MustCompile("`json:\"([a-z_]+)")
+	var missing []string
+	for _, m := range tag.FindAllStringSubmatch(block, -1) {
+		field := m[1]
+		if field == "sessions" {
+			continue // covered field-by-field by the session test above
+		}
+		if !strings.Contains(string(spec), "`"+field+"`") {
+			missing = append(missing, field)
+		}
+	}
+	if len(missing) > 0 {
+		t.Errorf("these node fields are absent from docs/mobile-client.md:\n  %s\n\n"+
+			"A client reads the node object and the session object out of one\n"+
+			"response and cannot tell which struct a field came from. Document it,\n"+
+			"or drop it from the struct.", strings.Join(missing, ", "))
+	}
+}
