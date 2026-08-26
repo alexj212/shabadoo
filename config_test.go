@@ -230,3 +230,28 @@ func TestBareInvocationPrintsUsage(t *testing.T) {
 		}
 	}
 }
+
+// A secret on the command line is world-readable: /proc/<pid>/cmdline is mode
+// 444, so any user on the host reads it with ps. Found on a live deployment
+// where the key was passed as a compose argument.
+func TestKeyOnCommandLineDetection(t *testing.T) {
+	base := []string{"shabadoo", "hub", "--addr=0.0.0.0:8787"}
+
+	if keyOnCommandLine(base) {
+		t.Error("warned with no key flag at all")
+	}
+	if !keyOnCommandLine(append(base, "--elevenlabs-key=sk_real_value")) {
+		t.Error("a key in argv was not detected")
+	}
+	if !keyOnCommandLine(append(base, "--elevenlabs-key", "sk_real_value")) {
+		t.Error("a space-separated key was not detected")
+	}
+	// Compose expands an unset variable to an empty flag. Warning on that would
+	// be noise on every deployment that does not use voice.
+	if keyOnCommandLine(append(base, "--elevenlabs-key=")) {
+		t.Error("an empty flag was reported as an exposed key")
+	}
+	if keyOnCommandLine(append(base, "--elevenlabs-key", "")) {
+		t.Error("an empty space-separated flag was reported as exposed")
+	}
+}

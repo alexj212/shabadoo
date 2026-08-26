@@ -144,6 +144,19 @@ func runHub(args []string) {
 	hub.AppriseURL = *apprise
 	hub.ElevenLabsKey, hub.ElevenLabsAgent = *elevenKey, *elevenAgent
 
+	// A secret on the command line is world-readable. /proc/<pid>/cmdline is
+	// mode 444, so any user on the host reads it with `ps`, and this key is
+	// account-wide and billed per minute.
+	//
+	// The flag stays, because removing a documented interface is a worse
+	// surprise than a warning — but a deployment that passes the key this way
+	// should be told once, at the moment somebody is looking at the log.
+	if keyOnCommandLine(os.Args) {
+		log.Printf("hub: WARNING --elevenlabs-key was passed on the command line, " +
+			"where any user on this host can read it from ps. Set " +
+			"SHABADOO_ELEVENLABS_KEY in the environment instead and drop the flag.")
+	}
+
 	// 0 means keep forever, which is a legitimate choice for someone who wants
 	// the audit log to be the permanent record — but it has to be chosen, not
 	// arrived at by nobody having written the deletion.
@@ -372,4 +385,22 @@ func vacuumLoop(ctx context.Context, store *hub.Store, h *hub.Hub) {
 			}
 		}
 	}
+}
+
+// keyOnCommandLine reports whether a secret-bearing flag carries a value in
+// argv, as opposed to being read from the environment.
+//
+// Only a NON-EMPTY value counts: compose files commonly expand an unset
+// variable to `--elevenlabs-key=`, and warning about an empty flag would be
+// noise on every deployment that does not use voice at all.
+func keyOnCommandLine(args []string) bool {
+	for i, a := range args {
+		if v, ok := strings.CutPrefix(a, "--elevenlabs-key="); ok {
+			return v != ""
+		}
+		if a == "--elevenlabs-key" && i+1 < len(args) {
+			return args[i+1] != ""
+		}
+	}
+	return false
 }

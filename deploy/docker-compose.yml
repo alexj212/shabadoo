@@ -69,6 +69,22 @@ services:
       # rebuild does not discard what was published.
       - --releases=/data/releases
 
+    environment:
+      # Voice goes here and NOT on the command line above.
+      #
+      # `--elevenlabs-key=${VAR}` expands at compose time and bakes the secret
+      # into the container argv, where /proc/<pid>/cmdline is mode 444 — any
+      # user on the host reads an account-wide, per-minute-billed key with
+      # `ps`. The environment is mode 400, owner only. `hub` reads these as the
+      # defaults for the matching flags, so it is the same configuration
+      # through a channel that does not publish it.
+      #
+      # With either empty the endpoint stays disabled and POST
+      # /api/voice/session returns 404, which clients treat as "this deployment
+      # does not do voice".
+      SHABADOO_ELEVENLABS_KEY: ${SHABADOO_ELEVENLABS_KEY:-}
+      SHABADOO_ELEVENLABS_AGENT: ${SHABADOO_ELEVENLABS_AGENT:-}
+
     volumes:
       # A bind mount, not a named volume, so dm's nightly borg run (03:00 —
       # homelab docs/backups.md) sweeps it up with the rest of /docker. Holds
