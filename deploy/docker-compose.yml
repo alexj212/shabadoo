@@ -1,6 +1,6 @@
 # shabadoo hub — the coordinator for Claude Code sessions across hosts.
 #
-# Deployed to dm at /srv/shabadoo/. This file is the source of truth; copy it
+# Deployed to dm at /docker/shabadoo/. This file is the source of truth; copy it
 # up rather than editing it in place, the same way the image is built here and
 # shipped with `docker save | ssh dm docker load`.
 #
@@ -90,7 +90,7 @@ services:
       # homelab docs/backups.md) sweeps it up with the rest of /docker. Holds
       # hub.db (every enrolled device token, the audit log) and
       # authorized_agents (the trust decision about which machines may connect).
-      - /srv/shabadoo/data:/data
+      - /docker/shabadoo/data:/data
 
     networks:
       - proxy

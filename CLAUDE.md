@@ -50,7 +50,7 @@ dial out to it.
 
 | Where | What |
 |---|---|
-| dm, `/srv/shabadoo/` | `shabadoo-hub` container. State bind-mounted at `/srv/shabadoo/data` (`hub.db`, `authorized_agents`), image pinned in `.env` |
+| dm, `/docker/shabadoo/` | `shabadoo-hub` container. State bind-mounted at `/docker/shabadoo/data` (`hub.db`, `authorized_agents`), image pinned in `.env` |
 | wsl, mac | `shabadoo-node` agent only (`shabadoo-node.service` / `dev.shabadoo.node.plist`), key at `~/.config/shabadoo/agent_key` |
 
 Moved off the WSL workstation 2026-07-30. The hub is a single point of failure
@@ -61,14 +61,40 @@ needs) and nightly borg coverage came along with it.
 
 ```bash
 # upgrade: build here, ship the image, bump the pin (see deploy/docker-compose.yml)
-V=$(git describe --tags --always --dirty)
-docker build --load --build-arg VERSION=$V -t shabadoo:$V .
-docker save shabadoo:$V | gzip -1 | ssh user@coordinator 'gunzip | docker load'
-ssh user@coordinator "cd /srv/shabadoo && sed -i 's/^SHABADOO_IMAGE_TAG=.*/SHABADOO_IMAGE_TAG=$V/' .env && docker compose up -d"
+V=$(git describe --tags --always --dirty)      # v0.4.10
+T=${V#v}                                       # 0.4.10 — the image tag carries no leading v
+docker build --load --build-arg VERSION=$V --build-arg BUILT=$(git log -1 --format=%cI) \
+  -t ghcr.io/alexj212/shabadoo:$T .
+docker run --rm ghcr.io/alexj212/shabadoo:$T version --json    # check before shipping it
+docker save ghcr.io/alexj212/shabadoo:$T | gzip -1 | ssh user@coordinator 'gunzip | docker load'
+ssh user@coordinator "cd /docker/shabadoo && cp .env .env.bak.\$(date +%s) && \
+  sed -i 's/^SHABADOO_IMAGE_TAG=.*/SHABADOO_IMAGE_TAG=$T/' .env && docker compose up -d"
 
 make install                   # rebuild the local binary + ~/bin (agents, CLI)
 ssh user@coordinator 'docker logs shabadoo-hub -f'
 ```
+
+Four things in that recipe are load-bearing, and each was wrong here until a
+deploy exercised it:
+
+- **The image name must be the one compose resolves.** It pulls
+  `${SHABADOO_IMAGE:-ghcr.io/alexj212/shabadoo}`, and the live `.env` sets only
+  the tag — so an image loaded as `shabadoo:$V` is simply not found, and
+  `compose up` fails or silently keeps the old container.
+- **The tag has no leading `v`.** `git describe` yields `v0.4.10` and the pin is
+  `0.4.10`. Copying `$V` into `SHABADOO_IMAGE_TAG` names an image that does not
+  exist.
+- **`--build-arg BUILT`.** The Dockerfile defaults it to empty, so omitting it
+  ships a hub whose `version --json` reports no build time — the field the
+  downgrade guard compares, and the one that makes a deployed build orderable
+  against a checkout at all.
+- **Verify the image before shipping it.** `docker run --rm … version --json` is
+  cheap and answers "is this the build I think it is" on this side of a 27 MB
+  transfer, rather than after a restart.
+
+After `compose up -d`, the agents drop and redial: `/healthz` reports
+`agents:2` again within about ten seconds. A count that stays low is the thing
+to chase, not the restart itself.
 
 `make deploy` is gone: it restarted a local hub unit that no longer exists.
 Deployment ops for dm live in the homelab repo (`docs/shabadoo.md`).
@@ -998,7 +1024,7 @@ shabadoo setup --service --boot --coord https://coordinator.example
 
 Then authorize it **on the coordinator** — append the Mac's
 `agent_key.pub` (keytype + key + the node name as the comment) to
-`/srv/shabadoo/data/authorized_agents` on dm. **No restart**: the file is
+`/docker/shabadoo/data/authorized_agents` on dm. **No restart**: the file is
 re-read when it changes, and restarting to admit one agent would disconnect
 every other. The agent dials out, so the Mac needs no inbound reachability;
 only the coordinator does.
