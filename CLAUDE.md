@@ -691,6 +691,40 @@ the select and the ack share a transaction, so a failure rolls back and
 acknowledges nothing. The cost of a 517 was a failed drain, never mail marked
 delivered to nobody.
 
+## The nudge only types into an empty composer
+
+Mail to a connected session ends with the coordinator typing `check inbox` into
+its pane, so the drain hook fires now rather than whenever a human next visits.
+It is the **only write in this system that nobody consents to at the moment it
+happens** — a peer sends a message, and this types into your terminal.
+
+It was unguarded from the first public commit, and the guard it needed was
+written in that same commit and applied to the two callers either side of it.
+Two things it could do, and did:
+
+- **Press Enter on a modal.** `SendCommand` ends with Enter, which on a
+  confirm-style dialog is the default action. These panes run
+  `claude --dangerously-skip-permissions`, so that is a peer's message approving
+  a prompt nobody read. Everywhere else this possibility arises it is refused —
+  no answer button on a queue row, no keypress tool shipped to the voice agent,
+  `guardDialog` on every operator send, `dismissRemoteControl` pressing Escape
+  rather than Enter and only on a modal it caused and identified first.
+- **Erase a draft.** `SendCommand` opens with `C-u`, clearing the input line.
+  Correct for an operator who chose to send a command; wrong for this, where
+  somebody half-way through composing a prompt loses it because a peer sent
+  mail. Silent, and unrecoverable.
+
+So it captures the pane first and **skips** unless the pane is a composer *and*
+that composer is empty. Skipping costs nothing: the message is already stored,
+and the drain hook fires on that session's next prompt regardless. **A nudge
+decides when mail is noticed, never whether it arrives** — the same reasoning
+already applied to an offline agent, where the delivery row is the wait.
+
+`tmux.ComposerBusy` answers **busy when it cannot tell**, the opposite default
+from `InputState` and deliberately so. There a false dialog refuses real
+messages; here a false idle destroys a draft, while a false busy costs only the
+promptness of mail that was waiting anyway.
+
 ## Blocked-session notifications
 
 When a session sits at a prompt for **90 seconds**, the coordinator sends a
@@ -1064,7 +1098,7 @@ tenant's inbox because it cannot name one.
 
 | Endpoint | Replaces |
 |---|---|
-| `POST /agent/message/send` | `claude.inbox.<session>` — also nudges the recipient if its agent is connected |
+| `POST /agent/message/send` | `claude.inbox.<session>` — also nudges the recipient if its agent is connected, and **only into an empty composer**: see The nudge |
 | `POST /agent/message/broadcast` | `claude.broadcast.<topic>` |
 | `POST /agent/message/drain` | the durable-consumer pull; returns and marks delivered in one transaction |
 | `POST /agent/subscribe\|unsubscribe` | topic subscriptions |
