@@ -1066,7 +1066,7 @@ The binary ships **two** payload trees, merged at install time:
 
 | Tree | Committed? | Contents |
 |---|---|---|
-| `config/` | **yes** | the *portable* half — behavioural guidance, a generic `settings.json`, and skills that name nobody's infrastructure. Safe to publish |
+| `config/` | **yes** | the *portable* half — behavioural guidance, a generic `settings.json`, and skills that name nobody's infrastructure (`claude-sessions`, `minutes`, `watch`, `find-skills`, the higgsfield set). Safe to publish |
 | `config.local/` | **no** (gitignored but for `.gitkeep`) | one operator's real `~/.claude`, filled by `make vendor` |
 
 `make vendor` refreshes **`config.local/`** from this machine's live `~/.claude`;

@@ -302,6 +302,64 @@ Two rules follow:
 - **The boundary is enforced, not trusted.** `make vendor-check` fails if a work-specific token reaches the
   embedded payload (`.vendor-deny`). If a note you called global trips it, it was not global.
 
+## Empty and unknown are different answers
+
+A component that cannot see the whole picture must not present its partial view
+*as* the picture. The failure is always the same shape and it is never obvious
+from inside: a representation collapses **no data** into **no occurrences**, and
+the caller reasonably reads a confident answer as a fact about the world.
+
+Collected instances, each found by somebody else after it had cost something:
+
+| Reported | Meant |
+|---|---|
+| broadcast delivered | reached zero subscribers |
+| `no session matches (known: …)` | my index was half-written |
+| every session's tools are current | this platform has no `/proc` to look in |
+| a diagnostic counter absent | never measured, not never happened |
+| nothing listed | nothing was *visible to me* |
+
+So **distinguish the two at the point of measurement, not in the caller**. Where
+a value can be unknown, carry a companion that says whether it was established —
+`capabilities_known`, `payload_known` — and never omit-when-zero a field whose
+absence a reader could mistake for a measured zero.
+
+Two corollaries worth stating because each has been got wrong separately:
+
+- **Say which way a check fails, and what that costs.** Two checks reading the
+  same input can correctly fail in *opposite* directions: one refuses real work
+  on a false positive, the other destroys data on a false negative. Neither
+  default is obviously right, and only the cost written beside it makes the
+  choice reviewable.
+- **A check that never fires looks exactly like a check that finds nothing
+  wrong.** Nobody investigates behind a clean answer, which is what makes this
+  class expensive: it is not caught by the thing reporting.
+
+## An artifact handed to a reviewer is submitted, not filed
+
+Tests verify that code does what its author meant. They cannot catch the case
+where **what the author meant was wrong**, and that case needs a reader looking
+at the *output* rather than the code.
+
+Measured, not asserted: on one project, four of thirty commits in a day came
+from a peer session reading delivered artifacts — and they were the four most
+serious defects in it, including fabricated content presented as real and a
+suppression that fired correctly by a margin of 0.00015. A suite of 141
+mutation-checked tests caught none of them.
+
+So when work is handed to another session, both sides have a job:
+
+- **The sender** makes the artifact self-contained. A durable message that names
+  a path has a payload nothing preserves — inline what a reader needs, because
+  the queue outlives the file.
+- **The reviewer measures rather than accepts.** Recompute the number, re-run
+  the tool independently, and say plainly when a reported figure is unverified
+  rather than repeating it.
+
+The same argument applies across machines: a change to platform-specific code is
+verified on a *second* node, because the developing machine usually cannot
+produce the failing condition.
+
 ## Security
 
 - Never commit credentials or secrets.
