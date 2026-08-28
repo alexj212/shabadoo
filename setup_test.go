@@ -323,3 +323,57 @@ func TestPurgeKeepsTheNodeProject(t *testing.T) {
 		}
 	}
 }
+
+// A dependency that is installed where this shell cannot see it is a different
+// answer from one that is absent, and the two have opposite remedies: a PATH
+// entry versus an install. Getting it wrong put a second Claude Code, on a
+// different update channel, beside a working native one — so the discrimination
+// is pinned rather than trusted.
+func TestFindElsewhereSeparatesAbsentFromUnreachable(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	binDir := filepath.Join(home, ".local", "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	d := dep{bin: "claude", elsewhere: []string{".local/bin/claude"}}
+
+	if _, _, ok := d.findElsewhere(); ok {
+		t.Fatal("reported found with nothing on disk")
+	}
+
+	target := filepath.Join(binDir, "claude")
+	if err := os.WriteFile(target, []byte("#!/bin/sh\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, ok := d.findElsewhere(); ok {
+		t.Error("a non-executable file is not an installed dependency")
+	}
+
+	if err := os.Chmod(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	full, dir, ok := d.findElsewhere()
+	if !ok {
+		t.Fatal("did not find an executable that is plainly there")
+	}
+	if full != target {
+		t.Errorf("path = %q, want %q", full, target)
+	}
+	// The directory is the actionable half: it is what goes on PATH.
+	if dir != binDir {
+		t.Errorf("dir = %q, want %q", dir, binDir)
+	}
+
+	// A directory sharing the name must not be mistaken for the binary.
+	if err := os.Remove(target); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, ok := d.findElsewhere(); ok {
+		t.Error("a directory is not an executable")
+	}
+}

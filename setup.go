@@ -256,6 +256,33 @@ type dep struct {
 	bin      string
 	required bool
 	hints    map[string]string // GOOS -> install hint
+	// elsewhere are paths to probe when the binary is not on PATH.
+	//
+	// "Not installed" and "installed where this shell cannot see it" are
+	// different answers, and the remediation is the opposite: one is an install,
+	// the other is a PATH entry. Reported by a node whose `claude` is the native
+	// install at ~/.local/bin — the check said missing and advised
+	// `npm install -g`, which would have put a SECOND Claude Code on the machine
+	// on a different update channel, beside a working one.
+	elsewhere []string
+}
+
+// findElsewhere looks for an executable the PATH lookup missed. Returns the
+// path it found and the directory that would need to be on PATH.
+func (d dep) findElsewhere() (string, string, bool) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", "", false
+	}
+	for _, c := range d.elsewhere {
+		full := filepath.Join(home, c)
+		fi, err := os.Stat(full)
+		if err != nil || fi.IsDir() || fi.Mode()&0o111 == 0 {
+			continue
+		}
+		return full, filepath.Dir(full), true
+	}
+	return "", "", false
 }
 
 func (s *setup) stepDeps() error {
@@ -267,7 +294,7 @@ func (s *setup) stepDeps() error {
 		{bin: "claude", required: true, hints: map[string]string{
 			"darwin": "npm install -g @anthropic-ai/claude-code",
 			"linux":  "npm install -g @anthropic-ai/claude-code",
-		}},
+		}, elsewhere: []string{".local/bin/claude"}},
 		{bin: "nats", required: false, hints: map[string]string{
 			"darwin": "brew install nats-io/nats-tools/nats  (optional: cross-host presence)",
 			"linux":  "go install github.com/nats-io/natscli/nats@latest  (optional: cross-host presence)",
@@ -283,6 +310,14 @@ func (s *setup) stepDeps() error {
 	for _, d := range deps {
 		if path, err := exec.LookPath(d.bin); err == nil {
 			s.report("found", "%-10s %s", d.bin, path)
+			continue
+		}
+		// Installed, just unreachable. Say that instead of recommending an
+		// install, which would add a second copy on another update channel.
+		if full, dir, ok := d.findElsewhere(); ok {
+			s.report("off-PATH", "%-10s %s", d.bin, full)
+			s.warn("%q is installed at %s but %s is not on PATH — add that directory "+
+				"rather than installing another copy", d.bin, full, dir)
 			continue
 		}
 		if !d.required {
