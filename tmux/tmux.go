@@ -377,15 +377,22 @@ func InputState(pane string) string {
 }
 
 // hasComposerRow reports whether the pane's last few lines hold Claude Code's
-// input row — a boxed ASCII "> " prompt. Only the last few, because that box is
-// drawn at the very bottom when the composer has the keyboard; finding one
-// higher up means it has since been replaced by something else.
+// input row. Only the last few, because it is drawn at the very bottom when the
+// composer has the keyboard; finding one higher up means it has since been
+// replaced by something else.
+//
+// It shares composerDraft with ComposerBusy deliberately. This used to require
+// a "│" and an ASCII "> ", which darwin draws neither of — so the discriminator
+// that exists to stop footer text being read as a dialog was inoperative on that
+// platform, and InputState there was returning "composer" only because that is
+// what it falls through to. Two readers of the same row must agree on what a
+// row is.
 func hasComposerRow(lines []string) bool {
-	if n := len(lines); n > 5 {
-		lines = lines[n-5:]
+	if n := len(lines); n > 6 {
+		lines = lines[n-6:]
 	}
 	for _, l := range lines {
-		if strings.Contains(l, "│") && strings.Contains(l, "> ") {
+		if _, ok := composerDraft(l); ok {
 			return true
 		}
 	}
@@ -410,22 +417,90 @@ func hasComposerRow(lines []string) bool {
 // costs only the promptness of a nudge whose mail is waiting anyway.
 func ComposerBusy(pane string) bool {
 	lines := strings.Split(strings.TrimRight(pane, "\n"), "\n")
-	if n := len(lines); n > 5 {
-		lines = lines[n-5:]
+	if n := len(lines); n > 6 {
+		lines = lines[n-6:]
 	}
 	for _, l := range lines {
-		i := strings.Index(l, "> ")
-		if i < 0 || !strings.Contains(l, "│") {
+		draft, ok := composerDraft(l)
+		if !ok {
 			continue
 		}
-		rest := l[i+len("> "):]
-		// Trim the box's closing rule and any padding around it.
-		if j := strings.LastIndex(rest, "│"); j >= 0 {
-			rest = rest[:j]
-		}
-		return strings.TrimSpace(rest) != ""
+		return draft != ""
 	}
-	return true // no composer row found — do not type here
+	return true // no input row found — do not type here
+}
+
+// composerDraft splits an input row into the prompt marker and whatever has
+// been typed after it, or reports that this line is not an input row.
+//
+// It matches on STRUCTURE rather than on either machine's rendering, because
+// the two disagree completely and a third will disagree again:
+//
+//	linux   │ > half a question            │      boxed, ASCII ">"
+//	darwin  ❯ half a question                     no box at all, U+276F
+//
+// The first version encoded the linux form — a line containing "│" and "> ",
+// with the draft bounded by the closing "│". On darwin there is no "│" anywhere
+// in the pane (grep counts zero), the glyph is "❯", and the row has no closing
+// delimiter at all. So it matched nothing, fell through to "cannot tell", and
+// that node stopped being nudged entirely while looking perfectly healthy. A
+// check that never fires is indistinguishable from one that finds nothing
+// wrong.
+//
+// The invariant that holds on both: after any box edge, the first glyph on the
+// input row is a prompt marker, and the draft is the rest of the line. A
+// trailing box edge is stripped when present and simply absent when not.
+func composerDraft(line string) (string, bool) {
+	boxed := false
+	rest := line
+	if t := strings.TrimLeft(rest, " \t"); strings.HasPrefix(t, "│") {
+		boxed = true
+		rest = strings.TrimLeft(strings.TrimPrefix(t, "│"), " \t")
+	}
+	// Unboxed, the input row starts at column 0. A menu's selection cursor is
+	// indented among its options — that is what separates darwin's composer
+	// "❯ text" from the "  > Continue" of a select list, now that the box can
+	// no longer do it.
+	if !boxed && rest != strings.TrimLeft(rest, " \t") {
+		return "", false
+	}
+
+	var marker string
+	switch {
+	case strings.HasPrefix(rest, "❯"):
+		marker = "❯"
+	case strings.HasPrefix(rest, ">"):
+		marker = ">"
+	default:
+		return "", false
+	}
+	rest = rest[len(marker):]
+	// The marker must be followed by a space, or this is prose quoting one.
+	if rest != "" && !strings.HasPrefix(rest, " ") {
+		return "", false
+	}
+	// A trailing box edge, where one is drawn.
+	if i := strings.LastIndex(rest, "│"); i >= 0 {
+		rest = rest[:i]
+	}
+	rest = strings.TrimSpace(rest)
+
+	// "❯ 1. Resume from summary" is a menu, not a draft — and it is the exact
+	// row of the resume prompt, whose default action spends usage limits. A
+	// numbered first token means somebody is choosing, not typing.
+	if isMenuItem(rest) {
+		return "", false
+	}
+	return rest, true
+}
+
+// isMenuItem reports whether the text after a marker reads as "1. Something".
+func isMenuItem(s string) bool {
+	i := 0
+	for i < len(s) && s[i] >= '0' && s[i] <= '9' {
+		i++
+	}
+	return i > 0 && strings.HasPrefix(s[i:], ". ")
 }
 
 // DialogPrompt extracts the question a modal is asking, from the same captured

@@ -19,7 +19,7 @@ has to travel in the message.
 |---|---|---|
 | **spawn with work** | `task_create to="<project>" brief="…"` | one call: delegates *and* tracks. The default for "go do X" |
 | **spawn on a specific machine** | `session_send to="<node>"` (`wsl`, `mac`) | that node's core session decides whether to do it, start a session, or refuse. It owns its own resources |
-| **spawn locally, no work yet** | `shabadoo win open <path>` | idempotent, and the only way to create one |
+| **spawn locally, no work yet** | `shabadoo win open <path>` | the only way to create one. Idempotent about the WINDOW, not the context — see below |
 | **tell, not ask** | `session_send to="…"` | no tracking. Use when nothing is expected back |
 | **join / get the result** | *nothing — it comes to you* | when a task reaches `done` or `dropped`, the requester is mailed and nudged automatically |
 | **poll your handles** | `task_list requested_by="<your id>"` | what did I hand off, and where did it get to |
@@ -29,6 +29,7 @@ has to travel in the message.
 | **list the threads** | `session_list` (or `shabadoo sessions`) | project, status, online, undrained mail |
 | **read one's screen** | `shabadoo tail <name>` | |
 | **unblock one** | `shabadoo keys --pane <name> Enter` | it is sitting on a dialog; `tail` first and read the question |
+| **start it clean** | `shabadoo command --pane <name> /clear` | a folder with history RESUMES on open. Escape dismisses the prompt but the context still loads |
 | **kill** | `shabadoo win close <name>` | `reopen` rebuilds it in the same directory |
 
 **The unit of concurrency is a session. You spawn one — you never split anything.** More work in
@@ -76,6 +77,45 @@ task_list requested_by="<your id>"     # only if you need the picture before the
 
 Sessions on the same node share that machine, so three heavy builds on one host is one machine's
 worth of work, not three. `session_list` shows which node each is on.
+
+## Opening a folder that has been used before
+
+The first ten seconds after `win open` are where this goes wrong, and only the
+rare half of it used to be written down.
+
+**The trust dialog is the rare case** — a folder Claude has never run in.
+Arrow-selectable, `Down` reaches *Yes, I trust this folder*, often wants **two**
+`Enter`s.
+
+**The resume prompt is the ordinary case, and it has a price tag:**
+
+```
+This session is 18d 4h old and 678.8k tokens.
+Resuming the full session will consume a substantial portion of your usage limits.
+❯ 1. Resume from summary (recommended)
+  2. Resume full session as-is
+  3. Don't ask me again
+  Enter to confirm · Esc to cancel
+```
+
+Enter is the default and it **spends real usage**. This is the concrete reason
+nothing here presses Enter on a pane it has not classified first.
+
+**`open` is idempotent about the window, not the context.** It will not
+duplicate a window — but it can hand you an 18-day-old session whose last work
+was something else entirely, in a folder you asked for fresh work in.
+"Idempotent" reads as *safe, gives me a session*; it does not read as *gives you
+someone else's context, aged, and bills you for it*.
+
+**Escape does not give you a clean session.** It cancels the *choice*, not the
+*resume* — the context loads anyway. Measured:
+
+```
+after Escape:   ◔ 678,483 (30%)     ← prompt dismissed, context loaded
+after /clear:   § 0 tokens, ◔ 0 (100%)
+```
+
+The clean-start operation is `shabadoo command --pane <name> /clear`.
 
 ## Driving a pane directly
 

@@ -204,10 +204,23 @@ Two mechanical rules underneath that:
   and drains when it starts. Text typed into a pane is swallowed whole by the
   trust dialog a never-run folder opens with, and `send` still reports success.
 
-The `claude-sessions` skill carries the rest — driving a pane, answering a
-dialog, `--node` once several hosts are connected, the standalone-server
-caveat. Load it when you need those. Do not load it to re-read the rules above,
-and do not load it merely to discuss an approach.
+**CLAUDE.md is what to do; the `claude-sessions` skill is what goes wrong.**
+Load it the moment a session does not behave as expected — a dialog you did not
+expect, a `send` that vanished, a window that did not survive, a session that
+came back with somebody else's context. The failure modes are there, not here,
+and they are the half you cannot guess.
+
+Three worth knowing before you meet them, because each has a cost:
+
+- **Opening a folder with history resumes it**, on a prompt whose default action
+  spends real usage. `open` is idempotent about the *window*, not the context.
+- **Escape does not give you a clean session** — it cancels the choice, not the
+  resume. `shabadoo command --pane <name> /clear` does.
+- **A successful `send` means delivered, not received.** Nothing in that chain
+  reports its own failure; `tail` after.
+
+Do not load the skill to re-read the rules above, or merely to discuss an
+approach.
 
 ### Surface received messages
 
