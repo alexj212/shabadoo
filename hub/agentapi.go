@@ -363,10 +363,33 @@ func (h *Hub) nudge(ctx context.Context, tenant, sessionID string) {
 			// recipient's tmux server.
 			c, cancel := context.WithTimeout(context.WithoutCancel(ctx), callTimeout)
 			defer cancel()
-			h.Call(c, tenant, agent, "deliver", map[string]any{
+			// Record whether it actually fired.
+			//
+			// This result was discarded, and that is why a fleet-wide nudge
+			// failure went unnoticed for ten hours: `deliver` already reported
+			// {"nudged":"no","reason":"composer in use"} every single time and
+			// nobody was listening. A session cannot tell a nudge-delivered
+			// message from a hook-delivered one — both arrive the same way — so
+			// this is the only place the difference is observable.
+			raw, err := h.Call(c, tenant, agent, "deliver", map[string]any{
 				"session": tmuxSession,
 				"window":  window,
 			})
+			detail := "nudged"
+			if err != nil {
+				detail = "failed: " + err.Error()
+			} else if len(raw) > 0 {
+				var r struct {
+					Nudged string `json:"nudged"`
+					Reason string `json:"reason"`
+				}
+				if json.Unmarshal(raw, &r) == nil && r.Nudged == "no" {
+					detail = "skipped: " + r.Reason
+				}
+			}
+			h.store.Tenant(tenant).Audit(c, AuditEntry{
+				Actor: "coordinator", Action: "nudge", Target: sessionID, Detail: detail,
+			}, h.now())
 		}(s.Agent, s.TmuxSession, s.Index)
 		return
 	}

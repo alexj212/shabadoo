@@ -108,3 +108,42 @@ func TestStuckWatcherIgnoresOfflineAndBlocked(t *testing.T) {
 		})
 	}
 }
+
+// The retry must come before the human, and must happen once.
+//
+// The nudge fires on ARRIVAL only, so mail missed once is never retried and a
+// backlog never clears itself — which is exactly what ten hours of skipped
+// nudges left behind. Retrying is free: the condition this watcher fires on is
+// the same condition a nudge is already safe to send under.
+func TestStuckWatcherRetriesTheNudgeBeforeTellingAnyone(t *testing.T) {
+	base := time.Unix(1_700_000_000, 0)
+	online := func(string) bool { return true }
+	sess := []Session{{SessionID: "s1", Agent: "wsl", Pending: 1, InputState: "composer"}}
+
+	w, sent := stuckFixture(base)
+	var retries int
+	w.retry = func(context.Context, string, string) { retries++ }
+
+	w.observe(context.Background(), "t", sess, online)
+	if retries != 0 {
+		t.Fatal("retried immediately; the recipient may simply be mid-turn")
+	}
+
+	w.now = func() time.Time { return base.Add(stuckRetry + time.Second) }
+	w.observe(context.Background(), "t", sess, online)
+	w.observe(context.Background(), "t", sess, online)
+	if retries != 1 {
+		t.Fatalf("retried %d times, want exactly 1 — a retry every sweep is the "+
+			"level-triggered failure in a new place", retries)
+	}
+	if len(*sent) != 0 {
+		t.Error("a human was told before the retry had a chance to work")
+	}
+
+	// Still stuck after the retry: now a person is the right escalation.
+	w.now = func() time.Time { return base.Add(stuckGrace + time.Second) }
+	w.observe(context.Background(), "t", sess, online)
+	if len(*sent) != 1 {
+		t.Errorf("want 1 notification once the retry failed, got %d", len(*sent))
+	}
+}

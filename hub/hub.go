@@ -163,6 +163,13 @@ func (h *Hub) EnableBlockedNotifications() {
 	sw.send = func(ctx context.Context, tenant, title, body, tag string) error {
 		return postApprise(ctx, title, body, tag, "warning")
 	}
+	// Try the mechanism again before interrupting a person. The condition the
+	// watcher fires on is exactly the condition a nudge is safe to send under,
+	// so the retry is free and silent — and it is what sweeps up a backlog the
+	// arrival-time nudge can never revisit.
+	sw.retry = func(ctx context.Context, tenant, sessionID string) {
+		h.nudge(ctx, tenant, sessionID)
+	}
 	h.stuck = sw
 
 	// The same notifier, and the same reason for gating on it: a watcher that
