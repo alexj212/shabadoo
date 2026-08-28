@@ -115,6 +115,7 @@ type Hub struct {
 	// blocked notices sessions stuck at a prompt. nil until a notifier is
 	// configured — see EnableBlockedNotifications.
 	blocked *blockedWatcher
+	stuck   *stuckWatcher
 	tasks   *taskWatcher
 }
 
@@ -151,6 +152,18 @@ func (h *Hub) EnableBlockedNotifications() {
 		}, h.now())
 	}
 	h.blocked = w
+
+	// And a second observer on the same loop, which is not the nudge.
+	//
+	// The nudge is what makes a session notice mail, and it fails silently: a
+	// skipped nudge and a delivered one look identical from every side. When it
+	// broke, two sessions in a handoff sat waiting for ten hours and it took a
+	// human asking one of them how it was doing.
+	sw := newStuckWatcher(h.now)
+	sw.send = func(ctx context.Context, tenant, title, body, tag string) error {
+		return postApprise(ctx, title, body, tag, "warning")
+	}
+	h.stuck = sw
 
 	// The same notifier, and the same reason for gating on it: a watcher that
 	// computed notifications and dropped them would be pure overhead.

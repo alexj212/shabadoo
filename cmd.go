@@ -318,6 +318,11 @@ func runHub(args []string) {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	go vacuumLoop(ctx, store, h)
+	// A stuck handoff is two sessions waiting on each other, so it gets its own
+	// fast timer rather than riding the hourly maintenance tick: finding out an
+	// hour late costs an hour of nothing happening, which is the failure it
+	// exists to end.
+	go stuckLoop(ctx, h)
 
 	srv := &http.Server{
 		Addr:              listen,
@@ -387,6 +392,26 @@ func splitList(v string) []string {
 		}
 	}
 	return out
+}
+
+// stuckLoop looks for mail that arrived and was never picked up.
+//
+// The nudge is what normally closes a handoff and it fails silently — a skipped
+// nudge and a delivered one look identical from every side. This is the second
+// observer, and it is deliberately not the nudge: it reads what the coordinator
+// knows (undrained mail) rather than trusting the mechanism that was supposed
+// to have worked.
+func stuckLoop(ctx context.Context, h *hub.Hub) {
+	t := time.NewTicker(2 * time.Minute)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			h.SweepStuck(ctx)
+		}
+	}
 }
 
 func vacuumLoop(ctx context.Context, store *hub.Store, h *hub.Hub) {
