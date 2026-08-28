@@ -357,18 +357,28 @@ func runHub(args []string) {
 	if hub.AppriseURL == "" {
 		log.Printf("hub: no --apprise-url, so notify_send is unavailable to sessions")
 	}
-	if *ciRepo != "" && *apprise == "" {
+	// Two independent decisions, and they were briefly one.
+	//
+	// Adding the CI watcher turned this into an if/else chain, which put
+	// EnableBlockedNotifications in a branch reached only when --ci-repo was
+	// UNSET. Setting one flag therefore switched off the blocked-session and
+	// stuck-mail watchers entirely, silently, for several releases. Nothing
+	// failed; two notifiers simply never ran, which is indistinguishable from a
+	// fleet where nothing was ever stuck.
+	//
+	// So each is decided on its own, and each says what it decided.
+	if *apprise != "" {
+		log.Printf("hub: notifications relay to %s", hub.AppriseURL)
+		h.EnableBlockedNotifications()
+		log.Printf("hub: notifying when a session waits at a prompt for %s, "+
+			"and when mail goes unread", hub.BlockedGrace)
+	}
+	switch {
+	case *ciRepo != "" && *apprise == "":
 		log.Printf("hub: --ci-repo %s is set but --apprise-url is not, so build "+
 			"failures have nowhere to go; the watcher is off", *ciRepo)
-	} else if *ciRepo != "" {
+	case *ciRepo != "":
 		log.Printf("hub: watching %s for build failures", *ciRepo)
-	} else {
-		log.Printf("hub: notifications relay to %s", hub.AppriseURL)
-		// The same relay carries stuck-session alerts. Only enabled alongside a
-		// notifier: with nowhere to send, the watcher would be bookkeeping for
-		// messages that go nowhere.
-		h.EnableBlockedNotifications()
-		log.Printf("hub: notifying when a session waits at a prompt for %s", hub.BlockedGrace)
 	}
 	// Starting with no agents is allowed — it is what a fresh coordinator looks
 	// like — but it must not be quiet about it, or the operator's first

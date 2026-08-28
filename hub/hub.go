@@ -329,6 +329,15 @@ func (h *Hub) HealthRoutes(mux *http.ServeMux) {
 			"version": Version,
 			"uptime":  int(time.Since(startedAt).Seconds()),
 			"agents":  agents,
+			// Which background watchers are actually running.
+			//
+			// Not decoration. Restructuring one conditional silently switched
+			// the blocked and stuck watchers off for several releases, and
+			// nothing anywhere said so — a fleet with no notifications looks
+			// exactly like a fleet where nothing was ever stuck. The startup log
+			// said it and nobody reads a startup log. This is checkable from
+			// outside, by anything, at any time.
+			"watchers": h.activeWatchers(),
 		})
 	})
 }
@@ -676,4 +685,24 @@ func addressesAPane(raw json.RawMessage) bool {
 		return false
 	}
 	return *probe.Pane > 0
+}
+
+
+// activeWatchers names the background work this coordinator is doing, so an
+// absence is visible rather than merely true.
+func (h *Hub) activeWatchers() []string {
+	out := []string{}
+	if h.blocked != nil {
+		out = append(out, "blocked")
+	}
+	if h.stuck != nil {
+		out = append(out, "stuck")
+	}
+	if h.tasks != nil {
+		out = append(out, "tasks")
+	}
+	if CIRepo != "" && AppriseURL != "" {
+		out = append(out, "ci")
+	}
+	return out
 }

@@ -1277,7 +1277,7 @@ tenant's inbox because it cannot name one.
 
 | Endpoint | Why it has to be |
 |---|---|
-| `GET /healthz` | `{status, version, uptime, agents}`. A monitor that needs a credential is a monitor nobody configures, and a container healthcheck has nowhere to keep a token. Pings the **database**, not just the port — a process serving HTTP with its SQLite gone is the failure a port check calls healthy. Reports counts and a build stamp only: no node names, project paths or session names. `serve` has the same endpoint, checking tmux instead |
+| `GET /healthz` | `{status, version, uptime, agents, watchers}`. `watchers` names the background work actually running — `blocked`, `stuck`, `tasks`, `ci` — because restructuring one conditional switched two of them off for several releases and a fleet with no notifications looks exactly like a fleet where nothing was ever stuck. A monitor that needs a credential is a monitor nobody configures, and a container healthcheck has nowhere to keep a token. Pings the **database**, not just the port — a process serving HTTP with its SQLite gone is the failure a port check calls healthy. Reports counts and a build stamp only: no node names, project paths or session names. `serve` has the same endpoint, checking tmux instead |
 | `GET /pair`, `POST /api/devices/redeem` | enrolment; see the device-token row below |
 
 **Human plane** — behind `IdentityProvider` middleware (Access / device token /
