@@ -28,6 +28,11 @@ So the unit of work is not "I fixed my `~/.claude`" — it is **"the payload now
 on any machine will hit it again."** A skill corrected here is a skill corrected everywhere the binary
 lands; that is what makes these agents distributed rather than merely parallel.
 
+**Not everything belongs in the payload.** Global knowledge goes global; estate knowledge goes to that
+estate's own library. The routing table is **"Where a learning goes"** in `config/CLAUDE.md` — read it
+before deciding where to write a finding. The split is machine-enforced: `make vendor-check` fails if a
+work-specific token reaches the embedded payload.
+
 Two corollaries:
 
 - **Write the finding where it is read, not where it was found.** A trap discovered while debugging a

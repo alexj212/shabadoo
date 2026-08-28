@@ -212,6 +212,29 @@ Everything specific to this machine lives in `CLAUDE.local.md`, imported below:
 the project registry, host names and addresses, private module paths, work
 toolchains, and any `find` whitelist. shabadoo never writes that file.
 
+## Where a learning goes
+
+A fix teaches one machine. A fix written where it is *read* teaches every agent. When you learn
+something worth keeping, route it by **who needs it**, not by where you happened to find it:
+
+| What you learned | Where it goes | Reaches |
+|---|---|---|
+| True on any machine — a tool's real behaviour, a trap, a workflow rule | the payload: `config/skills/<name>/SKILL.md`, or this file | every session on every node, after `shabadoo setup` / `upgrade --all` |
+| True on this machine only — project registry, addresses, toolchains, `find` whitelist | `CLAUDE.local.md` | this machine; never vendored |
+| True about one estate or codebase — measured facts, hosts, services, decisions | that project's own docs library and tracker | anyone working that repo |
+| Needs money, an external account, or a human decision | that project's escalation doc | the next human conversation |
+
+**The test:** would an agent on a *different machine, in a different repo* hit this? Then it is global.
+Would only someone touching that one estate care? Then it belongs to that estate — and putting it in the
+global payload is noise for everyone else.
+
+Two rules follow:
+
+- **Write it where it is read.** A launch trap belongs in the launcher skill, so the next agent reads it
+  *before* launching — not in a mission log nobody opens.
+- **The boundary is enforced, not trusted.** `make vendor-check` fails if a work-specific token reaches the
+  embedded payload (`.vendor-deny`). If a note you called global trips it, it was not global.
+
 ## Security
 
 - Never commit credentials or secrets.
