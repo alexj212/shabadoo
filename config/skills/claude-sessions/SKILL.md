@@ -112,16 +112,28 @@ create sessions:
 > set: run both halves on it (`setup --service --device-tokens`), which is what
 > self-hosting means here — a hub with one tenant and one node.
 
-### The three shapes
+### The four shapes, in the order to try them
 
-**1. The project already exists — just mail it. Do not open anything.**
+**0. The work belongs on another machine — tell that machine's core session.**
+
+```sh
+session_send to="mac" title="..." body="<the task, and the context to act on it>"
+```
+
+Do not reach across and open a window on someone else's host. Each node's core session is the only
+thing permitted to start sessions there, and it is the one that knows what is installed, what is
+already running, and what starting something costs. It decides: do it, start a session for it, or
+say no. Carry the context with the ask — the recipient has none of your conversation, so a one-line
+brief buys a session that spends its first ten minutes rediscovering what you already knew.
+
+**1. The project already exists on this host — just mail it. Do not open anything.**
 
 ```sh
 # runs it if it is running; wakes it through its node's core session if it is not
 session_send to="homelab" title="..." body="..."
 ```
 
-**2. A folder the system has never run — create it, then mail it.**
+**2. A folder on THIS host that has never run — create it, then mail it.**
 
 ```sh
 shabadoo win open /c/projects/new-thing     # idempotent; sets the session id

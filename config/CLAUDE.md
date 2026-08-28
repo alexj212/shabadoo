@@ -171,6 +171,41 @@ so a session needs no credential of its own.
 | `session_inbox_drain` | collect and mark delivered, in one transaction |
 | `notify_send` | reach a human (routed by the coordinator, not by each host) |
 
+### Getting work done on a machine
+
+**Tell that machine's core session; do not reach across and drive it.** Every
+node has a core session named for the host (`wsl`, `mac`) — the addressable
+"you" of that machine, and the only thing permitted to start sessions there.
+`session_send to="mac"` with the task, and it decides whether to do the work
+itself, start a session for it, or say no. That is the whole point of a
+per-machine expert: it knows what is installed, what is already running, and
+what starting something there costs.
+
+**A handoff carries its own context.** The recipient has none of yours — not
+the conversation, not the file you just read, not why. State the goal, the
+paths, what you have already established, what to avoid, and what "done" looks
+like. A one-line ask produces a session that spends its first ten minutes
+rediscovering what you already knew, or guesses wrong.
+
+Two mechanical rules underneath that:
+
+- **Never `tmux new-window`.** If you are creating a session on your own host,
+  it is `shabadoo win open <path>`. The launcher injects `CLAUDE_SESSION_ID`,
+  the window name, the remote-control alias and a live `SSH_AUTH_SOCK` at
+  creation and none can be added afterwards — a hand-made window is a Claude
+  that cannot be addressed, cannot say who it is, never reaches the phone, and
+  gets duplicated by the next `open`.
+- **Mail, not keystrokes.** Mail is durable and acknowledged, the recipient is
+  nudged immediately, and it works *before the session exists*: a message for a
+  project that is not running is stored against the id that project would have
+  and drains when it starts. Text typed into a pane is swallowed whole by the
+  trust dialog a never-run folder opens with, and `send` still reports success.
+
+The `claude-sessions` skill carries the rest — driving a pane, answering a
+dialog, `--node` once several hosts are connected, the standalone-server
+caveat. Load it when you need those. Do not load it to re-read the rules above,
+and do not load it merely to discuss an approach.
+
 ### Surface received messages
 
 The user cannot see `<system-reminder>` blocks or tool results — only your text
