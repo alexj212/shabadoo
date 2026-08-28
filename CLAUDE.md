@@ -1363,8 +1363,19 @@ documentation, and a scanner that cries wolf gets ignored.
   *Deliberately out of scope*; never leave a client author to find it by
   reading Go. Ship the spec change **in the same commit** as the code.
 
-- **Stdlib only** — no third-party deps. Keep it that way unless there's a
-  strong reason.
+- **Add no new modules.** Not quite "stdlib only", which this said for a long
+  time and has not been true since the SQLite driver arrived: `go list -m all`
+  is **30**, from `x/crypto` and `modernc.org/sqlite` and what it drags in. The
+  rule that is actually enforced — and the one the tsnet decision in
+  `docs/tailnet-identity.md` was weighed against — is that the count does not
+  grow.
+
+  So check `go list -m all` before hand-rolling around a dependency: a package
+  already in the graph is free, and reaching for `syscall.Syscall6` and
+  hardcoded constants to avoid one that is already linked buys `unsafe` and a
+  maintenance burden for nothing. `golang.org/x/sys/unix` is the live example —
+  no file here imports it, and every build already contains it because
+  `modernc.org/sqlite` does.
 - **Self-contained binary.** Everything `setup` installs is embedded, so a
   single copied file bootstraps a machine with no network and no source tree.
   Don't add an install step that fetches from the network.
