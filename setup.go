@@ -187,7 +187,49 @@ func (s *setup) run() {
 // `shabadoo attach` is the daily driver, so the binary has to be reachable by
 // name from a fresh shell, not just from wherever it was downloaded to.
 func (s *setup) stepBinary() error {
-	return s.installSelf()
+	if err := s.installSelf(); err != nil {
+		return err
+	}
+	return s.installShorthand()
+}
+
+// installShorthand adds `shaba`, a symlink beside the binary.
+//
+// Every command in daily use starts with the program's name — `shabadoo who`,
+// `shabadoo tail`, `shabadoo sessions` — and it is typed dozens of times a day
+// by people and written into briefs by sessions. A symlink costs nothing and
+// travels with the installer, which a shell alias does not: an alias lives in
+// one machine's rc file and is invisible to a script, a systemd unit, or a
+// session composing a command for a peer on another host.
+//
+// argv[0] is not inspected anywhere, so the link behaves identically. It is
+// removed by `uninstall --all` along with the binary it points at.
+func (s *setup) installShorthand() error {
+	link := filepath.Join(s.binDir, "shaba")
+	target := filepath.Join(s.binDir, "shabadoo")
+
+	if got, err := os.Readlink(link); err == nil && got == target {
+		s.report("unchanged", "%s -> shabadoo", link)
+		return nil
+	}
+	if s.dryRun {
+		s.report("would link", "%s -> shabadoo", link)
+		return nil
+	}
+	// Anything already at that name is left alone. It is a two-letter-ish name
+	// in a directory the operator owns, and quietly replacing something they
+	// put there is not this installer's business.
+	if fi, err := os.Lstat(link); err == nil && fi.Mode()&fs.ModeSymlink == 0 {
+		s.warn("%s exists and is not a symlink; leaving it alone", link)
+		return nil
+	}
+	_ = os.Remove(link)
+	if err := os.Symlink(target, link); err != nil {
+		s.warn("could not link %s: %v", link, err)
+		return nil // a missing shorthand is not a failed install
+	}
+	s.report("linked", "%s -> shabadoo", link)
+	return nil
 }
 
 func (s *setup) stepPath() error {

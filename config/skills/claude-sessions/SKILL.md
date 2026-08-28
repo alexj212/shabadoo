@@ -153,6 +153,10 @@ with one, it is inferred. The fix is the flag, not a workaround.
 
 `<name>` is an exact window name or a unique substring; ambiguous refuses and lists candidates.
 
+**`shaba` is `shabadoo`** — a symlink `setup` installs beside the binary. Every
+command here works under either name, and the short one is what to write when a
+command is being typed by a person or repeated in a brief.
+
 ## Worth knowing
 
 - **Windows from `win open` are ephemeral.** The boot watchdog only reopens folders in

@@ -422,3 +422,52 @@ func TestInstallFileRefusesToWriteThroughASymlink(t *testing.T) {
 		t.Error("a refusal that says nothing is how this went unnoticed for a release")
 	}
 }
+
+// The shorthand is a symlink, and the two cases that matter are that it is
+// idempotent and that it never clobbers something the operator put there.
+func TestInstallShorthandIsIdempotentAndPolite(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "shabadoo"), []byte("x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	s := &setup{binDir: dir, quiet: true}
+
+	if err := s.installShorthand(); err != nil {
+		t.Fatalf("first install: %v", err)
+	}
+	got, err := os.Readlink(filepath.Join(dir, "shaba"))
+	if err != nil {
+		t.Fatalf("no symlink created: %v", err)
+	}
+	if got != filepath.Join(dir, "shabadoo") {
+		t.Errorf("links to %q", got)
+	}
+
+	// A second run must be a no-op: `doctor` reporting a clean host is what
+	// makes it trustworthy, and a link recreated every run is churn.
+	before, _ := os.Lstat(filepath.Join(dir, "shaba"))
+	if err := s.installShorthand(); err != nil {
+		t.Fatalf("second install: %v", err)
+	}
+	after, _ := os.Lstat(filepath.Join(dir, "shaba"))
+	if before.ModTime() != after.ModTime() {
+		t.Error("the link was recreated on an unchanged host")
+	}
+
+	// A real file at that name is somebody's, not ours.
+	other := t.TempDir()
+	if err := os.WriteFile(filepath.Join(other, "shaba"), []byte("mine"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	s2 := &setup{binDir: other, quiet: true}
+	if err := s2.installShorthand(); err != nil {
+		t.Fatal(err)
+	}
+	body, _ := os.ReadFile(filepath.Join(other, "shaba"))
+	if string(body) != "mine" {
+		t.Error("replaced a real file the operator had put there")
+	}
+	if len(s2.warnings) == 0 {
+		t.Error("declined silently; the operator cannot know why the shorthand is missing")
+	}
+}

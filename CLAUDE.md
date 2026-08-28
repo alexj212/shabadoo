@@ -205,6 +205,7 @@ shabadoo keys --window 7 Enter            # answer a dialog
 shabadoo command --pane homelab /clear    # run a slash command
 shabadoo kill homelab                     # close a window (asks first)
 shabadoo who                              # who is out there and what each is for
+shaba who                                 # `shaba` is a symlink to `shabadoo`, installed by setup
 shabadoo audit                            # who drove which pane
 shabadoo mail                             # session-to-session messages
 shabadoo devices                          # enrolled clients: scope, days left, push

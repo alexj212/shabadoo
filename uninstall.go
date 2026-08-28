@@ -96,6 +96,9 @@ func (u *uninstall) run() {
 	if u.all {
 		fmt.Println("\n==> binary")
 		u.removeFile(filepath.Join(u.binDir, binName))
+		// The shorthand symlink goes with the binary it points at — leaving it
+		// behind would be a dangling link named after a program that is gone.
+		u.removeFile(filepath.Join(u.binDir, "shaba"))
 		// The PATH line is left alone on purpose. It is one line in a shell rc
 		// the operator also edits by hand, it is harmless once the directory is
 		// empty, and rewriting someone's .bashrc to remove it is a much worse
