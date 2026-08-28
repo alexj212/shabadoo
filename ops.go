@@ -133,7 +133,42 @@ func handleOp(ctx context.Context, op string, payload json.RawMessage) (any, err
 		// A nudge: wake a session so its inbox-drain hook fires on the next
 		// turn. Replaces the cron `nudge` mode, and lands instantly rather than
 		// up to 15 minutes late.
-		return nil, tmux.SendCommand(ctx, a.Session, a.Window, a.pane(), "check inbox")
+		//
+		// It types into somebody else's terminal WITHOUT a human asking, which
+		// makes it the one write here that nobody consented to at the moment it
+		// happens. Two things it must therefore never do, and did both:
+		//
+		//   - Press Enter on a modal. SendCommand ends with Enter, and on a
+		//     confirm-style dialog Enter is the default action. These panes run
+		//     `claude --dangerously-skip-permissions`, so that is a peer's
+		//     message causing an approval nobody read. This program refuses that
+		//     everywhere else it could happen — no answer button on a queue row,
+		//     no keypress tool shipped to the voice agent, guardDialog on every
+		//     operator send — and then did it automatically here.
+		//   - Erase a draft. SendCommand opens with C-u to clear the input line,
+		//     which is right for an operator who chose to send a command and
+		//     wrong for this: a human mid-prompt loses it because somebody else
+		//     sent mail.
+		//
+		// So the nudge looks before it types, and SKIPS rather than erroring.
+		// Nothing is lost: the message is already stored and the drain hook
+		// fires on that session's next prompt anyway. A nudge decides when mail
+		// is noticed, never whether it arrives — the same reasoning as an
+		// offline agent, where "the delivery row is the wait".
+		pane, err := tmux.Capture(ctx, a.Session, a.Window, a.pane(), 0, false)
+		if err != nil {
+			return map[string]string{"nudged": "no", "reason": "capture failed"}, nil
+		}
+		if tmux.InputState(pane) != tmux.InputComposer {
+			return map[string]string{"nudged": "no", "reason": "dialog"}, nil
+		}
+		if tmux.ComposerBusy(pane) {
+			return map[string]string{"nudged": "no", "reason": "composer in use"}, nil
+		}
+		if err := tmux.SendCommand(ctx, a.Session, a.Window, a.pane(), "check inbox"); err != nil {
+			return nil, err
+		}
+		return map[string]string{"nudged": "yes"}, nil
 
 	default:
 		return nil, fmt.Errorf("unknown op %q", op)

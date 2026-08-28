@@ -392,6 +392,42 @@ func hasComposerRow(lines []string) bool {
 	return false
 }
 
+// ComposerBusy reports whether the pane's input row already holds text.
+//
+// It exists because a nudge types into somebody else's terminal. The wire for
+// that is SendCommand, which begins with C-u — it CLEARS the input line before
+// typing, which is right for an operator who chose to send a command and wrong
+// for an automatic nudge triggered by a peer's mail: a human half-way through
+// composing a prompt loses it, silently, because somebody else sent a message.
+//
+// So the nudge asks first, and skips when the answer is yes. Nothing is lost by
+// skipping: the mail is already stored, and the drain hook fires on that
+// session's next prompt regardless. A nudge is an optimisation on WHEN mail is
+// noticed, never the thing that delivers it.
+//
+// Unrecognised means busy. This is the opposite default from InputState, on
+// purpose: there a false dialog refuses real messages, while here a false busy
+// costs only the promptness of a nudge whose mail is waiting anyway.
+func ComposerBusy(pane string) bool {
+	lines := strings.Split(strings.TrimRight(pane, "\n"), "\n")
+	if n := len(lines); n > 5 {
+		lines = lines[n-5:]
+	}
+	for _, l := range lines {
+		i := strings.Index(l, "> ")
+		if i < 0 || !strings.Contains(l, "│") {
+			continue
+		}
+		rest := l[i+len("> "):]
+		// Trim the box's closing rule and any padding around it.
+		if j := strings.LastIndex(rest, "│"); j >= 0 {
+			rest = rest[:j]
+		}
+		return strings.TrimSpace(rest) != ""
+	}
+	return true // no composer row found — do not type here
+}
+
 // DialogPrompt extracts the question a modal is asking, from the same captured
 // pane InputState classified.
 //
