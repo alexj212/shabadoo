@@ -195,7 +195,7 @@ shabadoo setup --service --boot --coord https://coordinator.example
 ```
 
 then append its `agent_key.pub` (with the node name as the comment) to
-`/srv/shabadoo/data/authorized_agents` **on the coordinator**. No restart:
+`/docker/shabadoo/data/authorized_agents` **on the coordinator**. No restart:
 the file is re-read when it changes, because restarting to admit one agent
 would disconnect every other.
 
@@ -221,8 +221,8 @@ machines that have tmux and dial out to it.
 
 - **URL:** https://coordinator.example/ (tailnet only, TLS via the
   `*.apps.example.com` wildcard — no DNS work, the wildcard already points at dm)
-- **Hub:** `shabadoo-hub` container, stack at `/srv/shabadoo/` on dm,
-  `--device-tokens`, SQLite bind-mounted at `/srv/shabadoo/data/hub.db`
+- **Hub:** `shabadoo-hub` container, stack at `/docker/shabadoo/` on dm,
+  `--device-tokens`, SQLite bind-mounted at `/docker/shabadoo/data/hub.db`
   (so dm's nightly borg run covers it — a named volume would not be)
 - **Agents:** `shabadoo-node.service` (wsl) and
   `dev.shabadoo.node.plist` (mac), each authenticating with
@@ -231,25 +231,47 @@ machines that have tmux and dial out to it.
   tag; tag pinned in `.env`. Compose source of truth is
   `deploy/docker-compose.yml` here
 
-Since the image is published, upgrading is a pull rather than a build:
+Upgrading is a pull rather than a build — **but only once the tag is on the
+remote**, since that push is what triggers the release workflow:
 
 ```bash
-ssh user@coordinator "cd /srv/shabadoo && sed -i 's/^SHABADOO_IMAGE_TAG=.*/SHABADOO_IMAGE_TAG=0.1.2/' .env && docker compose pull && docker compose up -d"
+git push origin main --follow-tags        # the step that publishes anything at all
+# wait for the release run to finish, then:
+ssh user@coordinator "cd /docker/shabadoo && sed -i 's/^SHABADOO_IMAGE_TAG=.*/SHABADOO_IMAGE_TAG=0.4.11/' .env && docker compose pull && docker compose up -d"
 
 make install                   # rebuild the local binary + ~/bin (agents, CLI)
 ssh user@coordinator 'docker logs shabadoo-hub -f'
 ```
+
+**A local `git tag` publishes nothing.** The image tag in `.env` names something
+that does not exist until CI has run, and `compose pull` fails rather than
+silently keeping the old container. Four releases were shipped by the fallback
+below before anyone noticed they were on the fallback — the hub was healthy
+throughout, so nothing pointed at it.
 
 The build-and-ship path still works and is what you want for an **untagged**
 build — a fix you have not cut a release for, or a coordinator with no route to
 ghcr.io:
 
 ```bash
-V=$(git describe --tags --always --dirty)
-docker build --load --build-arg VERSION=$V -t shabadoo:$V .
-docker save shabadoo:$V | gzip -1 | ssh user@coordinator 'gunzip | docker load'
-ssh user@coordinator "cd /srv/shabadoo && sed -i 's/^SHABADOO_IMAGE_TAG=.*/SHABADOO_IMAGE_TAG=$V/' .env && docker compose up -d"
+V=$(git describe --tags --always --dirty)      # v0.4.11
+T=${V#v}                                       # 0.4.11 — the image tag carries no leading v
+docker build --load --build-arg VERSION=$V --build-arg BUILT=$(git log -1 --format=%cI) \
+  -t ghcr.io/alexj212/shabadoo:$T .
+docker run --rm ghcr.io/alexj212/shabadoo:$T version --json    # check before shipping it
+docker save ghcr.io/alexj212/shabadoo:$T | gzip -1 | ssh user@coordinator 'gunzip | docker load'
+ssh user@coordinator "cd /docker/shabadoo && cp .env .env.bak.\$(date +%s) && \
+  sed -i 's/^SHABADOO_IMAGE_TAG=.*/SHABADOO_IMAGE_TAG=$T/' .env && docker compose up -d"
 ```
+
+Three things there are load-bearing and were all wrong until a deploy exercised
+them: the **image name must be what compose resolves**
+(`${SHABADOO_IMAGE:-ghcr.io/alexj212/shabadoo}`, so a local `shabadoo:$V` is
+simply not found), the **tag carries no leading `v`** while `git describe` emits
+one, and **`--build-arg BUILT`** is not optional — the Dockerfile defaults it to
+empty, which ships a hub whose `version --json` reports no build time, the field
+the downgrade guard compares. That last one fails silently; the other two do not.
+See [CLAUDE.md](CLAUDE.md) for the same recipe with the reasoning.
 
 **Moved off the WSL workstation 2026-07-30**, along with `make deploy` and
 `shabadoo-hub.service`, which no longer exist. The hub is a single point of
