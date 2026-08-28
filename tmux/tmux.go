@@ -3,6 +3,8 @@
 package tmux
 
 import (
+	"unicode"
+	"unicode/utf8"
 	"context"
 	"fmt"
 	"os/exec"
@@ -475,9 +477,21 @@ func composerDraft(line string) (string, bool) {
 		return "", false
 	}
 	rest = rest[len(marker):]
-	// The marker must be followed by a space, or this is prose quoting one.
-	if rest != "" && !strings.HasPrefix(rest, " ") {
-		return "", false
+	// The marker must be followed by WHITESPACE — and not necessarily a plain
+	// space. Claude Code separates the prompt from the draft with U+00A0, a
+	// NON-BREAKING space, which `strings.HasPrefix(rest, " ")` rejects.
+	//
+	// That single byte pair disabled every nudge on the fleet for ten hours.
+	// No input row matched, ComposerBusy fell through to "cannot tell", the
+	// nudge skipped every time, and mail sat undrained until a human asked a
+	// session how it was doing — which is what surfaced it. The unit tests
+	// passed throughout, because the fixtures were written by hand from what I
+	// believed a pane looked like rather than captured from one.
+	if rest != "" {
+		r, _ := utf8.DecodeRuneInString(rest)
+		if !unicode.IsSpace(r) && r != '\u00a0' {
+			return "", false
+		}
 	}
 	// A trailing box edge, where one is drawn.
 	if i := strings.LastIndex(rest, "│"); i >= 0 {

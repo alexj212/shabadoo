@@ -1,6 +1,10 @@
 package tmux
 
-import "testing"
+import (
+	"os/exec"
+	"strings"
+	"testing"
+)
 
 // Every rendering of Claude Code's input row this has been seen to take, with
 // an empty and a non-empty instance of each.
@@ -18,32 +22,46 @@ var composerRenderings = []struct {
 	busy  string
 }{
 	{
-		// linux: a drawn box, ASCII ">", draft bounded by the closing edge.
-		name:  "boxed ascii",
-		empty: "some transcript output\n" +
-			"╭──────────────────────────────╮\n" +
-			"│ >                            │\n" +
-			"╰──────────────────────────────╯\n",
-		busy: "some transcript output\n" +
-			"╭──────────────────────────────╮\n" +
-			"│ > half a question about the  │\n" +
-			"╰──────────────────────────────╯\n",
+		// CAPTURED from a live pane on linux, byte for byte. The previous
+		// fixture here was hand-written — a boxed ASCII "│ > " composer that
+		// this machine has never drawn — and it passed while the real thing did
+		// not match at all.
+		//
+		// The separator after ❯ is U+00A0, a NON-BREAKING space (c2 a0). A
+		// parser requiring a plain space finds no input row, falls through to
+		// "cannot tell", and every nudge on the fleet is skipped. That is not
+		// hypothetical: it happened for ten hours and was found by a human
+		// asking a session how it was doing.
+		name:  "unboxed heavy angle, non-breaking space (linux)",
+		empty: "  \u23f5\u23f5 bypass permissions on (shift+tab to cycle)\n" +
+			"\u276f\u00a0\n" +
+			"\u2500\u2500\u2500\u2500\u2500\u2500 homelab-wsl \u2500\n",
+		busy: "  \u23f5\u23f5 bypass permissions on (shift+tab to cycle)\n" +
+			"\u276f\u00a0commit the doc change\n" +
+			"\u2500\u2500\u2500\u2500\u2500\u2500 homelab-wsl \u2500\n",
 	},
 	{
-		// darwin, measured on a real pane: NO box characters anywhere, the
-		// prompt is U+276F, horizontal rules above and below, and the row has
-		// no closing delimiter — the draft runs to end of line.
-		name: "unboxed heavy angle",
-		empty: "──────────────────────────────────────── mac ─\n" +
-			"❯ \n" +
-			"──────────────────────────────────────────────\n" +
-			"   mac  ✱ Opus 5                        /rc\n" +
-			"  ⏵⏵ bypass permissions on\n",
-		busy: "──────────────────────────────────────── mac ─\n" +
-			"❯ half a question about the\n" +
-			"──────────────────────────────────────────────\n" +
-			"   mac  ✱ Opus 5                        /rc\n" +
-			"  ⏵⏵ bypass permissions on\n",
+		// CAPTURED on darwin by the node that runs it: no box characters
+		// anywhere in the pane, horizontal rules above and below, and no
+		// closing delimiter — the draft runs to end of line.
+		name: "unboxed heavy angle, plain space (darwin)",
+		empty: "\u2500\u2500\u2500\u2500 mac \u2500\n" +
+			"\u276f \n" +
+			"\u2500\u2500\u2500\u2500\u2500\n" +
+			"   mac  Opus 5\n",
+		busy: "\u2500\u2500\u2500\u2500 mac \u2500\n" +
+			"\u276f half a question about the\n" +
+			"\u2500\u2500\u2500\u2500\u2500\n" +
+			"   mac  Opus 5\n",
+	},
+	{
+		// A boxed ASCII composer, kept because older builds drew one and the
+		// parser must still read it — but it is now the ONLY fixture here that
+		// no machine in this fleet currently produces, and it is labelled so
+		// nobody mistakes it for evidence.
+		name:  "boxed ascii (historical, not observed on this fleet)",
+		empty: "\u256d\u2500\u2500\u2500\u256e\n\u2502 >        \u2502\n\u2570\u2500\u2500\u2500\u256f\n",
+		busy:  "\u256d\u2500\u2500\u2500\u256e\n\u2502 > half a question \u2502\n\u2570\u2500\u2500\u2500\u256f\n",
 	},
 }
 
@@ -149,5 +167,56 @@ func TestComposerDraftAcceptsBothRenderings(t *testing.T) {
 				t.Errorf("draft = %q, want %q", got, c.want)
 			}
 		})
+	}
+}
+
+// Read the input row of every live pane on this machine.
+//
+// This is the test that was missing, and its absence cost ten hours of silently
+// skipped nudges on the whole fleet. Every fixture above agreed with the parser
+// because I wrote both; a machine running ten Claude sessions does not agree
+// with anything, it just reports what is there.
+//
+// The assertion is deliberately weak — SOME pane must have a recognisable input
+// row — because the strong version cannot be written: a pane may legitimately
+// be mid-turn, in a pager, or holding a dialog. But zero recognisable rows
+// across a host full of sessions can only mean the parser has stopped matching
+// reality, which is exactly the state it was in.
+func TestComposerDraftReadsLivePanes(t *testing.T) {
+	out, err := exec.Command("tmux", "list-panes", "-a", "-F", "#{session_name}:#{window_index}.#{pane_index}").Output()
+	if err != nil {
+		t.Skipf("no tmux server here: %v", err)
+	}
+	targets := strings.Fields(strings.TrimSpace(string(out)))
+	if len(targets) == 0 {
+		t.Skip("no panes")
+	}
+
+	rows, panes := 0, 0
+	for _, target := range targets {
+		cap, err := exec.Command("tmux", "capture-pane", "-p", "-t", target).Output()
+		if err != nil {
+			continue
+		}
+		panes++
+		lines := strings.Split(strings.TrimRight(string(cap), "\n"), "\n")
+		if n := len(lines); n > 6 {
+			lines = lines[n-6:]
+		}
+		for _, l := range lines {
+			if _, ok := composerDraft(l); ok {
+				rows++
+				break
+			}
+		}
+	}
+	if panes == 0 {
+		t.Skip("no panes could be captured")
+	}
+	t.Logf("recognised an input row in %d of %d live panes", rows, panes)
+	if rows == 0 {
+		t.Errorf("no input row recognised in ANY of %d live panes — the parser no "+
+			"longer matches what this machine draws, and every nudge is being "+
+			"skipped as 'cannot tell'", panes)
 	}
 }
