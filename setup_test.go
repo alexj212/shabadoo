@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
@@ -375,5 +377,48 @@ func TestFindElsewhereSeparatesAbsentFromUnreachable(t *testing.T) {
 	}
 	if _, _, ok := d.findElsewhere(); ok {
 		t.Error("a directory is not an executable")
+	}
+}
+
+// A payload-owned path that is a symlink must be refused, never followed.
+//
+// Following one wrote a vendored skill into a project's git working tree,
+// replacing the file the project believed it was editing. The backup was the
+// only trace and it sat among untracked files.
+func TestInstallFileRefusesToWriteThroughASymlink(t *testing.T) {
+	dir := t.TempDir()
+
+	// Stand in for somebody's checkout: the file the link points at.
+	real := filepath.Join(dir, "checkout", "SKILL.md")
+	if err := os.MkdirAll(filepath.Dir(real), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mine := []byte("the version I am editing\n")
+	if err := os.WriteFile(real, mine, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	link := filepath.Join(dir, "installed.md")
+	if err := os.Symlink(real, link); err != nil {
+		t.Skipf("symlinks unavailable here: %v", err)
+	}
+
+	s := &setup{claudeDir: dir, quiet: true}
+	if err := s.installFile(link, []byte("the payload's copy\n"), 0o644); err != nil {
+		t.Fatalf("installFile should decline quietly, not error: %v", err)
+	}
+
+	got, err := os.ReadFile(real)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, mine) {
+		t.Errorf("wrote through the symlink into %s — content is now %q", real, got)
+	}
+	if fi, err := os.Lstat(link); err != nil || fi.Mode()&fs.ModeSymlink == 0 {
+		t.Error("the symlink itself must be left in place, not replaced")
+	}
+	if len(s.warnings) == 0 {
+		t.Error("a refusal that says nothing is how this went unnoticed for a release")
 	}
 }

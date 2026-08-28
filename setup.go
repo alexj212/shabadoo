@@ -532,6 +532,33 @@ func mergePayloads() (map[string][]byte, error) {
 // left alone; a differing one is copied to <dst>.bak.<epoch> before being
 // replaced, so a bad vendor snapshot never destroys local edits silently.
 func (s *setup) installFile(dst string, data []byte, mode fs.FileMode) error {
+	// A payload-owned path that is a SYMLINK is refused, not followed.
+	//
+	// Reported from the field, and it is worse than it sounds. A project had
+	// symlinked ~/.claude/skills/<name> at its own git checkout so a session
+	// read the skill it was editing. Setup followed the link and wrote the
+	// vendored copy straight into that working tree — replacing the source of
+	// truth, not merely shadowing it. Had they edited afterwards they would
+	// have been editing the payload's copy while believing it was the repo, and
+	// the next commit would have quietly reverted their own fix. The `.bak` was
+	// the only trace, sitting among untracked files.
+	//
+	// The general shape is what makes this a refusal rather than a warning:
+	// following a symlink out of a payload-owned path makes setup a writer to
+	// a repository it knows nothing about, and the blast radius is somebody
+	// else's uncommitted work. Refusing costs one message; the alternative
+	// costs a silent revert nobody attributes to an installer.
+	if fi, lerr := os.Lstat(dst); lerr == nil && fi.Mode()&fs.ModeSymlink != 0 {
+		target, _ := os.Readlink(dst)
+		s.report("REFUSED", "%s is a symlink -> %s", dst, target)
+		s.warn("refusing to write through the symlink at %s (-> %s).\n"+
+			"         Following it would write this build's payload into whatever owns\n"+
+			"         that path — a git working tree, in the case that produced this\n"+
+			"         check. Replace the link with a real file or directory to let the\n"+
+			"         payload own it, or move it aside to keep your own copy.", dst, target)
+		return nil
+	}
+
 	old, err := os.ReadFile(dst)
 	switch {
 	case err == nil && bytes.Equal(old, data):

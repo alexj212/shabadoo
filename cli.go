@@ -778,6 +778,51 @@ flags:
 		fatalf("open: %v", err)
 	}
 	fmt.Printf("opened %s%s\n", path, nodeSuffix(target))
+	warnIfNameNowAmbiguous(c, target, path)
+}
+
+// warnIfNameNowAmbiguous says so at the moment a name stops being unique.
+//
+// Opening a project that already runs on another node makes the bare name
+// ambiguous cluster-wide, and every addressing command then refuses it — which
+// is right, but the refusal arrives later, from an unrelated command, long
+// after the thing that caused it. Reported by a node that opened a project,
+// had the next `tail` refuse, and had to work out why.
+//
+// The information is known at the moment of the open and free here, since the
+// session list is one request. Report where the fact is established, not where
+// the symptom appears.
+func warnIfNameNowAmbiguous(c *client, node, path string) {
+	base := path
+	if i := strings.LastIndex(base, "/"); i >= 0 {
+		base = base[i+1:]
+	}
+	if base == "" {
+		return
+	}
+	nodes, err := fetchSessions(c)
+	if err != nil {
+		return // a missing warning is not worth failing an open that succeeded
+	}
+	var elsewhere []string
+	for _, n := range nodes {
+		if n.Node == node {
+			continue
+		}
+		for _, sn := range n.Sessions {
+			if strings.EqualFold(sn.Project, base) {
+				elsewhere = append(elsewhere, sn.Alias+" on "+n.Node)
+			}
+		}
+	}
+	if len(elsewhere) == 0 {
+		return
+	}
+	fmt.Fprintf(os.Stderr,
+		"\nnote: %q now names more than one session, so the bare name will be refused.\n"+
+			"      also running: %s\n"+
+			"      address this one as %s-%s\n",
+		base, strings.Join(elsewhere, ", "), base, node)
 }
 
 // resolveFolder turns what someone typed into a path the node knows.
