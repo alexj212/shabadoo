@@ -30,6 +30,17 @@ Do **not** use for:
 - Summarising an arbitrary audio file. This records meetings; it is not a
   general transcription service.
 
+## What is installed
+
+```bash
+minutes version          # build, and whether the capture helper is beside it
+minutes version --json   # same, machine-readable
+```
+
+A release is **two files** — the orchestrator and a capture helper built for
+whichever OS owns the audio hardware. `version` lists both and says which is
+missing, which is the answer when recording fails and blames the helper.
+
 ## Before the meeting
 
 ```bash
@@ -205,9 +216,9 @@ deleting anything unprompted.
 
 | Platform | State — what is **built**, not what is designed |
 |---|---|
-| **Windows, driven from WSL** | the only path that records today. WASAPI capture + loopback, helper started over interop |
+| **Windows, driven from WSL** | records. WASAPI capture + loopback, helper started over interop |
+| **macOS** | records. HAL audio unit for the microphone, a CoreAudio process tap for system audio. Needs an audio-capture permission grant once. `preflight` **blocks until somebody answers the dialog**, so run it before the meeting rather than at it. The grant then persists, including across rebuilds, provided the helper was signed — `build.sh` does that automatically where a signing identity exists |
 | **native Linux desktop** | **refuses.** The PulseAudio path (source + `<sink>.monitor`) is designed and not built |
-| **macOS** | **refuses.** CoreAudio process taps are R5, not started |
 | **WSL as the audio source** | **refuses on purpose** — `RDPSink.monitor` carries only audio from Linux apps inside WSL, so a Teams/Zoom/browser meeting never touches it |
 
 It also refuses when WSL interop is disabled, because the helper cannot be
