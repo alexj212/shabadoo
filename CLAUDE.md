@@ -206,6 +206,7 @@ shabadoo command --pane homelab /clear    # run a slash command
 shabadoo kill homelab                     # close a window (asks first)
 shabadoo who                              # who is out there and what each is for
 shaba who                                 # `shaba` is a symlink to `shabadoo`, installed by setup
+shaba blockers                            # what is stuck: prompts, unread mail, blocked tasks, offline nodes
 shabadoo audit                            # who drove which pane
 shabadoo mail                             # session-to-session messages
 shabadoo devices                          # enrolled clients: scope, days left, push

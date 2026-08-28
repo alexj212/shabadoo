@@ -27,6 +27,7 @@ has to travel in the message.
 | **report progress** | `task_update id=… state=active\|blocked\|done\|dropped` | `blocked` wants a note saying what you are stuck on |
 | **advertise what you are doing** | `session_status_set "…"` | visible to every peer; ages out after 30 min; empty string clears |
 | **list the threads** | `session_list` (or `shabadoo sessions`) | project, status, online, undrained mail |
+| **ask if anything is stuck** | `shaba blockers` (or `shaba good`) | one screen: sessions waiting on a prompt, mail nobody picked up, blocked tasks, offline nodes. Silence means nothing is stuck |
 | **see who is out there** | `shabadoo who` | one screen: every session, what it is FOR, what it says it is doing. A blank means a peer knows the name and nothing else |
 | **see what a node could start** | `shabadoo folders --node <host>` | startable folders, `*` marks already open. Ask this BEFORE assuming a project exists on another machine |
 | **kill, with a prompt** | `shabadoo kill <name>` | asks first; `win close` does not |

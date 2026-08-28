@@ -73,6 +73,8 @@ func main() {
 		runSessions(args[1:])
 	case "who":
 		runWho(args[1:])
+	case "blockers", "good":
+		runBlockers(args[1:])
 	case "folders":
 		runFolders(args[1:])
 	case "open":

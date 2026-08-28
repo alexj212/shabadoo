@@ -86,7 +86,13 @@ func TestSessionSkillDocumentsEverySessionFacingCommand(t *testing.T) {
 		if _, skip := operatorOnly[cmd]; skip {
 			continue
 		}
-		if !strings.Contains(text, "shabadoo "+cmd) && !strings.Contains(text, "`"+cmd+"`") {
+		// Either name. `shaba` is a symlink setup installs, so a skill written
+		// for a reader will increasingly use the short form — and a test that
+		// only knew the long one would demand documentation that is already
+		// there under the name people actually type.
+		if !strings.Contains(text, "shabadoo "+cmd) &&
+			!strings.Contains(text, "shaba "+cmd) &&
+			!strings.Contains(text, "`"+cmd+"`") {
 			t.Errorf("`shabadoo %s` is dispatched and session-facing but absent from %s —\n"+
 				"document it, or add it to operatorOnly with the reason it is not for sessions",
 				cmd, sessionSkill)
@@ -109,7 +115,7 @@ func TestSessionSkillNamesNoCommandThatIsGone(t *testing.T) {
 	for _, extra := range []string{"win", "list", "close", "reopen", "clear", "open", "start"} {
 		known[extra] = true
 	}
-	for _, m := range regexp.MustCompile("`?shabadoo ([a-z-]+)").FindAllStringSubmatch(string(raw), -1) {
+	for _, m := range regexp.MustCompile("`?shabadoo? ([a-z-]+)").FindAllStringSubmatch(string(raw), -1) {
 		name := m[1]
 		if known[name] {
 			continue
