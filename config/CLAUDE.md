@@ -335,6 +335,42 @@ Two corollaries worth stating because each has been got wrong separately:
   wrong.** Nobody investigates behind a clean answer, which is what makes this
   class expensive: it is not caught by the thing reporting.
 
+## Two clocks are better than one, and neither is the truth alone
+
+A recurring shape, found independently in three different layers before anyone
+named it. When you need to know *where something is* in a sequence, one source
+is never enough:
+
+- **One source is precise but says nothing about the world.** A device's sample
+  counter has no jitter and tracks perfectly — and counts only from whenever
+  that particular stream started, so it cannot relate itself to anything else.
+- **The other is shared but noisy.** A wall clock is the only thing two
+  independent streams have in common, and it carries about a millisecond of
+  jitter, so placing *every* item by it accumulates error in one direction.
+
+The arrangement that works is to use each for what it is good at: **the shared
+one places the beginning, the precise one carries everything after, and the two
+disagreeing is itself the signal** that something glitched — which is worth
+knowing *before* anything is built on top of it.
+
+The same structure, three times:
+
+| Domain | Shared, noisy | Precise, local | What disagreement means |
+|---|---|---|---|
+| two audio tracks | wall clock at stream start | device sample position | the stream dropped packets |
+| a pushed event stream | server timestamp per frame | frame sequence number | a frame was missed; resync |
+| a client's view of a server | a slow poll | the live stream | the stream is buffered or dead |
+
+The third is the one people get wrong, by treating a stream as a *replacement*
+for polling rather than a complement. Keep the poll: the stream is the
+low-jitter counter, the poll is the wall clock that says where the truth
+actually is. A stream alone cannot tell you it has stopped.
+
+**The rule underneath all three: do not throw ordering away at the boundary.**
+A timestamp discarded where data is captured is unrecoverable everywhere
+downstream, and the loss is invisible until something has to be aligned — at
+which point the artifact exists and the information needed to fix it does not.
+
 ## An artifact handed to a reviewer is submitted, not filed
 
 Tests verify that code does what its author meant. They cannot catch the case
