@@ -189,12 +189,15 @@ rediscovering what you already knew, or guesses wrong.
 
 Two mechanical rules underneath that:
 
-- **Never `tmux new-window`.** If you are creating a session on your own host,
-  it is `shabadoo win open <path>`. The launcher injects `CLAUDE_SESSION_ID`,
-  the window name, the remote-control alias and a live `SSH_AUTH_SOCK` at
-  creation and none can be added afterwards — a hand-made window is a Claude
-  that cannot be addressed, cannot say who it is, never reaches the phone, and
-  gets duplicated by the next `open`.
+- **More work in parallel is another session — you never split anything.**
+  Creating one on your own host is `shabadoo win open <path>`, and that is the
+  only way. **tmux is internal access**: it is how shabadoo reaches a running
+  session to read or type, not a layer to work in. A window made by hand gets
+  none of what the launcher injects at creation — `CLAUDE_SESSION_ID`, the
+  window name, the remote-control alias, a live `SSH_AUTH_SOCK` — and none can
+  be added afterwards, so it is a Claude that cannot be addressed, cannot say
+  who it is, never reaches the phone, and gets duplicated by the next `open`.
+  If you are composing a `tmux` command, you are at the wrong layer.
 - **Mail, not keystrokes.** Mail is durable and acknowledged, the recipient is
   nudged immediately, and it works *before the session exists*: a message for a
   project that is not running is stored against the id that project would have

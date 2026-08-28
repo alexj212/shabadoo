@@ -19,7 +19,7 @@ has to travel in the message.
 |---|---|---|
 | **spawn with work** | `task_create to="<project>" brief="…"` | one call: delegates *and* tracks. The default for "go do X" |
 | **spawn on a specific machine** | `session_send to="<node>"` (`wsl`, `mac`) | that node's core session decides whether to do it, start a session, or refuse. It owns its own resources |
-| **spawn locally, no work yet** | `shabadoo win open <path>` | idempotent. **Never `tmux new-window`** |
+| **spawn locally, no work yet** | `shabadoo win open <path>` | idempotent, and the only way to create one |
 | **tell, not ask** | `session_send to="…"` | no tracking. Use when nothing is expected back |
 | **join / get the result** | *nothing — it comes to you* | when a task reaches `done` or `dropped`, the requester is mailed and nudged automatically |
 | **poll your handles** | `task_list requested_by="<your id>"` | what did I hand off, and where did it get to |
@@ -31,10 +31,14 @@ has to travel in the message.
 | **unblock one** | `shabadoo keys --pane <name> Enter` | it is sitting on a dialog; `tail` first and read the question |
 | **kill** | `shabadoo win close <name>` | `reopen` rebuilds it in the same directory |
 
-**There is no `split`.** Nothing here splits a window — no split op, no `tmux split-window` anywhere
-in the codebase. If a human splits a pane by hand, shabadoo *sees* each pane as its own session with
-its own directory and project; but a session cannot spawn a sibling that way. The equivalent is a
-second session in a subfolder, which reports as `<parent>/<child>`.
+**The unit of concurrency is a session. You spawn one — you never split anything.** More work in
+parallel means another session, in its own directory, with its own context. Narrower work under a
+project is a session in a subfolder, reported as `<parent>/<child>`.
+
+**tmux is internal access, not a concept you work in.** It is how shabadoo reaches a running session
+to read or type; nothing above that layer should mention panes, windows or tmux commands. If you are
+composing a `tmux` command, you are working at the wrong layer — the operation you want is in the
+table above.
 
 **You never block.** There is no `wait()`. A task's completion arrives as mail, and a stalled task is
 chased for you — untouched for 6 hours raises it once, then daily. Polling `task_list` in a loop is
@@ -87,8 +91,8 @@ shabadoo tail foo                          # 3. confirm it landed
 
 **Text typed into a modal is swallowed and `send` still reports success.** A folder Claude has not
 run in before opens with a trust dialog: arrow-selectable (`Down` reaches *Yes, I trust this
-folder*), often needing **two** `Enter`s. `keys` takes tmux key names — `Enter`, `Escape`, `Up`,
-`Down`, `1`, `y`. Always `tail` after: a successful `send` means keystrokes were delivered, not
+folder*), often needing **two** `Enter`s. `keys` takes key names — `Enter`, `Escape`, `Up`, `Down`,
+`1`, `y`. Always `tail` after: a successful `send` means keystrokes were delivered, not
 received.
 
 **Read the question before answering it.** A blocked session is blocked on something, and these
@@ -98,7 +102,7 @@ panes run with permissions disabled — "yes" to an unread prompt is how somethi
 
 | | Command | Scope |
 |---|---|---|
-| **Local** | `shabadoo win list\|open\|close\|reopen\|clear` | this host's tmux directly; works with the coordinator down |
+| **Local** | `shabadoo win list\|open\|close\|reopen\|clear` | this host only, straight through its agent; works with the coordinator down |
 | **Coordinator** | `shabadoo sessions\|open\|tail\|send\|keys\|command`, and every MCP tool | every connected node |
 
 `--node <host>` becomes **required** the moment a second node connects, even for a pane on this host;
