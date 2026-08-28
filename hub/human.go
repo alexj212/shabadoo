@@ -324,6 +324,13 @@ type nodeView struct {
 	// fleet it can see as though that were the fleet — all three shipped in one
 	// evening, which is what turned it into a rule. See Conventions.
 	CapabilitiesKnown bool      `json:"capabilities_known"`
+
+	// PayloadPending is how many ~/.claude files on that node differ from the
+	// payload in its own binary — non-zero means somebody should run `setup`
+	// there. Absent unless PayloadKnown, because "0 pending" and "could not
+	// look" are different answers and only one of them means the node is fine.
+	PayloadKnown   bool `json:"payload_known"`
+	PayloadPending int  `json:"payload_pending,omitempty"`
 	Sessions          []Session `json:"sessions"`
 }
 
@@ -387,6 +394,8 @@ func (h *humanAPI) sessionsPayload(ctx context.Context) (map[string]any, error) 
 			Online:            online[node],
 			Version:           versions[node],
 			Capabilities:      h.hub.NodeCapabilities(tenant, node),
+			PayloadKnown:      h.hub.NodeInstalledPayload(tenant, node).Known,
+			PayloadPending:    h.hub.NodeInstalledPayload(tenant, node).Pending,
 			CapabilitiesKnown: h.hub.CapabilitiesKnown(tenant, node),
 			Sessions:          sessions,
 		})

@@ -415,6 +415,22 @@ func (h *Hub) NodeCapabilities(tenant, node string) []string {
 	return nil
 }
 
+// NodeInstalledPayload reports whether a connected node's ~/.claude matches the
+// payload in its own binary.
+//
+// `upgrade` replaces a binary and never runs the config step, so a node can
+// carry a new skill inside itself while the old one sits on disk — silently,
+// looking healthy. This is what makes that visible; the remedy is a human
+// running `setup` on that machine.
+func (h *Hub) NodeInstalledPayload(tenant, node string) NodePayload {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if c, ok := h.byNode[nodeKey(tenant, node)]; ok {
+		return c.payload
+	}
+	return NodePayload{}
+}
+
 // NodePlatform reports a connected agent's GOOS/GOARCH, or "".
 //
 // Held on the connection rather than in the database on purpose: it is only

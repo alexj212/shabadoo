@@ -65,6 +65,12 @@ type Config struct {
 	// package can detect with what the node's own project declares — and this
 	// package deliberately knows nothing about projects.
 	Capabilities []string
+
+	// Facts, if set, is called on every periodic report for node-level state
+	// that changes while connected — currently whether the installed ~/.claude
+	// matches this binary's payload. Returning nil omits the field, which an
+	// older coordinator ignores and a newer one reads as "cannot tell".
+	Facts func() any
 }
 
 // Handler executes one command locally and returns its result payload.
@@ -457,7 +463,16 @@ func (c *Client) report(ctx context.Context) {
 		c.reportProblem("collect sessions: %v", err)
 		return
 	}
-	body, err := json.Marshal(map[string]any{"sessions": list})
+	report := map[string]any{"sessions": list}
+	if c.cfg.Facts != nil {
+		// Node-level facts ride the periodic report rather than login: they
+		// change while a connection is open (somebody runs `setup`), and a
+		// value that only refreshes on reconnect would outlive its fix.
+		if f := c.cfg.Facts(); f != nil {
+			report["payload"] = f
+		}
+	}
+	body, err := json.Marshal(report)
 	if err != nil {
 		c.reportProblem("encode report: %v", err)
 		return

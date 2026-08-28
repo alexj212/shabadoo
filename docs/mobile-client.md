@@ -347,6 +347,8 @@ All JSON, all behind the bearer token unless noted.
       "version": "734c6b4",
         "capabilities": ["docker", "ffmpeg", "go", "gpu.nvidia", "tmux"],
         "capabilities_known": true,
+        "payload_known": true,
+        "payload_pending": 0,
       "sessions": [ … ]
     }
   ]
@@ -379,6 +381,23 @@ when `capabilities_known` is `true` does an empty list mean "this host can do
 none of these things". Treating the two as the same is how a router declines to
 send work a machine could perfectly well have done — and `upgrade --all` is
 deliberately serial, so a mixed fleet exists during every upgrade.
+
+**`payload_pending` is how many of that node's `~/.claude` files differ from the
+payload inside its own binary** — non-zero means somebody should run `shabadoo
+setup` on that machine. It exists because `upgrade` replaces a binary and never
+runs the config step, so a node can carry new guidance inside itself while the
+old copy sits on disk indefinitely, looking entirely healthy.
+
+**`payload_known` gates it, for the same reason `capabilities_known` gates the
+list above.** A node that could not perform the check reports `payload_known:
+false`, and `payload_pending` is then meaningless — absent rather than zero. A
+client must not render "could not look" as "nothing to do"; that is the failure
+this whole pair of fields exists to avoid, and it has been made three times in
+this codebase already.
+
+A client's only correct action on a non-zero count is to *show* it. There is
+deliberately no endpoint to run `setup` remotely: it writes into a directory the
+operator hand-edits, which `setup` is careful never to own.
 
 Useful for shaping what a client offers: do not present "build the iOS app" on a
 node without `ios.build`. It is **not** a permission — nothing here grants

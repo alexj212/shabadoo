@@ -597,6 +597,35 @@ report only because `claudelog` caches incrementally — an unchanged transcript
 costs a stat, a grown one costs its new lines. Measured across eleven live
 sessions: 1.57s cold, 122ms warm.
 
+## A node can carry new config it has not installed
+
+`upgrade` replaces the binary and **never runs the config step**. So a node can
+hold a new skill inside its own binary while the old one sits in `~/.claude` —
+indefinitely, with nothing reporting the difference.
+
+Not theoretical: every payload release is followed by asking each machine to run
+`setup` by hand. Forgetting once leaves that node reading stale guidance and
+looking completely healthy, which is the same failure family as `tools_stale`.
+It was found the same way, too — a peer ran the right command out of `CLAUDE.md`
+and never opened the skill, an hour after the skill was rewritten.
+
+The agent compares its installed `~/.claude` against the payload it would
+install and reports the count on every periodic report — **not at login**, since
+it changes the moment somebody runs `setup` and a badge that only cleared on
+reconnect would outlive its fix by up to a day. It reuses `mergePayloads`, which
+is the point: computing the comparison a second way would let the report and the
+install drift apart, which is precisely what it exists to detect.
+
+`payload_known` gates `payload_pending` for the reason `capabilities_known` gates
+capabilities, and the pair is pinned by a test that installs the payload, checks
+for zero, then edits **one** file and requires the count to move — otherwise the
+first assertion passes for a scanner that always answers zero.
+
+**There is deliberately no remote `setup`.** It writes into a directory the
+operator hand-edits and which setup is careful never to own — the same reason
+`--purge` warns and the env file is scaffolded but never overwritten. Reporting
+the drift is what was missing; closing it stays a human act at that machine.
+
 ## A session cannot see tools added after it started
 
 Each Claude session launches `shabadoo mcp` as a child **at start**, and that

@@ -67,6 +67,10 @@ func runNode(args []string) {
 		// Detected plus declared, merged here because the declaration lives in
 		// this node's own project and the node package knows nothing of those.
 		Capabilities: nodeCapabilities(),
+		// Whether this node's installed config still matches the binary's.
+		// Cheap: cached for five minutes, since it changes when somebody runs
+		// setup and not otherwise.
+		Facts: func() any { return payloadPending(defaultClaudeDir()) },
 		// The adapter is the transport's `any`-typed seam; reportSessions itself
 		// is concretely typed so `serve` can use its result without asserting.
 	}, handleOp, func(ctx context.Context) (any, error) {

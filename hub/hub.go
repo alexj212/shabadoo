@@ -77,6 +77,12 @@ type conn struct {
 	platform string   // GOOS/GOARCH, reported at login — see NodePlatform
 	caps     []string // what this host can do; lives and dies with the connection
 	protocol int      // what this agent's build understands; 0 predates negotiation
+
+	// payload is whether this node's installed ~/.claude matches the payload in
+	// its own binary. Reported on the periodic report rather than at login,
+	// because it changes the moment somebody runs `setup` and a badge that only
+	// clears on reconnect would outlive the fix by up to a day.
+	payload NodePayload
 	expires  time.Time
 	out      chan command
 	closed   chan struct{}
@@ -501,6 +507,19 @@ func (h *Hub) handleResult(w http.ResponseWriter, r *http.Request) {
 // reportReq is an agent's unsolicited push: its current window list.
 type reportReq struct {
 	Sessions []Session `json:"sessions"`
+
+	// Payload is optional: an agent predating this simply omits it, and Known
+	// stays false — which reads as "cannot tell", not as "clean".
+	Payload *NodePayload `json:"payload,omitempty"`
+}
+
+// NodePayload separates "nothing pending" from "could not look".
+//
+// Pending is meaningless unless Known. A check that answers clean when it could
+// not look is worse than an absent one, because nobody looks behind it.
+type NodePayload struct {
+	Known   bool `json:"payload_known"`
+	Pending int  `json:"payload_pending"`
 }
 
 func (h *Hub) handleReport(w http.ResponseWriter, r *http.Request) {
@@ -515,6 +534,14 @@ func (h *Hub) handleReport(w http.ResponseWriter, r *http.Request) {
 	}
 	now := h.now()
 	ctx := r.Context()
+
+	if req.Payload != nil {
+		h.mu.Lock()
+		if cc, ok := h.byNode[nodeKey(c.tenant, c.node)]; ok {
+			cc.payload = *req.Payload
+		}
+		h.mu.Unlock()
+	}
 
 	// Replace this agent's view wholesale: a window that vanished must vanish
 	// here too, and the agent is the authority on its own tmux server.

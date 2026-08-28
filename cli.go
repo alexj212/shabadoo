@@ -470,6 +470,11 @@ func fetchSessions(c *client) ([]cliNode, error) {
 type cliNode struct {
 	Node     string       `json:"node"`
 	Online   bool         `json:"online"`
+	// PayloadKnown separates "config is current" from "could not check" — a
+	// node that cannot look must not render as one that looked and found
+	// nothing.
+	PayloadKnown   bool `json:"payload_known"`
+	PayloadPending int  `json:"payload_pending"`
 	Version  string       `json:"version"`
 	Sessions []cliSession `json:"sessions"`
 }
@@ -599,7 +604,15 @@ func runSessions(args []string) {
 		if n.Online {
 			state = "online"
 		}
-		fmt.Printf("%s (%s, %d session%s)\n", n.Node, state, len(n.Sessions), plural(len(n.Sessions)))
+		cfg := ""
+		if n.Online && n.PayloadKnown && n.PayloadPending > 0 {
+			// The binary was upgraded and the config step never ran there, so
+			// this node is running current code against stale guidance.
+			cfg = fmt.Sprintf(", %d config file%s pending — run `shabadoo setup` there",
+				n.PayloadPending, plural(n.PayloadPending))
+		}
+		fmt.Printf("%s (%s, %d session%s%s)\n",
+			n.Node, state, len(n.Sessions), plural(len(n.Sessions)), cfg)
 		for _, s := range n.Sessions {
 			mark := " "
 			if s.InputState == "dialog" {
