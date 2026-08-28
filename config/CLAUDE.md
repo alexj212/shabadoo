@@ -82,6 +82,22 @@ For multi-step tasks, state a brief plan:
 
 Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
 
+**Pin the distinction, not an example of one side.** A test that asserts "this
+input produces this output" passes happily when the code has stopped being able
+to tell any inputs apart. Assert that two cases which *must* differ actually do.
+
+Worked instance: a check answering "is anyone typing in this pane" was pinned
+against fixtures of an idle pane and a busy one. On a second machine the UI drew
+that row completely differently, so BOTH parsed as "cannot tell" — the check had
+gone blind, every fixture still passed, and the feature silently stopped working
+on that platform for a day. The test that catches it asserts idle and busy must
+produce *different* answers, per rendering. **A fixture cannot tell you it is the
+wrong fixture; a pair can.**
+
+The same shape applies well beyond parsing — a permissions check that denies
+everything, a matcher that matches nothing, a diff that reports every line
+changed. Each passes any single-sided example.
+
 **These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
 
 ---
