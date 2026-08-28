@@ -48,6 +48,10 @@ test: build
 install: vet
 	$(GOBUILD) -o $(BIN) .
 	$(GOBUILD) -o $(BIN_DIR)/$(BIN) .
+	@# The shorthand `setup` installs. This target writes the binary directly
+	@# and never runs setup, so without this line the developer's own machine is
+	@# the one host in the fleet that does not have it.
+	@ln -sfn $(BIN_DIR)/$(BIN) $(BIN_DIR)/shaba && echo "  $(BIN_DIR)/shaba -> $(BIN)"
 
 # The hub is a container on dm now, so there is no local hub unit to restart.
 # `install` refreshes this host's agent and CLI; the hub is upgraded by building

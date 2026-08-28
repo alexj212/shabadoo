@@ -117,6 +117,30 @@ func defaultClaudeDir() string {
 //
 // Deliberately quiet when there is nothing to do — this runs on every agent
 // start, and a line per file per restart would bury the one that matters.
+// ensureShorthand keeps `shaba` pointing at the binary, on every agent start.
+//
+// `upgrade` replaces the binary and never runs setup, so a node upgraded rather
+// than installed would never get the shorthand — the same split that left
+// ~/.claude behind until the node started installing its own payload. Same
+// place, same reason.
+func ensureShorthand(binDir string) {
+	if binDir == "" {
+		return
+	}
+	link, target := filepath.Join(binDir, "shaba"), filepath.Join(binDir, "shabadoo")
+	if got, err := os.Readlink(link); err == nil && got == target {
+		return
+	}
+	if fi, err := os.Lstat(link); err == nil && fi.Mode()&fs.ModeSymlink == 0 {
+		return // somebody's own file; not ours to replace
+	}
+	if _, err := os.Stat(target); err != nil {
+		return // nothing to point at
+	}
+	_ = os.Remove(link)
+	_ = os.Symlink(target, link)
+}
+
 func installPayload(claudeDir string) {
 	if claudeDir == "" {
 		return

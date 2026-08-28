@@ -4,6 +4,7 @@ package main
 // and `shabadoo hub` (coordinator).
 
 import (
+	"path/filepath"
 	"context"
 	"flag"
 	"io/fs"
@@ -64,6 +65,9 @@ func runNode(args []string) {
 	// nothing but a badge to say so.
 	if !*noConfig {
 		installPayload(defaultClaudeDir())
+		if exe, err := os.Executable(); err == nil {
+			ensureShorthand(filepath.Dir(exe))
+		}
 	}
 
 	// Every report is also a diff, so the agent notices a window that has gone.
