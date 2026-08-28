@@ -914,7 +914,22 @@ func TestDrainSurvivesConcurrentWrites(t *testing.T) {
 	}
 	const inbox = "claude-p0-wsl-00000000"
 
-	// A writer committing constantly, as two reporting agents do.
+	// A writer committing constantly, as a reporting agent does.
+	//
+	// The pause is load-bearing, and it is not there to be gentle. With
+	// `_txlock=immediate` every report takes the write lock at BEGIN, and an
+	// unpaused loop re-acquires it the instant it commits — SQLite's busy
+	// handler makes no fairness guarantee, so the sender below can lose every
+	// race for the full 5s busy_timeout and fail with plain SQLITE_BUSY (5).
+	//
+	// That is starvation by a synthetic writer, not the defect this test pins,
+	// which is a drain hitting SQLITE_BUSY_SNAPSHOT (517) because a deferred
+	// transaction cannot upgrade a stale snapshot. Failing on 5 while the
+	// message talks about 517 is the test lying about its own subject, and it
+	// made CI red on main for days while every single local run passed.
+	//
+	// 1ms is still three orders of magnitude busier than the real thing: agents
+	// report every 5 seconds.
 	stop := make(chan struct{})
 	done := make(chan struct{})
 	go func() {
@@ -925,6 +940,7 @@ func TestDrainSurvivesConcurrentWrites(t *testing.T) {
 				return
 			default:
 				_ = tn.ReplaceAgentSessions(ctx, "wsl", sessions, now)
+				time.Sleep(time.Millisecond)
 			}
 		}
 	}()
