@@ -215,7 +215,12 @@ func reportSessions(ctx context.Context) ([]hub.Session, error) {
 					InputState:  state,
 					Asking:      asking,
 					Kind:        kindOf(w, core),
-					ToolsStale:  stale[pn.PID],
+					ToolsStale:  stale[pn.PID] == toolStale,
+					// Known separates "serving the current surface" from "could
+					// not be established" — a child predating this mechanism, or
+					// one whose identity could not be read. Without it the two
+					// collapse into not-stale, which is the defect being fixed.
+					ToolsKnown: stale[pn.PID] != toolUnknown,
 					TokensIn:    tok.Input,
 					TokensOut:   tok.Output,
 					TokensCache: tok.CacheRead + tok.CacheWrite,

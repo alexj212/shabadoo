@@ -88,6 +88,12 @@ flags:
 	}
 	fset.Parse(args)
 
+	// Leave a note saying what surface this child serves, so the agent can tell
+	// a session holding a stale tool list from one that is current — without
+	// inferring it from a clock. Best effort: a child that cannot write one
+	// reports as unknown, which is the honest answer.
+	recordToolSurface(defaultStateDir())
+
 	s := &mcpServer{
 		local:   node.NewLocalClient(),
 		session: resolveSessionID(*sessionID),

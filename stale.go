@@ -34,57 +34,82 @@ import (
 var staleToolCache = struct {
 	mu   sync.Mutex
 	at   time.Time
-	pids map[int]bool // pane pid -> its tool surface predates this build
+	pids map[int]toolState // pane pid -> what its MCP child is serving
 }{}
 
 const staleScanEvery = time.Minute
 
-// staleToolPanes reports which panes hold an MCP child older than this build.
+// staleToolPanes reports which panes hold an MCP child serving an older tool
+// surface than this build advertises.
 //
-// Returns nothing when the build carries no timestamp. An unstamped binary
-// cannot order itself against anything, and guessing would mark every session
-// stale — advice to recycle a whole fleet, from a comparison that never made.
-func staleToolPanes() map[int]bool {
-	if buildTime == "" {
-		return nil
-	}
-	built, err := time.Parse(time.RFC3339, buildTime)
-	if err != nil {
-		return nil
-	}
+// No longer gated on the build stamp. That gate existed because the comparison
+// WAS a clock: an unstamped binary could not order itself against anything, so
+// reporting nothing was the honest answer. The child now states what it serves
+// and this compares strings, so an unstamped build is as capable of answering
+// as any other.
+func staleToolPanes() map[int]toolState {
 	staleToolCache.mu.Lock()
 	defer staleToolCache.mu.Unlock()
 	if time.Since(staleToolCache.at) < staleScanEvery && staleToolCache.pids != nil {
 		return staleToolCache.pids
 	}
-	out := staleToolPanesSince(built)
+	want := toolSurfaceHash()
+	state := defaultStateDir()
+	out := panesToolState(processTable(time.Now()), func(pid int) toolState {
+		return surfaceOf(state, pid, want)
+	})
 	staleToolCache.at, staleToolCache.pids = time.Now(), out
 	return out
 }
 
-// staleToolPanesSince is the testable half.
+// panesToolState maps a pane to what its MCP child is serving, keeping all
+// three answers.
 //
-// Split out because `go test` does not apply the Makefile's ldflags, so
-// buildTime is empty under test and the wrapper above returns immediately —
-// which made a first attempt at this report zero stale sessions on a host with
-// eleven, and look like a mapping bug rather than a harness one.
-func staleToolPanesSince(built time.Time) map[int]bool {
-	return stalePanesIn(processTable(time.Now()), built)
+// panesWithSurface flattens to "stale or not", which is what the report needed
+// when there were only two answers. Collapsing unknown into not-stale there
+// would rebuild the exact defect this replaces — a check that cannot look
+// rendering as a check that found nothing wrong.
+func panesToolState(table []procInfo, state func(pid int) toolState) map[int]toolState {
+	out := map[int]toolState{}
+	for st, flag := range map[toolState]bool{toolStale: true, toolCurrent: true, toolUnknown: true} {
+		_ = flag
+		for pid := range panesWithSurface(table, func(p int) toolState {
+			if state(p) == st {
+				return toolStale // reuse the ancestor walk, asking one state at a time
+			}
+			return toolCurrent
+		}) {
+			// Worst answer wins: a pane with any stale child is stale; one with
+			// no stale child but an unestablished one is unknown.
+			if st > out[pid] {
+				out[pid] = st
+			}
+		}
+	}
+	return out
 }
 
-// stalePanesIn is the pure half of the pure half: given a process table, which
-// panes hold an MCP child older than the build.
+// panesWithSurface maps each pane to what its MCP child is serving.
 //
-// Separated so the ancestor walk — the part that has actually been wrong — can
-// be tested against a table nobody had to have running.
-func stalePanesIn(table []procInfo, built time.Time) map[int]bool {
+// The clock is gone from the decision. It used to ask "was this child started
+// before the binary was built", which is true of every session after any
+// upgrade — measured at 11 of 11 and then 12 of 12, across three releases that
+// did not touch the tool list at all. A flag true of everything is not
+// actionable, and telling somebody to restart on it spends a session's context
+// for nothing.
+//
+// Now the child says what it serves and this compares strings. Three answers,
+// and the third is the reason to build it this way: a child that predates the
+// mechanism, or whose identity cannot be established, is UNKNOWN — never
+// current, never stale.
+func panesWithSurface(table []procInfo, state func(pid int) toolState) map[int]bool {
 	out := map[int]bool{}
 	by := make(map[int]procInfo, len(table))
 	for _, p := range table {
 		by[p.pid] = p
 	}
 	for _, p := range table {
-		if !isMCPChild(p.args) || !p.started.Before(built) {
+		if !isMCPChild(p.args) || state(p.pid) != toolStale {
 			continue
 		}
 		// Walk UP, do not assume the parent.

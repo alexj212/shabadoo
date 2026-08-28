@@ -673,34 +673,55 @@ invisible from exactly where it matters — inside the affected session, which h
 no way to know its own surface is behind. Found by a session being told about
 three new tools, trying one, and not finding it.
 
-`stale.go` reports it as `tools_stale`, rendered as a quiet badge on the
-dashboard row and a count under `shabadoo sessions`. Measured on this fleet the
-day it shipped: **11 of 11** sessions on the node that could measure. It is the
-default outcome of an upgrade, not a corner case.
-
 **The remedy restarts the process.** `/clear` does not work and saying so
 matters, because it runs cleanly and fixes nothing — the MCP child is launched
 by the session and outlives a context clear. Verified rather than reasoned:
-every MCP child on this host is within seconds of its `claude` parent's age,
-several of them 12 days old across many clears.
+every MCP child on this host is within seconds of its `claude` parent's age.
 
-**It reads the process table two ways, and that is the whole point.** The first
-version was `/proc`-only with no build tag, so on macOS `os.ReadDir("/proc")`
-simply failed and the empty result became `tools_stale: false` on *every*
-session — a node reporting "all clean" when it had not looked. It surfaced as
-mac reporting 0 of 5 while wsl reported 11 of 11, minutes after both were
-upgraded, which is not a plausible difference between two machines. **A detector
-that answers "fine" when it means "I cannot tell" is worse than an absent one**,
-because nobody checks behind a clean answer. `ps -Ao pid=,ppid=,etime=,command=`
-is the portable reader, and it is the fallback on Linux too rather than only the
-macOS path.
+### The child states its surface; nothing infers it from a clock
 
-Elapsed time rather than start time: `ps -o lstart=` emits a locale-formatted
-date that has to be parsed back, and this only feeds a comparison against a build
-stamp hours or days away. `stale_test.go` runs **both readers over the same live
-process table** and requires them to agree, because a fixture only ever agrees
-with whatever its author assumed — which is precisely how the `/proc`-only
-version shipped looking correct.
+The first version compared the child's start time against the binary's build
+stamp. That is a proxy, and it was **true of every session after any upgrade** —
+11 of 11, then 12 of 12, across three consecutive releases in which `mcp.go` was
+byte-identical. A flag true of everything is not actionable, and advising a
+restart on it spends a session's context for nothing. It answered *was this
+started before the build* while being read as *is this missing tools*: the same
+"question nobody asked" failure as the rest of this file, applied to my own fix
+for it.
+
+So `shabadoo mcp` records what it serves at startup and the agent compares
+strings. Three findings from review shaped it, each of which killed a version:
+
+- **Hash the whole surface, not the names.** Names are its coarsest part. Adding
+  a parameter, widening an enum, or rewriting a description the model reads to
+  decide *when* to call leaves the name list identical — and changing a tool is
+  far more common than adding one. Names, descriptions and input schemas.
+- **Compare the binary, not its age.** "Born before the surface changed" is
+  still a clock. A child spawned *after* that date from a not-yet-upgraded
+  binary reports fresh while serving the old surface — a silent under-report, on
+  the node most likely to produce it, since `upgrade` is serial and one machine
+  lags by design. The child can simply say, so it does.
+- **Key by `(pid, start time)`, never pid alone.** Pids recycle. A record left
+  by a dead child and inherited by an unrelated one with the same pid reports
+  **current** for a process serving something else — a manufactured clean tick,
+  strictly worse than the unknown it should have been, because nothing
+  downstream can tell it from a real one. It also makes reaping unambiguous.
+
+`starttime_linux.go` reads `/proc/<pid>/stat` field 22; `starttime_darwin.go`
+reads the first 16 bytes of `kern.proc.pid` — the counterpart, an exact integer
+with no shell, parsing, locale or timezone in the path. **`ps` is unusable for
+this and that was measured, not assumed:** `-o start=` discards the minute and
+second for an older process, and `-o lstart=` is timezone-formatted, so the same
+process renders four different strings by `TZ` alone. A child inherits its
+environment from whatever launched it while the agent runs under its own, so two
+readers would disagree permanently and every child would sit at unknown forever
+— which looks exactly like a detector working and finding nothing wrong.
+
+**Three states reach the wire.** `tools_known` gates `tools_stale` the way
+`capabilities_known` gates capabilities: a child predating the mechanism, or one
+whose identity cannot be established, is **unknown** — never stale, never
+current. Collapsing that third state into the first is the defect being replaced,
+so it is not permitted to reappear one layer down.
 
 ## An agent's report is one transaction
 
