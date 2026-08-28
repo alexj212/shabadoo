@@ -46,6 +46,8 @@ func runNode(args []string) {
 	nodeName := fset.String("node", "", "this node's name (default: the host label)")
 	keyFile := fset.String("key", os.Getenv("SHABADOO_KEY"),
 		"private key to authenticate with (default: ssh-agent via $SSH_AUTH_SOCK)")
+	noConfig := fset.Bool("no-config", false,
+		"do not install this build's ~/.claude payload at startup")
 	fset.Parse(args)
 
 	if *coord == "" {
@@ -54,6 +56,14 @@ func runNode(args []string) {
 	name := *nodeName
 	if name == "" {
 		name = hostLabel()
+	}
+
+	// The node masters its own config. `upgrade` replaces this binary and
+	// restarts the process, so startup is exactly where the payload it now
+	// carries should reach the disk beside it — otherwise the two drift with
+	// nothing but a badge to say so.
+	if !*noConfig {
+		installPayload(defaultClaudeDir())
 	}
 
 	// Every report is also a diff, so the agent notices a window that has gone.

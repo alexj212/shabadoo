@@ -18,8 +18,11 @@ import (
 	"bytes"
 	"errors"
 	"io/fs"
+	"log"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -97,4 +100,67 @@ func defaultClaudeDir() string {
 		return ""
 	}
 	return filepath.Join(home, ".claude")
+}
+
+// installPayload writes any payload file that differs, at agent startup.
+//
+// The node masters its own config. An `upgrade` already has this machine
+// replace its own executable and exit non-zero so its supervisor restarts it —
+// so the binary is new and the config beside it is not, purely because the two
+// steps were split. Closing that here means an upgrade brings its guidance with
+// it, and no coordinator has to reach into anybody's home directory.
+//
+// It reuses setup's own installFile, which is the whole point: same
+// backup-before-replace, same skip-when-identical, same additive contract that
+// never deletes a skill the operator added. Writing a second installer here
+// would be a second set of rules for the same directory.
+//
+// Deliberately quiet when there is nothing to do — this runs on every agent
+// start, and a line per file per restart would bury the one that matters.
+func installPayload(claudeDir string) {
+	if claudeDir == "" {
+		return
+	}
+	if st := scanPayload(claudeDir); !st.Known || st.Pending == 0 {
+		return
+	}
+	payload, err := mergePayloads()
+	if err != nil {
+		log.Printf("node: cannot read embedded config payload: %v", err)
+		return
+	}
+	s := &setup{claudeDir: claudeDir, quiet: true}
+	rels := make([]string, 0, len(payload))
+	for rel := range payload {
+		rels = append(rels, rel)
+	}
+	sort.Strings(rels)
+
+	n := 0
+	for _, rel := range rels {
+		dst := filepath.Join(claudeDir, rel)
+		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+			log.Printf("node: config %s: %v", rel, err)
+			continue
+		}
+		mode := fs.FileMode(0o644)
+		if strings.HasSuffix(rel, ".sh") {
+			mode = 0o755
+		}
+		before, _ := os.ReadFile(dst)
+		if err := s.installFile(dst, payload[rel], mode); err != nil {
+			log.Printf("node: config %s: %v", rel, err)
+			continue
+		}
+		if !bytes.Equal(before, payload[rel]) {
+			n++
+		}
+	}
+	if n > 0 {
+		log.Printf("node: installed %d config file(s) from this build's payload "+
+			"(replaced files were backed up alongside)", n)
+	}
+	payloadCache.mu.Lock()
+	payloadCache.at = time.Time{} // force a rescan, so the report reflects this
+	payloadCache.mu.Unlock()
 }

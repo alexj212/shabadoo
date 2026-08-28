@@ -31,6 +31,10 @@ type setup struct {
 
 	dryRun bool
 	force  bool // also overwrite files setup otherwise never touches
+	// quiet suppresses the per-file report. Set when the agent installs its own
+	// payload at startup: that runs on every restart, and a line per file would
+	// bury the summary that matters.
+	quiet bool
 	boot   bool
 	caddy  bool
 	skip   map[string]bool
@@ -602,6 +606,9 @@ func writeAtomic(dst string, data []byte, mode fs.FileMode) error {
 // ---------------------------------------------------------------------------
 
 func (s *setup) report(status, format string, a ...any) {
+	if s.quiet {
+		return
+	}
 	fmt.Printf("    %-14s %s\n", status, fmt.Sprintf(format, a...))
 }
 

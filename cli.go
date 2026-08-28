@@ -453,6 +453,21 @@ func (p pane) String() string {
 }
 
 // fetchSessions returns every node's windows.
+// hubVersion reports the coordinator's own build, or "" if it does not say.
+func hubVersion(c *client) string {
+	raw, err := c.do("GET", "/api/sessions", nil)
+	if err != nil {
+		return ""
+	}
+	var out struct {
+		Version string `json:"version"`
+	}
+	if json.Unmarshal(raw, &out) != nil {
+		return ""
+	}
+	return out.Version
+}
+
 func fetchSessions(c *client) ([]cliNode, error) {
 	raw, err := c.do("GET", "/api/sessions", nil)
 	if err != nil {
@@ -1520,6 +1535,26 @@ flags:
 	if len(targets) == 0 {
 		fset.Usage()
 		os.Exit(2)
+	}
+
+	// Upgrade the COORDINATOR first, then the nodes.
+	//
+	// The hub decodes an agent's report with DisallowUnknownFields, so a node
+	// newer than the coordinator can send a field the coordinator rejects — and
+	// a rejected report is not a degraded report, it is no report: that node's
+	// entire session list disappears while the agent still shows as connected.
+	// Learned by doing it, with the whole fleet reading as zero sessions.
+	//
+	// A warning rather than a refusal: the version strings are `git describe`
+	// output and cannot be ordered (see The downgrade guard), so this can spot
+	// "they differ" and must not pretend to know which is newer.
+	if hv := hubVersion(c); hv != "" && *version != "" && hv != *version {
+		fmt.Fprintf(os.Stderr,
+			"warning: coordinator is %s and you are upgrading nodes to %s.\n"+
+				"         Upgrade the coordinator FIRST if %s is newer — it rejects\n"+
+				"         reports carrying fields it does not know, and a rejected\n"+
+				"         report empties that node's session list entirely.\n\n",
+			hv, *version, *version)
 	}
 
 	failed := 0

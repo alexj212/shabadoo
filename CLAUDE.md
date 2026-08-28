@@ -597,6 +597,28 @@ report only because `claudelog` caches incrementally — an unchanged transcript
 costs a stat, a grown one costs its new lines. Measured across eleven live
 sessions: 1.57s cold, 122ms warm.
 
+## Upgrade the coordinator first, then the nodes
+
+The hub decodes an agent's report with `DisallowUnknownFields`. A node **newer**
+than the coordinator can therefore send a field the coordinator rejects — and a
+rejected report is not a degraded report, it is **no report**: that node's entire
+session list disappears while its agent still shows as connected and online.
+
+Learned by doing it. Adding one optional field to the report, shipping it to
+both agents, and leaving the hub two versions behind emptied the whole fleet's
+session list — two nodes, thirteen sessions, reading as `0 sessions` on a
+dashboard that otherwise looked healthy. The agents were fine, the hub was fine,
+and every five seconds a 400 went into a log nobody was tailing.
+
+`upgrade` now warns when the coordinator's build differs from the one being
+installed. A **warning**, not a refusal: `git describe` strings cannot be
+ordered, so it can see that they differ and must not pretend to know which is
+newer — the same limitation the downgrade guard works around with a timestamp.
+
+The rule survives the specific bug: **hub, then nodes**, every time. And an
+optional field in an agent→hub payload is a protocol change even when it is
+additive, because the receiver is strict on purpose.
+
 ## A node can carry new config it has not installed
 
 `upgrade` replaces the binary and **never runs the config step**. So a node can
@@ -621,10 +643,19 @@ capabilities, and the pair is pinned by a test that installs the payload, checks
 for zero, then edits **one** file and requires the count to move — otherwise the
 first assertion passes for a scanner that always answers zero.
 
-**There is deliberately no remote `setup`.** It writes into a directory the
-operator hand-edits and which setup is careful never to own — the same reason
-`--purge` warns and the env file is scaffolded but never overwritten. Reporting
-the drift is what was missing; closing it stays a human act at that machine.
+**The node installs its own payload at startup**, so an upgrade brings its
+guidance with it. `upgrade` already has a machine replace its own executable and
+exit non-zero for its supervisor to restart it, so startup is exactly where the
+payload it now carries should reach the disk beside it — the drift existed only
+because those two steps were split. It reuses `setup`'s own `installFile`, which
+is the point: same backup-before-replace, same skip-when-identical, same
+additive contract that never deletes a skill the operator added. `--no-config`
+opts out.
+
+**There is still no remote `setup`.** A node installing what it already carries,
+at its own start, is not the coordinator reaching into somebody's home
+directory — and that distinction is the whole reason this is safe. The detector
+stays, because it also catches a hand edit and a node that has not restarted.
 
 ## A session cannot see tools added after it started
 
