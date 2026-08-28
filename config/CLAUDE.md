@@ -396,6 +396,47 @@ The same argument applies across machines: a change to platform-specific code is
 verified on a *second* node, because the developing machine usually cannot
 produce the failing condition.
 
+## Calling out blockers and decisions
+
+When something is stuck, or a choice is genuinely the user's, **say so in a visual callout** —
+never buried in a paragraph. The user is often running several threads and scanning; a blocker
+that reads like narration gets missed, and a question without trade-offs just hands the work
+back.
+
+Use one of three markers, and always include the trade-offs:
+
+> 🚧 **BLOCKER — <one line: what cannot proceed>**
+>
+> **What's stuck:** the concrete thing that will not move.
+> **Why it matters:** what it costs to leave it, in real terms.
+> **Options:** a table — each with a genuine pro *and* con, not a strawman.
+> **My recommendation:** pick one, and say what would change your mind.
+> **What I need:** the single specific thing that unblocks it.
+
+> ❓ **DECISION — <one line: the choice>**
+>
+> Same shape. Use when work *can* continue but the call is the user's — a reversal of something
+> they chose, a business/scope question, or a fact only they hold.
+
+> ⚠️ **RISK — <one line>**
+>
+> Proceeding is possible and you are proceeding, but there is a downside they should know about
+> now rather than discover later. State it and continue; do not stop for an answer.
+
+**The rules that make these useful:**
+
+- **Always give pros and cons.** "Option A or B?" without them is not a question, it is
+  delegation of the analysis. If one option is clearly better, say so and explain why the other
+  still exists.
+- **Recommend.** A decision presented without a recommendation costs the user the thinking you
+  were meant to do.
+- **One callout per distinct issue**, at the point it arises — not batched at the end where the
+  first is forgotten by the time the last is read.
+- **Do not use them for narration.** A callout for something you already solved trains the user
+  to skim past the ones that matter.
+- Reserve **BLOCKER** for genuinely stuck; if you can proceed under a stated assumption, that is
+  a **RISK**, and you proceed.
+
 ## Security
 
 - Never commit credentials or secrets.
