@@ -1,205 +1,124 @@
 ---
 name: claude-sessions
-description: Use this skill for any request about OTHER Claude Code sessions — creating one ("create a session in /c/projects/foo", "new session for X", "spin up an agent", "kick off an agent and have it do Y"), handing one work, listing, closing, killing, reopening or clearing one, reading what its pane shows, or answering a dialog it is stuck on. Creating a session is `shabadoo win open`, never `tmux new-window`; handing it work is mail (`session_send`), not typed keystrokes. Covers this host and, through the coordinator, every connected node.
-version: 1.3.0
+description: Use for anything involving OTHER Claude Code sessions as concurrent workers — spawning one ("create a session in /c/projects/foo", "spin up an agent", "kick off an agent and have it do Y"), delegating work and getting the result back, running several in parallel, checking what you handed off, seeing what each is doing, waiting on one, or unsticking one that is blocked on a dialog. Also listing, closing, reopening and clearing sessions, and reading what a pane shows. Think of a session as a thread with its own context and its own machine; this is the primitive table for spawn, delegate, join, poll and kill.
+version: 2.0.0
 ---
 
 # claude-sessions
 
-Manage and drive Claude Code windows — locally in the shared `claude` tmux session (created by
-`shabadoo attach`), and across hosts through the coordinator.
+**A session is a thread.** It has its own context, its own working directory, usually its own
+machine, and it runs whether or not you are watching. This skill is the primitive table.
 
-## When to use
+The one structural difference from threads in a process: **there is no shared memory.** Nothing is
+implicit — not your conversation, not the file you just read, not why. Everything a session needs
+has to travel in the message.
 
-Trigger on requests about **other Claude Code instances** — running or about to be:
+## The primitives
 
-- "list my claude sessions" / "what claude windows are running"
-- **"create a session in /c/projects/foo"** / "new session for X" / "spin up an agent" /
-  "start a claude session there" / "kick off an agent and have it do Y"
-- "kill the claude session in /c/projects/foo" / "close the homelab window"
-- "restart / reopen the claude session for <project>"
-- "clear the context on my other claude" (mobile can't type `/clear`)
-- **"tell the runner session to …" / "what is that window asking?" / "answer its prompt"**
+| You want to | Use | Notes |
+|---|---|---|
+| **spawn with work** | `task_create to="<project>" brief="…"` | one call: delegates *and* tracks. The default for "go do X" |
+| **spawn on a specific machine** | `session_send to="<node>"` (`wsl`, `mac`) | that node's core session decides whether to do it, start a session, or refuse. It owns its own resources |
+| **spawn locally, no work yet** | `shabadoo win open <path>` | idempotent. **Never `tmux new-window`** |
+| **tell, not ask** | `session_send to="…"` | no tracking. Use when nothing is expected back |
+| **join / get the result** | *nothing — it comes to you* | when a task reaches `done` or `dropped`, the requester is mailed and nudged automatically |
+| **poll your handles** | `task_list requested_by="<your id>"` | what did I hand off, and where did it get to |
+| **check your own queue** | `task_list` | what has been handed to you |
+| **report progress** | `task_update id=… state=active\|blocked\|done\|dropped` | `blocked` wants a note saying what you are stuck on |
+| **advertise what you are doing** | `session_status_set "…"` | visible to every peer; ages out after 30 min; empty string clears |
+| **list the threads** | `session_list` (or `shabadoo sessions`) | project, status, online, undrained mail |
+| **read one's screen** | `shabadoo tail <name>` | |
+| **unblock one** | `shabadoo keys --pane <name> Enter` | it is sitting on a dialog; `tail` first and read the question |
+| **kill** | `shabadoo win close <name>` | `reopen` rebuilds it in the same directory |
 
-Do **not** use for:
-- The current Claude conversation — the user can type `/clear` themselves.
-- Tmux in general — only the `claude` session is managed.
+**There is no `split`.** Nothing here splits a window — no split op, no `tmux split-window` anywhere
+in the codebase. If a human splits a pane by hand, shabadoo *sees* each pane as its own session with
+its own directory and project; but a session cannot spawn a sibling that way. The equivalent is a
+second session in a subfolder, which reports as `<parent>/<child>`.
 
-## Creating a session is never `tmux new-window`
+**You never block.** There is no `wait()`. A task's completion arrives as mail, and a stalled task is
+chased for you — untouched for 6 hours raises it once, then daily. Polling `task_list` in a loop is
+the thing this design exists to remove.
 
-**A session is not a window with `claude` running in it.** Every path that starts one goes through
-`shabadoo` (`win open`, or `open` through the coordinator) because the launcher injects state at
-window-creation time that cannot be added afterwards:
+## Delegating: `task_create` over `session_send`
 
-| What the launcher sets | What a hand-rolled `tmux new-window` gets instead |
-|---|---|
-| `CLAUDE_SESSION_ID=claude-<project>-<host>-<8hex>` | **nothing** — the session has no id, so `session_send` cannot address it and it cannot say who it is |
-| the window name, `<project>-<host>-<8hex of sha1(path)>` | an arbitrary name — the "is this folder already open?" check misses it, so the next `open` adds a **duplicate** window for the same folder |
-| `--remote-control <alias>` | no alias — the session never appears in the iOS / web Code app |
-| `SSH_AUTH_SOCK` / `SSH_AGENT_PID`, forwarded explicitly | a **stale** agent socket. The tmux server snapshots its environment once, at first-session creation, so a window made later inherits whatever was true then — git over ssh fails inside it |
-| `CLAUDE_ARGS`, `CLAUDE_RESUME` from `~/.config/claude/env` | none of the operator's launch settings |
+Use `task_create` whenever you are asking someone to **do** something; `session_send` when you are
+merely **telling** them something. The difference is what happens when nobody answers: an unanswered
+task is chased, an unanswered message is forgotten.
 
-None of that is visible from inside the new window. It looks like a working Claude, and it is
-unaddressable, invisible to the phone, and duplicated on the next open. **If you catch yourself
-typing `tmux`, the command you want is `shabadoo win open`.**
+**The brief is the whole handoff.** State the goal, the paths, what you have already established,
+what to avoid, and what "done" looks like — written so somebody could act on it without asking you a
+question first. A one-line ask buys a session that spends its first ten minutes rediscovering what
+you already knew, or guesses wrong.
 
-## Two planes, and which to reach for
+Addressing is **by project** — `homelab`, `iptv` — never by session id. Exact match wins, then
+substring; ambiguous is refused rather than guessed, and unknown bounces with the list of what
+exists. Matching deliberately ignores the cwd, or `home` would match every session on a Linux box.
+
+Mail reaches a project whose session is **not running**: it is stored against the id that project
+would have, and the node's core session is asked whether to start it. So do not open a window first
+just to have somewhere to send to.
+
+## Running several at once
+
+Spawn them all, then stop thinking about them — each completion arrives on its own.
+
+```
+task_create to="iptv"     brief="…"
+task_create to="homelife" brief="…"
+task_create to="homelab"  brief="…"
+task_list requested_by="<your id>"     # only if you need the picture before they report
+```
+
+Sessions on the same node share that machine, so three heavy builds on one host is one machine's
+worth of work, not three. `session_list` shows which node each is on.
+
+## Driving a pane directly
+
+For the two things mail cannot do: answering a dialog, and running a slash command.
+
+```sh
+shabadoo tail foo                          # 1. what is it actually showing?
+shabadoo keys --pane foo Enter             # 2. only if a dialog is up
+shabadoo command --pane foo /clear         # slash commands
+shabadoo send --pane foo "continue"        # literal text into the composer
+shabadoo tail foo                          # 3. confirm it landed
+```
+
+**Text typed into a modal is swallowed and `send` still reports success.** A folder Claude has not
+run in before opens with a trust dialog: arrow-selectable (`Down` reaches *Yes, I trust this
+folder*), often needing **two** `Enter`s. `keys` takes tmux key names — `Enter`, `Escape`, `Up`,
+`Down`, `1`, `y`. Always `tail` after: a successful `send` means keystrokes were delivered, not
+received.
+
+**Read the question before answering it.** A blocked session is blocked on something, and these
+panes run with permissions disabled — "yes" to an unread prompt is how something gets deleted.
+
+## Two planes
 
 | | Command | Scope |
 |---|---|---|
-| **Local** | `shabadoo win …` | This host's tmux directly. Works even when the coordinator is down. |
-| **Coordinator** | `shabadoo sessions`, `open`, `send`, `tail`, `keys`, `command` | Every connected node. **`--node <host>` becomes required the moment more than one node is connected** — even to reach a pane on *this* host. |
+| **Local** | `shabadoo win list\|open\|close\|reopen\|clear` | this host's tmux directly; works with the coordinator down |
+| **Coordinator** | `shabadoo sessions\|open\|tail\|send\|keys\|command`, and every MCP tool | every connected node |
 
-Default to `shabadoo win` for listing and lifecycle on this machine; use the coordinator verbs to
-*drive* a pane, and whenever the target might be on another host.
+`--node <host>` becomes **required** the moment a second node connects, even for a pane on this host;
+with one, it is inferred. The fix is the flag, not a workaround.
 
-> **⚠️ Multi-node needs `--node` — do NOT drop to raw `tmux`.** With one node, `tail`/`send`/`keys`/`command`
-> resolve the local pane on their own. The instant a second node joins (e.g. a Mac attaches), they refuse
-> with `several nodes connected (mac, wsl) — pass --node`. The fix is the **flag**, not a workaround:
-> add `--node <thishost>` (find it in `shabadoo sessions`; on this box it is `wsl`). Reaching past the skill
-> into `tmux send-keys` is the wrong move — it bypasses the audit trail and the readiness handling.
+`<name>` is an exact window name or a unique substring; ambiguous refuses and lists candidates.
 
-```
-shabadoo win list                    # windows + project dirs (marks the ACTIVE one)
-shabadoo win open   <path>           # start a claude window for <path> (no attach, idempotent)
-shabadoo win close  <name>           # kill a window
-shabadoo win reopen <name>           # kill and re-launch claude in the same dir
-shabadoo win clear  <name>           # send /clear to the claude in that window
+## Worth knowing
 
-shabadoo sessions                    # every node's sessions
-shabadoo folders [--node N]          # folders a node can start
-shabadoo open [--node N] <folder>    # start a session on a node
-shabadoo tail <name> [--lines N]     # what is on that pane right now
-shabadoo send --window N "text"      # type text into a pane AND submit it
-shabadoo keys --pane <name> <key>…   # raw keypresses — how a dialog gets answered
-shabadoo command --pane <name> /cmd  # run a slash command in a pane
-```
-
-`<name>` may be the exact window name from `list` (e.g. `homelab-4b602ded`) or a unique substring
-(e.g. `homelab`). If the substring matches several windows the command refuses and lists candidates —
-pass a more specific pattern. `send`, `keys` and `command` also accept `--window N` (the index from
-`list`) instead of `--pane`.
-
-There is **no `win kill`** — the verb is `close`. (`shabadoo kill` exists at the top level and asks
-first; `win close` does not.)
-
-## Giving a session work: mail, not keystrokes
-
-There are two ways to put words in front of another session, and they are **not** interchangeable.
-
-| | Mechanism | What it is for |
-|---|---|---|
-| **Mail** | `mcp__shabadoo__session_send` / `task_create`, or `shabadoo mail` | **handing over work** — a brief, a task, a question for a peer |
-| **Keystrokes** | `shabadoo send` / `keys` / `command` | **driving a pane** — answering a dialog, firing a slash command, putting literal text in the composer |
-
-**Default to mail for a handoff.** Four reasons, and the second is the one that changes how you
-create sessions:
-
-- **It is durable and acknowledged.** `shabadoo mail` shows whether the recipient actually drained it.
-  A prompt typed into a pane leaves no record anywhere that it was received.
-- **It works before the session exists.** Mail addressed to a project that is not running is stored
-  against the session id that project *would* have, and the coordinator asks that node's core session
-  to start it. When the session starts, the message is already waiting and drains into its context.
-- **A running recipient is nudged immediately** — the coordinator types `check inbox` into its pane,
-  firing the drain hook. You are not waiting for a human to come back to that window.
-- **Typed text is swallowed by any modal**, silently, and `send` still reports success.
-
-> **Single-node caveat.** Mail needs a coordinator, because it is a durable
-> inbox in the hub's database. If this host is running the standalone fallback
-> (`shabadoo serve`) rather than a hub, `/api/messages` answers **501** and there
-> is no mail plane at all — `send` keystrokes are then the only way to reach a
-> pane, dialog hazard and all. A single machine can still have the full feature
-> set: run both halves on it (`setup --service --device-tokens`), which is what
-> self-hosting means here — a hub with one tenant and one node.
-
-### The four shapes, in the order to try them
-
-**0. The work belongs on another machine — tell that machine's core session.**
-
-```sh
-session_send to="mac" title="..." body="<the task, and the context to act on it>"
-```
-
-Do not reach across and open a window on someone else's host. Each node's core session is the only
-thing permitted to start sessions there, and it is the one that knows what is installed, what is
-already running, and what starting something costs. It decides: do it, start a session for it, or
-say no. Carry the context with the ask — the recipient has none of your conversation, so a one-line
-brief buys a session that spends its first ten minutes rediscovering what you already knew.
-
-**1. The project already exists on this host — just mail it. Do not open anything.**
-
-```sh
-# runs it if it is running; wakes it through its node's core session if it is not
-session_send to="homelab" title="..." body="..."
-```
-
-**2. A folder on THIS host that has never run — create it, then mail it.**
-
-```sh
-shabadoo win open /c/projects/new-thing     # idempotent; sets the session id
-session_send to="new-thing" title="..." body="..."
-```
-
-Mail, not `send`, even though the window is right there: the brief lands in context as a message
-rather than as typing that a trust dialog may eat.
-
-**3. You genuinely need a keystroke** — a dialog is up, or you want a slash command run.
-
-That is where `send`/`keys`/`command` belong, and there the verify-at-every-hop dance applies:
-
-```sh
-shabadoo tail foo                          # 1. see what the pane is actually showing
-shabadoo keys --pane foo Enter             # 2. ONLY if a dialog is up
-shabadoo send --pane foo "continue"        # 3. the keystrokes
-shabadoo tail foo                          # 4. confirm they landed
-```
-
-**A folder Claude has not run in before opens with a trust dialog, and text typed into a modal is
-swallowed** — `send` will appear to succeed and the prompt will have gone nowhere. The trust dialog is
-arrow-selectable (`Down` reaches *Yes, I trust this folder*) and often needs **two** `Enter`s — one to
-confirm the selection, one more before Claude reaches its prompt. `keys` takes tmux key names:
-`Enter`, `Escape`, `Up`, `Down`, `1`, `y`.
-
-**Always `tail` after `send`.** Nothing in this chain reports its own failure — a successful `send`
-means the keystrokes were delivered, not that anything received them.
-
-## How to handle requests
-
-1. **Start with `shabadoo win list`** to show the user what's running and resolve which window they
-   mean. For sessions on **other** hosts use `shabadoo sessions` instead — that goes through the
-   coordinator and covers every connected node.
-2. **Never close or reopen the current window** — `list` marks it with `yes` in the `ACTIVE` column.
-   If the user asks to kill/reopen it, warn first (it terminates the current conversation).
-3. **For `clear`**: Claude Code may show a confirmation prompt after `/clear`. If the user reports it
-   didn't clear, `tail` the pane — it is probably sitting on that confirmation, which `keys … Enter`
-   answers.
-4. **For `reopen`**: the launcher re-derives the same `CLAUDE_SESSION_ID` from the cwd, so session mail
-   keeps routing correctly. History is auto-resumed (`--continue`) if a `.jsonl` exists for that project.
-5. **For `open`**: accepts an absolute or relative path; resolves to realpath. Idempotent — if a window
-   for that path already exists, the command just reports it. Uses `-d` so it never steals focus from a
-   terminal already attached to the shared session.
-6. **When driving a pane on the user's behalf, say what you sent.** The user cannot see the other
-   window; a one-line echo of the text and the target is the only record they get.
-
-## Nuances
-
-- **Opened windows are not persistent.** The boot watchdog (cron `*/10`, plus the
-  `claude-sessions.service` user unit) only re-opens folders listed in
-  `~/.config/claude-sessions/folders` — managed with `shabadoo boot list|add|remove`. A window from
-  `win open` is **ephemeral**: close it, or reboot, and it is gone. That is usually correct for
-  short-lived task sessions; add the folder to the boot list only when it should survive.
-- The shared session name defaults to `claude`; override via `CLAUDE_SESSION_NAME` if the user has
-  retargeted the launcher.
-- `clear` works by sending `C-u /clear <Enter>`. Best-effort, and subject to the same modal-swallowing
-  caveat as `send`.
-- `reopen` does **not** attach — it rebuilds the window in the shared session. The user stays wherever
-  they invoked this from (e.g. a mobile Claude conversation).
-- **Reading the mail plane.** `shabadoo mail` shows the traffic — including whether a message was
-  drained or is still waiting — and `shabadoo inbox` drains *this* session's queue (built for a
-  UserPromptSubmit hook: silent and exit-0 when empty). Prefer the `mcp__shabadoo__session_*` tools
-  when they are available in the current session; same bus, structured arguments.
-- **An unknown recipient bounces, an ambiguous one is refused.** Names resolve exactly first, then by
-  substring, across session id, alias and project — never the cwd. If a project name will not resolve,
-  check `shabadoo sessions` and `shabadoo folders` rather than falling back to typing into a pane.
-- `shabadoo audit` shows who drove which pane, newest last — the record when a pane did something
-  unexpected.
+- **Windows from `win open` are ephemeral.** The boot watchdog only reopens folders in
+  `~/.config/claude-sessions/folders` (`shabadoo boot list|add|remove`). Right for task sessions; add
+  the folder only if it should survive a reboot.
+- **A closed session stays closed.** Exiting records intent, so the watchdog will not reopen it.
+  Opening clears that.
+- **Mail needs a coordinator.** Under the standalone fallback (`shabadoo serve`) `/api/messages` is
+  501 — no database, no mail plane, so keystrokes are the only route. A single machine can run both
+  halves (`setup --service --device-tokens`) and keep everything.
+- **A new tool does not reach a running session.** Each session launches `shabadoo mcp` at start and
+  keeps that tool list until the window restarts. `/clear` does not fix it.
+- `shabadoo mail` reads the traffic and shows whether a message was drained or is still waiting;
+  `shabadoo audit` shows who drove which pane.
+- **Say what you sent.** The user cannot see the other window; a one-line echo of the text and the
+  target is the only record they get.
