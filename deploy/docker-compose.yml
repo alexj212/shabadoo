@@ -85,6 +85,16 @@ services:
       SHABADOO_ELEVENLABS_KEY: ${SHABADOO_ELEVENLABS_KEY:-}
       SHABADOO_ELEVENLABS_AGENT: ${SHABADOO_ELEVENLABS_AGENT:-}
 
+      # Watch a PUBLIC repo's default branch and notify when it goes red.
+      # Polled from in here, because a GitHub runner has no route to the
+      # apprise container above. Empty leaves the watcher off.
+      #
+      # It must be listed HERE and not only in .env: that file feeds compose
+      # substitution, not the container's environment. Setting it there alone
+      # produces a deploy that looks applied and silently is not — verified by
+      # reading the startup log rather than the exit status.
+      SHABADOO_CI_REPO: ${SHABADOO_CI_REPO:-}
+
     volumes:
       # A bind mount, not a named volume, so dm's nightly borg run (03:00 —
       # homelab docs/backups.md) sweeps it up with the rest of /docker. Holds
