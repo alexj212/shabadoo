@@ -99,7 +99,10 @@ VENDOR_EXCLUDES := --exclude='.git' --exclude='.gitmodules' --exclude='*.bak.*' 
                    --exclude='node_modules' --exclude='.DS_Store'
 VENDOR_FILES := CLAUDE.md settings.json claude-powerline.json \
                 statusline-powerline.sh session-bridge-prompts.md
-VENDOR_DIRS  := skills agents hooks plans
+# plans/ is deliberately absent: those are per-session plan documents, scratch
+# from whatever one machine was doing. Vendoring them shipped one WSL session's
+# plan file to every node, which is how it was found.
+VENDOR_DIRS  := skills agents hooks
 
 # Tokens that must never reach the embedded payload. The payload ships to other
 # machines and the binary is copied around, so client and product names have no
@@ -126,6 +129,18 @@ vendor:
 	@for f in $(VENDOR_FILES); do \
 	  if [ -f "$(CLAUDE_DIR)/$$f" ]; then cp -p "$(CLAUDE_DIR)/$$f" "$(LOCAL_DIR)/$$f"; echo "  $(LOCAL_DIR)/$$f"; \
 	  else echo "  SKIP $$f (absent)"; fi; \
+	done
+	@# Prune what is no longer vendored. VENDOR_DIRS are rm -rf'd below, but the
+	@# top level never was — so a file dropped from VENDOR_FILES, or a stray
+	@# `settings.json.bak.*` copied in before the exclusion existed, kept
+	@# shipping to every node forever. Found by a node reporting phantom
+	@# backups it had never made.
+	@keep=" $(VENDOR_FILES) $(VENDOR_DIRS) .gitkeep "; \
+	for e in $(LOCAL_DIR)/* $(LOCAL_DIR)/.[!.]*; do \
+	  [ -e "$$e" ] || continue; \
+	  b=$$(basename "$$e"); \
+	  case "$$keep" in *" $$b "*) continue;; esac; \
+	  echo "  PRUNE $$e (no longer vendored)"; rm -rf "$$e"; \
 	done
 	@for d in $(VENDOR_DIRS); do \
 	  if [ -d "$(CLAUDE_DIR)/$$d" ]; then \
