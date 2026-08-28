@@ -1,3 +1,7 @@
+---
+description: Use for the session framework itself — the coordinator, the per-host agents, the launcher that starts Claude windows, and the payload of skills and conventions they install. Reach for it when sessions cannot see or message each other, a pane will not take input, a node is stale, or a release needs cutting.
+---
+
 # shabadoo
 
 **A framework for many Claude sessions to work as one system** — each in its own
@@ -200,6 +204,7 @@ shabadoo send --window 7 "run the tests"  # type into a pane and submit
 shabadoo keys --window 7 Enter            # answer a dialog
 shabadoo command --pane homelab /clear    # run a slash command
 shabadoo kill homelab                     # close a window (asks first)
+shabadoo who                              # who is out there and what each is for
 shabadoo audit                            # who drove which pane
 shabadoo mail                             # session-to-session messages
 shabadoo devices                          # enrolled clients: scope, days left, push

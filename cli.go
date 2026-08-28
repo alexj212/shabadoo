@@ -432,7 +432,9 @@ type cliSession struct {
 	Command    string `json:"command"`
 	InputState string `json:"input_state"`
 	Pending    int    `json:"pending"`
-	Note       string `json:"note"`
+	Note        string `json:"note"`
+	Project     string `json:"project"`
+	Description string `json:"description"`
 	Asking     string `json:"asking"`
 	ToolsStale bool   `json:"tools_stale"`
 

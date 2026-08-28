@@ -71,6 +71,8 @@ func main() {
 		runInbox(args[1:])
 	case "sessions":
 		runSessions(args[1:])
+	case "who":
+		runWho(args[1:])
 	case "folders":
 		runFolders(args[1:])
 	case "open":
