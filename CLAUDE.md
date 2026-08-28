@@ -846,6 +846,53 @@ broken build should say so rather than wait for a commit to make it new. A
 failed poll is never reported as a failed build: GitHub being unreachable is the
 watcher's problem, not the repository's. `ciwatch_test.go` pins all of it.
 
+## Mail nobody picked up (`stuck.go`)
+
+A handoff is meant to close itself: A sends work, the recipient is nudged, it
+drains and answers, A is told when the task ends. The **nudge** starts all of
+that, and it fails silently — a skipped nudge and a delivered one are identical
+from every side, including from inside the session that never heard anything.
+
+That is not hypothetical. A non-breaking space in Claude Code's input row (see
+below) made every pane read as "somebody is typing here", so the nudge was
+skipped fleet-wide for ten hours. Two sessions in a handoff both sat waiting,
+nothing failed, nothing was logged, and it surfaced only because a person asked
+a session how it was doing.
+
+So the loop has a **second observer that is deliberately not the nudge**.
+Undrained mail on a session that is online, idle and not on a dialog is a stuck
+loop whatever the cause — a nudge that never fired, one that landed in a pager,
+a session that drained and died. The cause does not need diagnosing to know
+somebody should look, and the coordinator already holds the fact: `pending`
+comes from the deliveries table, not from an agent's report, which is why this
+runs on its own timer rather than on the report path.
+
+Three things it does, in order:
+
+- **Two minutes: retry the nudge.** The arrival-time nudge fires once and never
+  again, so mail missed once is missed forever — ten hours of skipped nudges
+  left a backlog nothing would ever revisit. The condition this watcher fires
+  on is exactly the condition a nudge is already safe to send under, so the
+  retry is free and silent.
+- **Five minutes: tell a person.** Longer than `blockedGrace`, because a
+  recipient may legitimately be mid-turn and its inbox drains on the *next*
+  prompt rather than this one.
+- **Record both.** The retry and the escalation are audited, and a notification
+  that failed to send is **not** recorded as sent — a log claiming somebody was
+  told is worse than a silent failure, because it stops anybody looking further.
+
+Offline is excluded: mail for an offline session is *meant* to wait, and its
+delivery row is the wait. A dialog is excluded because that is
+`blockedWatcher`'s job, and one state reported under two names trains somebody
+to ignore both.
+
+**Every nudge is audited too**, which is the instrument that did not exist.
+`deliver` had always returned `{"nudged":"no","reason":…}` and the caller threw
+it away, so the mechanism reported its own failure every single time into a
+discarded value. A session cannot be the instrument here — it has no way to tell
+a nudge-delivered message from a hook-delivered one — so the coordinator is the
+only place the difference is observable, and it was the one place not looking.
+
 ## Blocked-session notifications
 
 When a session sits at a prompt for **90 seconds**, the coordinator sends a

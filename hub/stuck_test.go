@@ -2,6 +2,8 @@ package hub
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"testing"
 	"time"
 )
@@ -145,5 +147,60 @@ func TestStuckWatcherRetriesTheNudgeBeforeTellingAnyone(t *testing.T) {
 	w.observe(context.Background(), "t", sess, online)
 	if len(*sent) != 1 {
 		t.Errorf("want 1 notification once the retry failed, got %d", len(*sent))
+	}
+}
+
+// Both actions must be recorded, or this watcher is as unobservable as the
+// nudge it exists to catch — which is the failure that produced it.
+func TestStuckWatcherAuditsWhatItDid(t *testing.T) {
+	base := time.Unix(1_700_000_000, 0)
+	online := func(string) bool { return true }
+	sess := []Session{{SessionID: "s1", Agent: "wsl", Pending: 2, InputState: "composer"}}
+
+	w, _ := stuckFixture(base)
+	var entries []string
+	w.audit = func(_ context.Context, _, target, detail string) {
+		entries = append(entries, target+": "+detail)
+	}
+	w.retry = func(context.Context, string, string) {}
+
+	w.observe(context.Background(), "t", sess, online)
+	w.now = func() time.Time { return base.Add(stuckRetry + time.Second) }
+	w.observe(context.Background(), "t", sess, online)
+	if len(entries) != 1 || !strings.Contains(entries[0], "re-nudged") {
+		t.Fatalf("the retry was not recorded: %v", entries)
+	}
+
+	w.now = func() time.Time { return base.Add(stuckGrace + time.Second) }
+	w.observe(context.Background(), "t", sess, online)
+	if len(entries) != 2 || !strings.Contains(entries[1], "notified") {
+		t.Fatalf("the escalation was not recorded: %v", entries)
+	}
+	// The count travels with it: "notified about 2 unread" is actionable,
+	// "notified" alone sends somebody back to the API to find out about what.
+	if !strings.Contains(entries[1], "2 unread") {
+		t.Errorf("audit detail lacks the count: %q", entries[1])
+	}
+}
+
+// A notification that failed to send must not be recorded as having been sent.
+// A log claiming somebody was told is worse than a silent failure, because it
+// stops anybody looking further.
+func TestStuckWatcherDoesNotAuditAFailedNotification(t *testing.T) {
+	base := time.Unix(1_700_000_000, 0)
+	w := newStuckWatcher(func() time.Time { return base })
+	w.send = func(context.Context, string, string, string, string) error {
+		return errors.New("notifier unreachable")
+	}
+	var entries int
+	w.audit = func(context.Context, string, string, string) { entries++ }
+
+	sess := []Session{{SessionID: "s1", Agent: "wsl", Pending: 1, InputState: "composer"}}
+	w.observe(context.Background(), "t", sess, func(string) bool { return true })
+	w.now = func() time.Time { return base.Add(stuckGrace + time.Second) }
+	w.observe(context.Background(), "t", sess, func(string) bool { return true })
+
+	if entries != 0 {
+		t.Error("recorded a notification that was never delivered")
 	}
 }

@@ -59,6 +59,11 @@ type stuckWatcher struct {
 	// never clears itself — which is what ten hours of skipped nudges left
 	// behind, and what nothing would have swept up.
 	retry func(ctx context.Context, tenant, sessionID string)
+	// audit records what this watcher did, so an escalation is verifiable from
+	// outside. Omitting it is the same omission that let a fleet-wide nudge
+	// failure hide for ten hours — a mechanism nobody can observe is one nobody
+	// can tell has stopped.
+	audit func(ctx context.Context, tenant, target, detail string)
 	now   func() time.Time
 }
 
@@ -118,6 +123,10 @@ func (s *stuckWatcher) observe(ctx context.Context, tenant string, sessions []Se
 		if !e.retried && waited >= stuckRetry && s.retry != nil {
 			e.retried = true
 			s.retry(ctx, tenant, sess.SessionID)
+			if s.audit != nil {
+				s.audit(ctx, tenant, sess.SessionID,
+					fmt.Sprintf("re-nudged after %s with %d unread", roundDuration(waited), sess.Pending))
+			}
 			continue
 		}
 
@@ -160,7 +169,13 @@ func (s *stuckWatcher) observe(ctx context.Context, tenant string, sessions []Se
 				"nudge is not reaching that pane or the session stopped without draining.\n\n"+
 				"`shabadoo tail %s` shows what is on screen; `shabadoo mail` shows what is waiting.",
 			name, d.sess.Agent, roundDuration(d.waited), name)
-		_ = s.send(ctx, tenant, title, body, "")
+		if err := s.send(ctx, tenant, title, body, ""); err != nil {
+			continue
+		}
+		if s.audit != nil {
+			s.audit(ctx, tenant, d.sess.SessionID,
+				fmt.Sprintf("notified: %d unread for %s", d.sess.Pending, roundDuration(d.waited)))
+		}
 	}
 }
 

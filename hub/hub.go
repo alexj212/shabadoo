@@ -170,6 +170,11 @@ func (h *Hub) EnableBlockedNotifications() {
 	sw.retry = func(ctx context.Context, tenant, sessionID string) {
 		h.nudge(ctx, tenant, sessionID)
 	}
+	sw.audit = func(ctx context.Context, tenant, target, detail string) {
+		h.store.Tenant(tenant).Audit(ctx, AuditEntry{
+			Actor: "coordinator", Action: "stuck", Target: target, Detail: detail,
+		}, h.now())
+	}
 	h.stuck = sw
 
 	// The same notifier, and the same reason for gating on it: a watcher that
