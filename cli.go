@@ -632,7 +632,10 @@ func runSessions(args []string) {
 			n.Node, state, len(n.Sessions), plural(len(n.Sessions)), cfg)
 		for _, s := range n.Sessions {
 			mark := " "
-			if s.InputState == "dialog" {
+			// Only for a node that is actually connected: an offline node's
+			// sessions are its last reported view, so one frozen at a dialog
+			// would be marked as waiting forever with no way to answer it.
+			if s.InputState == "dialog" && n.Online {
 				mark = "!" // waiting on a prompt — the only row that needs a human
 				waiting++
 			}

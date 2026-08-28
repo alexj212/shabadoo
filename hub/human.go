@@ -76,6 +76,7 @@ func HumanRoutes(mux *http.ServeMux, hub *Hub, store *Store, devices *DeviceStor
 	mux.HandleFunc("GET /api/claude/session", h.claudeSession)
 	mux.HandleFunc("GET /api/audit", h.audit)
 	mux.HandleFunc("GET /api/messages", h.messages)
+	mux.HandleFunc("GET /api/tasks", h.tasks)
 	mux.HandleFunc("GET /api/input-state", h.inputState)
 	mux.HandleFunc("GET /api/folders", h.folders)
 
@@ -576,6 +577,38 @@ func (h *humanAPI) audit(w http.ResponseWriter, r *http.Request) {
 
 // messages is the timeline view, and the per-session thread when `session` is
 // given. Read-only: looking at mail must never consume it.
+// tasks answers the question the waiting queue does not: what did I hand off,
+// and where did it get to.
+//
+// Read-only and on the human plane because the asker is a person away from
+// their desk — the same data has existed on the agent plane since tasks
+// shipped, which meant a phone could see what was waiting on IT and never what
+// it was waiting ON. Requested by a client author who put it better than that:
+// the queue answers a different question.
+//
+// Creating and closing tasks stays off the human plane deliberately: a task is
+// a handoff between sessions, and a person driving one from outside would be
+// recording work nobody was asked to do.
+func (h *humanAPI) tasks(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	limit := 0
+	if n, err := strconv.Atoi(q.Get("limit")); err == nil {
+		limit = n
+	}
+	list, err := h.hub.store.Tenant(tenantOf(r.Context())).Tasks(
+		r.Context(), q.Get("session"), q.Get("requested_by"),
+		q.Get("include_done") == "1", limit)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if list == nil {
+		list = []Task{} // an empty list, never null: a client must not have to
+		// distinguish "no tasks" from "field absent" at the JSON layer.
+	}
+	writeJSON(w, map[string]any{"tasks": list})
+}
+
 func (h *humanAPI) messages(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	limit, _ := strconv.Atoi(q.Get("limit"))

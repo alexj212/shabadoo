@@ -687,6 +687,12 @@ function renderAgent(n, now, hubVersion) {
 function renderQueue(nodes, now) {
   const waiting = [];
   for (const n of nodes) {
+    // An offline node's sessions are its LAST REPORTED view, frozen at the
+    // moment its agent dropped. One that was at a dialog then still reads
+    // `dialog` now, forever — so a naive count says "waiting on you" about a
+    // prompt nobody can answer through here, with no way to clear it.
+    // Reported by a client author who hit it before we did.
+    if (!n.online) continue;
     for (const w of n.sessions || []) {
       if (w.input_state === "dialog") waiting.push({ node: n.node, w });
     }
@@ -736,8 +742,9 @@ function render(data) {
   const total = nodes.reduce((n, x) => n + (x.sessions || []).length, 0);
   const down = nodes.filter(x => !x.online).length;
 
-  const waiting = nodes.reduce((n, x) =>
-    n + (x.sessions || []).filter(w => w.input_state === "dialog").length, 0);
+  const waiting = nodes.reduce((n, x) => x.online
+    ? n + (x.sessions || []).filter(w => w.input_state === "dialog").length
+    : n, 0);
 
   meta.textContent = `${total} session(s) across ${nodes.length} agent(s)`
     + (down ? ` · ${down} offline` : "")

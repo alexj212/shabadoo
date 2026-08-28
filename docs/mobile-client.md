@@ -686,7 +686,54 @@ publishing binaries, replacing a node's binary, and cutting a node off. Use the
 
 ---
 
+### `GET /api/tasks` — what did I hand off, and where did it get to
+
+The waiting queue answers *who needs me*. This answers the other question, which
+is the one an operator has away from their desk. Both have existed on the agent
+plane since tasks shipped; only the first was reachable from a phone.
+
+```json
+{ "tasks": [ {
+  "id": "cfbf26b53ac9…",
+  "session_id":   "claude-mac-78709fb6",
+  "requested_by": "claude-shabadoo-wsl-1ef3aefe",
+  "thread": "nudge-guard",
+  "state": "active",
+  "brief": "Please independently verify the nudge guard shipped in v0.4.12…",
+  "note":  "composer fixture does not match darwin — no box characters at all",
+  "created_at": 1787901454, "updated_at": 1787901812
+} ] }
+```
+
+`state` is one of **`open`, `active`, `blocked`, `done`, `dropped`** and never
+anything else. `dropped` is an *answer* — deciding not to do something, which
+without it has nowhere to go but silence — so render it as a resolution rather
+than a failure.
+
+`note` is the assignee's last word: the reason for a `blocked`, or the outcome
+of a `done`. An update with no note leaves the previous one standing rather than
+erasing it, so a `note` may be older than its `updated_at`.
+
+**Finished work is hidden unless `include_done=1`.** `tasks` is `[]`, never
+`null`.
+
+Nothing needs chasing from a client: a task untouched for 6 hours raises once
+then daily, and the requester is mailed automatically when one reaches `done` or
+`dropped`.
+
+**Creating and closing tasks is deliberately absent.** A task is a handoff
+between sessions; a person driving one from outside would be recording work
+nobody was asked to do.
+
 ## 5. Things that will bite you
+
+**An offline node's sessions are frozen, including `input_state`.** They are its
+last reported view, so a session that was at a dialog when its agent dropped
+still reads `dialog` — and a naive waiting count says "1 waiting on you" forever
+about a prompt nobody can answer through here. **Filter the queue by
+`node.online`.** Reported by a client author who hit it first; the dashboard and
+the CLI had the same bug and have been fixed.
+
 
 - **Every write is audited** and attributed to your device. This is a feature;
   do not batch or retry writes blindly, because a retry storm is legible as one
