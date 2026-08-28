@@ -1576,6 +1576,19 @@ documentation, and a scanner that cries wolf gets ignored.
   *Deliberately out of scope*; never leave a client author to find it by
   reading Go. Ship the spec change **in the same commit** as the code.
 
+- **A skill that names commands is pinned to them by a test.** The
+  `claude-sessions` skill drifted for months with nothing to catch it, and
+  `skill_test.go` now reads the command list out of `main()`'s own dispatch and
+  fails when a session-facing one is undocumented — or when the skill names one
+  that is gone. Operator commands are excluded by an explicit list with a reason
+  each, so adding a command forces a decision rather than a default.
+
+  It found three on its first run, one of which was `shabadoo who` — added to
+  the CLI and not the skill within the same hour, by me, while writing about
+  drift. A hand-kept list agrees with whatever its author last assumed; that is
+  the whole argument, and it is the same test a peer's project uses to pin its
+  own skill against its CLI, where it caught two flags that had silently gone.
+
 - **Add no new modules.** Not quite "stdlib only", which this said for a long
   time and has not been true since the SQLite driver arrived: `go list -m all`
   is **30**, from `x/crypto` and `modernc.org/sqlite` and what it drags in. The

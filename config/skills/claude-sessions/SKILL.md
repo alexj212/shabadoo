@@ -27,6 +27,9 @@ has to travel in the message.
 | **report progress** | `task_update id=… state=active\|blocked\|done\|dropped` | `blocked` wants a note saying what you are stuck on |
 | **advertise what you are doing** | `session_status_set "…"` | visible to every peer; ages out after 30 min; empty string clears |
 | **list the threads** | `session_list` (or `shabadoo sessions`) | project, status, online, undrained mail |
+| **see who is out there** | `shabadoo who` | one screen: every session, what it is FOR, what it says it is doing. A blank means a peer knows the name and nothing else |
+| **see what a node could start** | `shabadoo folders --node <host>` | startable folders, `*` marks already open. Ask this BEFORE assuming a project exists on another machine |
+| **kill, with a prompt** | `shabadoo kill <name>` | asks first; `win close` does not |
 | **read one's screen** | `shabadoo tail <name>` | |
 | **unblock one** | `shabadoo keys --pane <name> Enter` | it is sitting on a dialog; `tail` first and read the question |
 | **start it clean** | `shabadoo command --pane <name> /clear` | a folder with history RESUMES on open. Escape dismisses the prompt but the context still loads |
