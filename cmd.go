@@ -123,6 +123,9 @@ func runHub(args []string) {
 		"print a one-time device pairing code at startup (self-hosted first run)")
 	deviceTokens := fset.Bool("device-tokens", false,
 		"authenticate humans by device token only — no Access, no network trust")
+	ciRepo := fset.String("ci-repo", os.Getenv("SHABADOO_CI_REPO"),
+		"owner/name of a PUBLIC GitHub repo to watch; notifies when its default "+
+			"branch goes red. Needs --apprise-url; no token, the API is public")
 	apprise := fset.String("apprise-url", os.Getenv("SHABADOO_APPRISE_URL"),
 		"notification relay endpoint, e.g. http://apprise:8000/notify/homelab "+
 			"(empty disables notify_send)")
@@ -142,6 +145,7 @@ func runHub(args []string) {
 
 	hub.Version = version
 	hub.AppriseURL = *apprise
+	hub.CIRepo = *ciRepo
 	hub.ElevenLabsKey, hub.ElevenLabsAgent = *elevenKey, *elevenAgent
 
 	// A secret on the command line is world-readable. /proc/<pid>/cmdline is
@@ -329,6 +333,12 @@ func runHub(args []string) {
 	// to notify a human and silently cannot is worse than one told up front.
 	if hub.AppriseURL == "" {
 		log.Printf("hub: no --apprise-url, so notify_send is unavailable to sessions")
+	}
+	if *ciRepo != "" && *apprise == "" {
+		log.Printf("hub: --ci-repo %s is set but --apprise-url is not, so build "+
+			"failures have nowhere to go; the watcher is off", *ciRepo)
+	} else if *ciRepo != "" {
+		log.Printf("hub: watching %s for build failures", *ciRepo)
 	} else {
 		log.Printf("hub: notifications relay to %s", hub.AppriseURL)
 		// The same relay carries stuck-session alerts. Only enabled alongside a
@@ -378,6 +388,11 @@ func vacuumLoop(ctx context.Context, store *hub.Store, h *hub.Hub) {
 			// edge-triggered, so looking hourly costs nothing and only bounds
 			// how late the first mention can be.
 			h.SweepTasks(ctx)
+			// And whether this project's own build is broken. Same tick, same
+			// edge-triggered shape, and the same argument for piggybacking:
+			// looking hourly costs nothing and only bounds how late the first
+			// mention can be.
+			h.CheckCI(ctx)
 			if res, err := store.Vacuum(ctx, time.Now()); err != nil {
 				log.Printf("hub: vacuum: %v", err)
 			} else if res.Any() {

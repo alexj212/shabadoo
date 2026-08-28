@@ -123,6 +123,28 @@ VENDOR_DENY := $(shell cat .vendor-deny 2>/dev/null)
 # config/ would not have held, because this target is a straight copy and would
 # have undone the scrub on the next run. Writing somewhere git ignores is what
 # makes it stick.
+# release TAG=v0.4.13 — push main, then exactly ONE tag.
+#
+# The one tag is the point. `git push --follow-tags` is the natural thing to
+# type and it silently does nothing: GitHub suppresses the tag-push event when
+# several arrive at once, so four releases went out with the release workflow
+# never running and no image published for any of them. Nothing failed — a local
+# tag looks exactly like a release until something tries to pull the image.
+release:
+	@# TAG, not VERSION: VERSION is already defined above for build stamping, so
+	@# a `test -n` on it can never fail and the usage guard would never fire.
+	@test -n "$(TAG)" || { echo "usage: make release TAG=v0.4.13"; exit 2; }
+	@git diff --quiet || { echo "working tree is dirty; commit first"; exit 2; }
+	@git rev-parse -q --verify "refs/tags/$(TAG)" >/dev/null || \
+	  { echo "tag $(TAG) does not exist; create it with a message first"; exit 2; }
+	@echo "pushing main..."
+	@git push origin main
+	@echo "pushing $(TAG) alone (one tag per push, deliberately)..."
+	@git push origin "$(TAG)"
+	@echo
+	@echo "release workflow should now be running:"
+	@echo "  gh run list --workflow=release.yml --limit 1"
+
 vendor:
 	@echo "vendoring config.local/ from $(CLAUDE_DIR)  (personal overlay, never committed)"
 	@mkdir -p $(LOCAL_DIR)

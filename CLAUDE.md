@@ -725,6 +725,39 @@ from `InputState` and deliberately so. There a false dialog refuses real
 messages; here a false idle destroys a draft, while a false busy costs only the
 promptness of mail that was waiting anyway.
 
+## Telling somebody the build is broken (`--ci-repo`)
+
+The coordinator notifies when a *session* is blocked and said nothing when its
+own build was. That gap let a flaky test keep `main` red for days across four
+releases: every local `make test` passed, because a single run of the flake was
+green, and a red badge nobody looks at is indistinguishable from a red badge
+that is the known red.
+
+`--ci-repo owner/name` polls the newest completed run on the default branch and
+notifies through the same Apprise relay as everything else. Off unless set, and
+off with a warning if set without `--apprise-url` — half a configuration should
+leave a feature off, not half-on.
+
+**Polled, not pushed, and that is forced rather than chosen.** A GitHub runner
+cannot reach the notifier: the relay is a container hostname on the
+coordinator's own docker network, with no route from outside. Opening one to
+carry build notifications would be a poor trade. Polling inverts the direction
+and needs nothing opened.
+
+**No credential.** The repository is public, so the Actions API answers
+unauthenticated — a token would be one more thing to rotate for a fact anybody
+can read.
+
+Edge-triggered, for the third time in this codebase and for the same reason:
+level-triggering would notify hourly for as long as `main` is red, and a
+notifier that mostly cries wolf gets muted, which costs the one that mattered.
+Recovery is deliberately **silent** — a green build is the expected state, and
+announcing it trains the reader to skim. A standing failure *is* announced once
+on the first poll after a restart, because a coordinator that comes up into a
+broken build should say so rather than wait for a commit to make it new. A
+failed poll is never reported as a failed build: GitHub being unreachable is the
+watcher's problem, not the repository's. `ciwatch_test.go` pins all of it.
+
 ## Blocked-session notifications
 
 When a session sits at a prompt for **90 seconds**, the coordinator sends a
@@ -1384,6 +1417,40 @@ documentation, and a scanner that cries wolf gets ignored.
   than returning an empty map on a platform it cannot inspect. Where a partial
   answer is genuinely acceptable, say so in the response — never in a comment
   the caller will not read.
+
+- **Heuristics over another program's UI are a category, and they all fail the
+  same way.** There are five: `InputState`, `DialogPrompt` and `ComposerBusy`
+  parse a captured pane; `staleToolPanes` parses a process table; `windowName`
+  depends on a launcher's naming staying put. None of them errors when the thing
+  they read changes shape — they return a confident wrong answer, and the caller
+  has no way to tell.
+
+  Two rules, because a comment stating them in one file is read only by whoever
+  is already in that file:
+
+  **State the default direction, and say what it costs.** They differ, and the
+  difference is the design. `InputState` fails to `composer`, because a false
+  dialog refuses real messages while a false composer only restores the old
+  behaviour. `ComposerBusy` fails to *busy*, the opposite, because a false idle
+  destroys somebody's draft while a false busy merely delays mail that was
+  already waiting. Neither default is obviously right; both are only defensible
+  with the cost written next to them.
+
+  **Pin against a capture you did not write from memory.** A fixture composed by
+  the same person who wrote the parser agrees with whatever they assumed — which
+  is exactly how the `/proc`-only `staleToolPanes` shipped looking correct, and
+  how the select-list modal stayed invisible to `InputState` until somebody sent
+  a screenshot. Take the fixture from a real pane, on a machine that is not the
+  one you developed on where the platform differs.
+
+- **A change to platform-specific code is verified on a second node.** Not as
+  courtesy — as the only way to see it. In one evening a peer on another machine
+  found four things invisible from here: `/proc` absent on darwin, `ps -o
+  lstart=` being timezone-formatted so two readers would never agree, pid reuse
+  manufacturing a false "current", and a boot-time quirk that made a plausibility
+  guard reject `launchd`. Every one was a place where the developing machine
+  could not produce the failing condition. The lagging node, the different OS and
+  the older process are features of the reviewer, not obstacles to review.
 
 - **Nothing verifies itself. Check from somewhere else.** The companion to the
   rule above, and the reason every instance of it was found by a peer rather

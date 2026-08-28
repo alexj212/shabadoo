@@ -454,6 +454,50 @@ rather than cross-correlation. That is why the helper's output is framed instead
 of raw: the timestamp has to survive the pipe, and throwing it away at the
 capture boundary would make it unrecoverable downstream.
 
+## The untested half: a session that initiates
+
+Everything the messaging plane has been exercised on is **hub-and-spoke**. A
+human asks one session for something; that session hands work to a peer, and the
+peer answers well. Measured over one long evening of real use: every exchange
+began with a person, and no session ever decided on its own that another one
+needed to know something.
+
+That matters because the premise is not "sessions can be messaged". It is
+"sessions work as one system". A specialist that answers when asked is a good
+library call. A specialist that says *you are about to do the thing I found
+broken yesterday* is a colleague, and nothing here has ever done that.
+
+The raw material is already built and already carries the right information:
+
+- `session_status_set` — a session says what it is doing, in its own words.
+- `task_list --requested-by` — what was handed out and where it got to.
+- `capabilities` and `description` — which node can do a thing, and which
+  project is the expert on it.
+- The durable inbox — mail waits for a session that is not running.
+
+What is missing is a **reason to look**. Every one of those is polled by someone
+who already suspects there is something to find. Nothing wakes a session on a
+fact about another session.
+
+Two shapes worth distinguishing before building either, because they have very
+different failure modes:
+
+- **Volunteered context** — a session notices something a peer will hit and says
+  so unprompted. High value, and the obvious way to produce a system where every
+  session is interrupted by nine others. Any version of this needs a cost to the
+  sender, not just a limit on the receiver; the 60/hour send guard bounds abuse,
+  not noise.
+- **Triggered handoff** — a session's own state changing implies a peer should
+  act (a build going red, a capability appearing, a task blocking on another
+  project). Narrower, mechanically checkable, and it is the half that could be
+  built without inventing judgement — the CI watcher is exactly this shape,
+  and it notifies a *human* only because there is no rule yet for which session
+  should hear it.
+
+The second is the one to build first. It is also the one that would have caught
+the four-releases-with-no-image incident: the fact was mechanically available
+the whole time.
+
 ## What this does not change
 
 - Projects stay directories. No registry, no new identity system.
