@@ -480,7 +480,8 @@ func mcpTools() []mcpTool {
 			Description: "What work is outstanding. With no arguments, what has been handed " +
 				"to THIS session. Pass `requested_by` with your own session id to answer the " +
 				"question that used to be unanswerable: what did I hand off, and where did " +
-				"it get to. Finished work is hidden unless you ask for it.",
+				"it get to — `session_whoami` gives you that id. Finished work is hidden " +
+				"unless you ask for it.",
 			InputSchema: obj(map[string]any{
 				"session":      strProp("whose plate to look at; defaults to yours"),
 				"requested_by": strProp("who asked; use your own id to see what you delegated"),
