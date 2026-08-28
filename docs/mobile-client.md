@@ -725,6 +725,42 @@ then daily, and the requester is mailed automatically when one reaches `done` or
 between sessions; a person driving one from outside would be recording work
 nobody was asked to do.
 
+### `GET /api/events` carries a frame sequence
+
+Every `data:` frame includes a monotonic **`seq`**, and the keepalive is now a
+named event carrying the coordinator's current value:
+
+```
+data: {"now":…,"version":"v0.4.21","nodes":[…],"seq":42}
+
+event: ping
+data: {"seq":42}
+```
+
+Compare them. **Equal** means the fleet is genuinely idle — frames that would
+render identically are skipped deliberately, so an idle fleet must not cost more
+than the poll this replaced. **Greater than yours** means you missed a frame and
+are rendering stale state believing it is current: resync with `/api/sessions`.
+
+This exists because silence was ambiguous and could not be resolved from the
+client side. `: ping` is still emitted for anything written against the old
+wire, but a `:` comment is never surfaced to `EventSource`, so it could not
+carry state even in principle — which is why clients were resolving it with a
+silence timer, a guess dressed as a policy.
+
+Keep a silence timer anyway, for the case the sequence cannot cover: a buffering
+proxy swallows the keepalive too, so nothing arrives to compare.
+
+**`seq` is per-connection, not global.** It counts frames on *your* stream and
+restarts at 1 when you reconnect; it is not a cursor and does not address
+history. It is deliberately not SSE's own `id:` field, because that is
+`Last-Event-ID`, which a browser replays on reconnect — and this server keeps no
+history to honour it with. Claiming resumability it cannot provide would be
+worse than not offering it.
+
+`/api/sessions` carries no `seq`. It has no stream, so a number there would
+always be the same and mean nothing.
+
 ## 5. Things that will bite you
 
 **An offline node's sessions are frozen, including `input_state`.** They are its

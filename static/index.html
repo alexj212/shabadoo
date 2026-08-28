@@ -1674,6 +1674,10 @@ const STREAM_SILENCE_MS = 45000;   // > the server's 25s keepalive
 let pollTimer = null;
 let stream = null;
 let lastFrame = 0;
+// The sequence of the newest frame this page has rendered. Compared against the
+// keepalive's, which is how a quiet fleet is told apart from a stream that has
+// stopped delivering — see the ping listener below.
+let lastSeq = null;
 
 // The last payload, and when it arrived. The coordinator skips frames that
 // would render identically, so an idle dashboard receives nothing for long
@@ -1714,6 +1718,7 @@ function startStream() {
     let data;
     try { data = JSON.parse(e.data); } catch { return; }
     lastFrame = Date.now();
+    if (typeof data.seq === "number") lastSeq = data.seq;
     // The stream is working, so the poll is redundant. Stopping it here rather
     // than on open means we only trust the stream once it has actually
     // delivered something — an open connection that never speaks is exactly
@@ -1725,6 +1730,20 @@ function startStream() {
     maybeRenew();
   };
 
+  // The keepalive carries the coordinator's current frame number, so silence
+  // stops being ambiguous: equal to ours means genuinely idle, ahead of ours
+  // means we missed a frame and are rendering stale state believing it current.
+  //
+  // A named event rather than the `: ping` comment, because EventSource never
+  // surfaces a comment to the page — which is why the timer below existed.
+  stream.addEventListener("ping", (e) => {
+    lastFrame = Date.now();     // proof of life, whatever it says
+    let p;
+    try { p = JSON.parse(e.data); } catch { return; }
+    if (typeof p.seq !== "number" || lastSeq === null) return;
+    if (p.seq > lastSeq) startPolling("missed a frame (seq " + lastSeq + " -> " + p.seq + ")");
+  });
+
   stream.onerror = () => {
     // EventSource reconnects on its own, but it cannot tell a coordinator
     // restart from a proxy that will never deliver. Polling covers both.
@@ -1732,9 +1751,11 @@ function startStream() {
   };
 }
 
-// A stream that is open but silent past the keepalive interval is being
-// buffered somewhere. That looks identical to a healthy idle connection from
-// the browser's side, so it has to be timed rather than detected.
+// A stream open but silent past the keepalive interval is being buffered
+// somewhere. The sequence in the keepalive resolves the *idle vs missed*
+// ambiguity, but not this one: a buffering proxy swallows the keepalive too, so
+// nothing arrives to compare. This timer stays for that case, and only that
+// case — it is now a proxy detector rather than a stand-in for state.
 setInterval(() => {
   if (stream && lastFrame && Date.now() - lastFrame > STREAM_SILENCE_MS) {
     startPolling("stream went quiet");

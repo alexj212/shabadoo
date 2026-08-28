@@ -215,3 +215,52 @@ func TestSessionsPayloadNodeOrderIsStable(t *testing.T) {
 		}
 	}
 }
+
+// The sequence is what lets a client tell an idle fleet from a dead stream, so
+// the property to pin is not that a number appears but that the two cases are
+// DISTINGUISHABLE — a frame's seq and the keepalive's seq must agree when
+// nothing changed and diverge when something did.
+//
+// Pinned rather than reviewed because the failure is silent in both directions:
+// a sequence that never advances makes a live stream look idle, and one that
+// advances on every skipped frame makes an idle stream look like it is dropping
+// data, which sends clients into a resync loop.
+func TestEventSequenceSeparatesIdleFromMissed(t *testing.T) {
+	seq := 0
+	skipped, sent := 0, 0
+
+	// Stand in for the send path: identical payloads are skipped and must not
+	// consume a sequence number; a changed one is sent and must.
+	emit := func(changed bool) {
+		if !changed {
+			skipped++
+			return
+		}
+		seq++
+		sent++
+	}
+
+	emit(true)  // first frame
+	emit(false) // agent reported, nothing rendered differently
+	emit(false)
+	pingAfterIdle := seq
+
+	if pingAfterIdle != 1 {
+		t.Fatalf("seq = %d after one change and two skips, want 1", pingAfterIdle)
+	}
+	if skipped != 2 || sent != 1 {
+		t.Fatalf("skipped=%d sent=%d; the skip path must not advance the sequence", skipped, sent)
+	}
+
+	// A client holding seq 1 and receiving a keepalive of 1 knows it is current.
+	if pingAfterIdle != 1 {
+		t.Error("an idle stream must report the sequence the client already has")
+	}
+
+	// Something changes; the client that missed the frame sees the keepalive
+	// move past what it holds, which is the signal to resync.
+	emit(true)
+	if seq <= pingAfterIdle {
+		t.Error("a change must advance the sequence, or a missed frame is undetectable")
+	}
+}

@@ -23,6 +23,7 @@ package hub
 //     which for a full-state snapshot means it simply gets the next one.
 
 import (
+	"fmt"
 	"crypto/sha256"
 	"encoding/json"
 	"net/http"
@@ -137,6 +138,25 @@ func (h *humanAPI) events(w http.ResponseWriter, r *http.Request) {
 
 	var lastFingerprint [32]byte
 
+	// seq makes the stream self-checking, and it exists because silence here is
+	// ambiguous in a way the keepalive could not resolve.
+	//
+	// Frames that would render identically are skipped, deliberately — an idle
+	// fleet must not cost more than the poll this replaced. But that means a
+	// client which has received nothing cannot tell "nothing has changed" from
+	// "I am no longer receiving frames", and `: ping` cannot help because a
+	// comment carries no state and EventSource never surfaces one to the page
+	// anyway. Clients were resolving it with a silence timer, which is a guess
+	// dressed as a policy.
+	//
+	// With a monotonic sequence on every frame and the current value in the
+	// keepalive, a client compares the two: equal means genuinely idle, greater
+	// means it missed something and should resync. Same argument as the frame
+	// header on a capture stream — throwing ordering away at the boundary makes
+	// it unrecoverable everywhere downstream. Proposed by a client author who
+	// had hit the ambiguity from the outside.
+	seq := 0
+
 	send := func(force bool) bool {
 		payload, err := h.sessionsPayload(r.Context())
 		if err != nil {
@@ -164,6 +184,14 @@ func (h *humanAPI) events(w http.ResponseWriter, r *http.Request) {
 		}
 		lastFingerprint = fp
 
+		// The sequence rides in the payload rather than SSE's own `id:` field.
+		// `id:` is Last-Event-ID, which the browser replays on reconnect and
+		// this server has no history to honour — claiming resumability it
+		// cannot provide would be worse than not offering it.
+		seq++
+		if body, err = json.Marshal(withSeq(payload, seq)); err != nil {
+			return true
+		}
 		if _, err := w.Write(append(append([]byte("data: "), body...), '\n', '\n')); err != nil {
 			return false
 		}
@@ -209,7 +237,13 @@ func (h *humanAPI) events(w http.ResponseWriter, r *http.Request) {
 		case <-keepalive.C:
 			// A comment line. Not an event, so the browser's onmessage does not
 			// fire and the page does not re-render for a heartbeat.
-			if _, err := w.Write([]byte(": ping\n\n")); err != nil {
+			// A NAMED event, not a comment: EventSource delivers `event: ping`
+			// to a listener and drops a `:` comment on the floor, so only this
+			// shape can carry the sequence to the page. The bare comment stays
+			// alongside it for any client written against the old wire — both
+			// are ignored by a client that does not know them.
+			ping := fmt.Sprintf(": ping\nevent: ping\ndata: {\"seq\":%d}\n\n", seq)
+			if _, err := w.Write([]byte(ping)); err != nil {
 				return
 			}
 			flusher.Flush()
@@ -256,4 +290,24 @@ func (h *Hub) WatcherCount(tenant string) int {
 		return 0
 	}
 	return h.watchers.count(tenant)
+}
+
+// withSeq attaches the stream's frame counter to a payload without the callers
+// of sessionsPayload having to know about it.
+//
+// A map rather than a struct field because the payload is shared with
+// /api/sessions, which has no stream and therefore no sequence — and a field
+// that is always zero there would be a number that means nothing, which is the
+// distinction this whole codebase keeps having to make.
+func withSeq(payload any, seq int) map[string]any {
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return map[string]any{"seq": seq}
+	}
+	var m map[string]any
+	if err := json.Unmarshal(raw, &m); err != nil {
+		return map[string]any{"seq": seq}
+	}
+	m["seq"] = seq
+	return m
 }
