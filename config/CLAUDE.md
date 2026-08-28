@@ -183,9 +183,21 @@ so a session needs no credential of its own.
 |------|-----|
 | `session_list` | every session in the tenant, with undrained mail and whether its host is online |
 | `session_send` | direct message to one session; nudges it if its host is connected |
-| `session_broadcast` | to a topic |
-| `session_inbox_drain` | collect and mark delivered, in one transaction |
+| `session_broadcast` | to a topic — **nothing subscribes by default**, so this reaches zero unless somebody called `session_subscribe`. Almost every message has exactly one right recipient; prefer `session_send` |
+| `session_inbox_drain` | collect and mark delivered, in one transaction. A hook already drains on each prompt, so an empty result usually means it already arrived — not that nothing was sent |
+| `session_status_set` | what you are doing right now, in a few words. **It shows up as `note` in `session_list`**, which is where a peer deciding whether to wait for you will look. Set it when starting something long; empty string clears it; it ages out after 30 minutes |
+| `task_create` | hand work over AND track it. Use instead of `session_send` when asking somebody to DO something: an unanswered task is chased, an unanswered message is forgotten |
+| `task_list` / `task_update` | what is outstanding, and reporting where it got to |
 | `notify_send` | reach a human (routed by the coordinator, not by each host) |
+
+**Who sees a task:** the session it was handed to, whoever asked, and any human
+reading the dashboard or `shaba blockers`. It is not private and it does not
+disappear — `done` and `dropped` are hidden from the default listing but kept.
+Whoever asked is told automatically when it ends, so nobody has to poll.
+
+**Every tool's own description is the better documentation** — it is present at
+the moment of the call, where this file is not. If the two ever disagree, the
+description is the one that was written against the code.
 
 ### Getting work done on a machine
 

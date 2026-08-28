@@ -176,10 +176,21 @@ func (h *Hub) agentSend(w http.ResponseWriter, r *http.Request) {
 	// the cron that preceded it.
 	h.nudge(r.Context(), c.tenant, env.ToSession)
 
-	// Report what it resolved to. A sender that wrote "homelab" should be able
-	// to see which session actually received it, and to notice if that was not
-	// the one it meant.
-	writeJSON(w, map[string]any{"id": id, "to_session": to})
+	// Report what it resolved to, AND how deep the recipient's queue now is.
+	//
+	// Three sessions asked for a delivery receipt independently, and one of them
+	// pointed out the data already existed: `pending` is the recipient's
+	// undrained count, so returning it turns "tail the pane and squint" into a
+	// number. A sender that sees `pending: 1` knows it is the only thing
+	// waiting; `pending: 6` says the recipient is behind and a peer may be
+	// pumping messages at a session that is not reading them.
+	//
+	// It is a receipt for STORAGE, never for reading — nothing here can know
+	// whether anybody acted on it, and a field implying otherwise would claim
+	// more than the data supports. That is why it is not called "delivered".
+	writeJSON(w, map[string]any{
+		"id": id, "to_session": to, "pending": h.pendingFor(r.Context(), c.tenant, to),
+	})
 }
 
 func (h *Hub) agentBroadcast(w http.ResponseWriter, r *http.Request) {
@@ -666,4 +677,23 @@ func firstLineOf(s string) string {
 		s = s[:i]
 	}
 	return truncate(strings.TrimSpace(s), 80)
+}
+
+
+// pendingFor reports how much undrained mail a session is now holding.
+//
+// Best effort: a failure to read it returns 0 rather than failing the send,
+// because the message IS stored by that point and reporting a send as failed
+// because a count could not be read would be the worse lie.
+func (h *Hub) pendingFor(ctx context.Context, tenant, sessionID string) int {
+	sessions, err := h.store.Tenant(tenant).ListSessions(ctx, h.now())
+	if err != nil {
+		return 0
+	}
+	for _, s := range sessions {
+		if s.SessionID == sessionID {
+			return s.Pending
+		}
+	}
+	return 0
 }

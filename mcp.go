@@ -419,7 +419,13 @@ func mcpTools() []mcpTool {
 				"the name to whichever session that is. Exact match wins, then substring; an " +
 				"ambiguous name is refused rather than guessed, and an unknown one is refused " +
 				"with the list of what exists, so a typo bounces instead of vanishing. It " +
-				"waits if that session is offline and is delivered when it returns. " +
+				"waits if that session is offline and is delivered when it returns — " +
+				"including for a project that is not running at all, which is stored " +
+				"against the id it would have and drains when it starts. The reply carries " +
+				"`pending`: the recipient's undrained count AFTER this message. 1 means " +
+				"yours is the only thing waiting; a larger number means they are behind and " +
+				"may not read it soon. It is a receipt for STORAGE, never for reading — " +
+				"nothing here can know whether anybody acted on it. " +
 				"session_list shows who is out there.",
 			InputSchema: obj(map[string]any{
 				"to":    strProp("project or domain to route to, e.g. \"homelab\"; an alias or full session id also works"),
