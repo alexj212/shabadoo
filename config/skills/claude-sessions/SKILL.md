@@ -104,6 +104,14 @@ create sessions:
   firing the drain hook. You are not waiting for a human to come back to that window.
 - **Typed text is swallowed by any modal**, silently, and `send` still reports success.
 
+> **Single-node caveat.** Mail needs a coordinator, because it is a durable
+> inbox in the hub's database. If this host is running the standalone fallback
+> (`shabadoo serve`) rather than a hub, `/api/messages` answers **501** and there
+> is no mail plane at all — `send` keystrokes are then the only way to reach a
+> pane, dialog hazard and all. A single machine can still have the full feature
+> set: run both halves on it (`setup --service --device-tokens`), which is what
+> self-hosting means here — a hub with one tenant and one node.
+
 ### The three shapes
 
 **1. The project already exists — just mail it. Do not open anything.**
