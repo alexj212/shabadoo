@@ -136,12 +136,24 @@ as `ok (cached)`. **Before trusting a check, name the input that would make it
 red. If you cannot, it is decoration.** That one question would have caught five
 of the six.
 
-**Absence of an error is not evidence of success.** Four emails were reported as
-"no bounce, delivery verified clean" — the domain was parked with a discarding
-MX, which returns nothing, so silence was equally consistent with total failure.
-The reasoning error is worse than the typo that caused it: a negative check was
-reported as a positive result. Ask what a failure would have *looked* like
-before reading quiet as good.
+**Absence of an error is not evidence of success — and a negative check has a
+time horizon.** Four emails were reported as "no bounce, delivery verified clean
+at our end". The MX was `0 localhost.`, so nothing could ever accept them; the
+delivery-failure notices arrived about a day later, from a different mailbox,
+and were found by a third session entirely.
+
+The correction matters more than the original claim. That domain does not
+*discard* mail, it fails to connect — so the check was not wrong forever, it was
+**taken too early**: "no bounce" was true when it was made and false by
+morning. A negative result is only as strong as the time you waited for the
+failure to arrive, and asynchronous failures arrive on their own schedule.
+
+**Which means the loud failure was luck.** A domain parked with a genuinely
+discarding MX accepts and drops, no notice is ever generated, and silence reads
+as delivery permanently. That version has already been paid for on this fleet
+once. So: before reading quiet as good, ask what a failure would look like,
+*and* how long it would take to show up — and if the answer is longer than you
+are willing to wait, say the check is pending rather than passed.
 
 **Recorded doubt is not discharged doubt.** The same session had written, in its
 own notes and in its own words, that a transcribed domain was *"worth confirming
