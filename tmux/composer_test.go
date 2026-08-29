@@ -20,6 +20,10 @@ var composerRenderings = []struct {
 	name  string
 	empty string
 	busy  string
+	// captured marks a rendering taken from a live pane on this fleet, byte
+	// for byte, rather than composed. Those are asserted at the BYTE level
+	// below — see TestCapturedFixturesKeepTheNonBreakingSpace.
+	captured bool
 }{
 	{
 		// CAPTURED from a live pane on linux, byte for byte. The previous
@@ -32,7 +36,8 @@ var composerRenderings = []struct {
 		// "cannot tell", and every nudge on the fleet is skipped. That is not
 		// hypothetical: it happened for ten hours and was found by a human
 		// asking a session how it was doing.
-		name:  "unboxed heavy angle, non-breaking space (linux)",
+		name:     "unboxed heavy angle, non-breaking space (linux)",
+		captured: true,
 		empty: "  \u23f5\u23f5 bypass permissions on (shift+tab to cycle)\n" +
 			"\u276f\u00a0\n" +
 			"\u2500\u2500\u2500\u2500\u2500\u2500 homelab-wsl \u2500\n",
@@ -41,22 +46,28 @@ var composerRenderings = []struct {
 			"\u2500\u2500\u2500\u2500\u2500\u2500 homelab-wsl \u2500\n",
 	},
 	{
-		// CAPTURED on darwin by the node that runs it, BOTH states: no box
+		// CAPTURED on darwin, BOTH states, from that node's own hexdump: no box
 		// characters anywhere in the pane, horizontal rules above and below,
 		// and no closing delimiter — the draft runs to end of line.
 		//
-		// The busy case is a real pane, offered by that node when it noticed one
-		// of its sessions parked with unsent text. The line it replaced was
-		// something I made up, which is the last hand-written fixture in this
-		// file — and inventing one is what cost the fleet ten hours of dead
-		// nudges the first time.
-		name: "unboxed heavy angle, plain space (darwin)",
+		// The separator is U+00A0 HERE TOO. This case said "plain space" for a
+		// day, and the reason is the whole point of the file: I built it from a
+		// sentence that node wrote — "the composer row reads ❯ with nothing
+		// following it" — and a prose rendering of a non-breaking space is a
+		// plain space by the time it has crossed a message and an editor. The
+		// busy line arrived the same way and degraded the same way, a commit
+		// after I wrote that fixtures must be captures.
+		//
+		// So a description of a capture is not a capture. The bytes came back
+		// as `e2 9d af c2 a0` on both panes, which is what is encoded now.
+		name:     "unboxed heavy angle, non-breaking space (darwin)",
+		captured: true,
 		empty: "\u2500\u2500\u2500\u2500 mac \u2500\n" +
-			"\u276f \n" +
+			"\u276f\u00a0\n" +
 			"\u2500\u2500\u2500\u2500\u2500\n" +
 			"   mac  Opus 5\n",
 		busy: "\u2500\u2500\u2500\u2500 mac \u2500\n" +
-			"\u276f delete the two test runs\n" +
+			"\u276f\u00a0delete the two test runs\n" +
 			"\u2500\u2500\u2500\u2500\u2500\n" +
 			"   mac  Opus 5\n",
 	},
@@ -69,6 +80,47 @@ var composerRenderings = []struct {
 		empty: "\u256d\u2500\u2500\u2500\u256e\n\u2502 >        \u2502\n\u2570\u2500\u2500\u2500\u256f\n",
 		busy:  "\u256d\u2500\u2500\u2500\u256e\n\u2502 > half a question \u2502\n\u2570\u2500\u2500\u2500\u256f\n",
 	},
+}
+
+// A captured fixture must still CONTAIN what was captured. The renderings above
+// are the evidence this whole file rests on, and they are the one thing here
+// that can rot without any test noticing: the parser stays correct, the pairing
+// assertion stays green, and the fixtures quietly stop exercising the byte that
+// actually broke the fleet.
+//
+// That is not a hypothetical failure mode, it is what happened. The darwin pair
+// was carried here inside a peer's prose, arrived with U+0020, and was committed
+// as "a real capture" — one commit after I wrote that fixtures must be captures.
+// Nothing failed, because a plain space parses fine; the fixture had simply
+// stopped testing the case it was added for.
+//
+// So the separator is asserted as BYTES rather than trusted to look right. A
+// glyph cannot be reviewed: U+00A0 and U+0020 are the same picture.
+func TestCapturedFixturesKeepTheNonBreakingSpace(t *testing.T) {
+	for _, r := range composerRenderings {
+		if !r.captured {
+			continue
+		}
+		t.Run(r.name, func(t *testing.T) {
+			for _, state := range []struct{ name, pane string }{
+				{"empty", r.empty},
+				{"busy", r.busy},
+			} {
+				if !strings.Contains(state.pane, "\u276f\u00a0") {
+					t.Errorf("%s: no \u276f followed by U+00A0 — a captured "+
+						"fixture must carry the bytes it was captured with",
+						state.name)
+				}
+				if strings.Contains(state.pane, "\u276f ") {
+					t.Errorf("%s: the separator has degraded to U+0020. This "+
+						"renders identically and parses fine, so nothing else "+
+						"here will fail — and the fixture has stopped covering "+
+						"the byte that disabled every nudge on the fleet",
+						state.name)
+				}
+			}
+		})
+	}
 }
 
 func TestComposerBusyDistinguishesEmptyFromTyped(t *testing.T) {
