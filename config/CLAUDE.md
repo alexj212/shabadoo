@@ -227,9 +227,12 @@ Two mechanical rules underneath that:
   who it is, never reaches the phone, and gets duplicated by the next `open`.
   If you are composing a `tmux` command, you are at the wrong layer.
 - **Mail, not keystrokes.** Mail is durable and acknowledged, the recipient is
-  nudged immediately, and it works *before the session exists*: a message for a
-  project that is not running is stored against the id that project would have
-  and drains when it starts. Text typed into a pane is swallowed whole by the
+  nudged immediately, and it can work *before the session exists* — but only for
+  a project the coordinator can already see. One in its node's startable folder
+  list (in the boot list, or opened there before) is stored against the id it
+  would have and drains when it starts. **A project it has never seen is refused
+  at send time and nothing is kept.** Check the reply; a refusal is an error, not
+  a queue. Text typed into a pane is swallowed whole by the
   trust dialog a never-run folder opens with, and `send` still reports success.
 
 **CLAUDE.md is what to do; the `claude-sessions` skill is what goes wrong.**

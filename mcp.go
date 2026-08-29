@@ -419,9 +419,11 @@ func mcpTools() []mcpTool {
 				"the name to whichever session that is. Exact match wins, then substring; an " +
 				"ambiguous name is refused rather than guessed, and an unknown one is refused " +
 				"with the list of what exists, so a typo bounces instead of vanishing. It " +
-				"waits if that session is offline and is delivered when it returns — " +
-				"including for a project that is not running at all, which is stored " +
-				"against the id it would have and drains when it starts. The reply carries " +
+				"waits if that session is offline and is delivered when it returns. A " +
+				"project that is not RUNNING also queues — but only if this coordinator " +
+				"can already see it, meaning it is in its node's startable folder list. " +
+				"A project it has never seen is REFUSED at send time and nothing is kept, " +
+				"so check the reply: a refusal is an error, not a queue. The reply carries " +
 				"`pending`: the recipient's undrained count AFTER this message. 1 means " +
 				"yours is the only thing waiting; a larger number means they are behind and " +
 				"may not read it soon. It is a receipt for STORAGE, never for reading — " +

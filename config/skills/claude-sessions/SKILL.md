@@ -64,9 +64,25 @@ Addressing is **by project** — `homelab`, `iptv` — never by session id. Exac
 substring; ambiguous is refused rather than guessed, and unknown bounces with the list of what
 exists. Matching deliberately ignores the cwd, or `home` would match every session on a Linux box.
 
-Mail reaches a project whose session is **not running**: it is stored against the id that project
-would have, and the node's core session is asked whether to start it. So do not open a window first
-just to have somewhere to send to.
+**Mail queues for a project the coordinator can see, and BOUNCES for one it
+cannot.** The line is not running-or-not; it is whether that project appears in
+its node's startable folder list — which means it is in the boot list, or has
+been opened there before. A project like that is stored against the id it would
+have and drains when it starts. **Anything else is refused at send time and
+nothing is kept**, with the list of what exists.
+
+So a real checkout on a real machine that has simply never been opened is NOT a
+valid recipient. `shaba folders --node <host>` is what says which is which, and
+adding a folder to the boot list makes it addressable before it has ever run.
+
+Check the reply rather than assuming: a refusal is an error, not a queued
+message. Anything with a fallback — writing the handoff to a file, into the
+peer's repo — should use it on refusal, not only when the coordinator is
+unreachable.
+
+The node's core session is asked whether to start a queued recipient, so you do
+not open a window first just to have somewhere to send to — provided the project
+is one the coordinator can see.
 
 ## Running several at once
 
