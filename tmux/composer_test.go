@@ -20,10 +20,16 @@ var composerRenderings = []struct {
 	name  string
 	empty string
 	busy  string
-	// captured marks a rendering taken from a live pane on this fleet, byte
-	// for byte, rather than composed. Those are asserted at the BYTE level
-	// below — see TestCapturedFixturesKeepTheNonBreakingSpace.
-	captured bool
+	// notCaptured is a REASON, not a flag, and empty is the default on
+	// purpose: every fixture is asserted at the byte level below unless it
+	// carries a written justification for why it cannot be a capture.
+	//
+	// A boolean here was an opt-out from the check that enforces the policy —
+	// the way to add a hand-written fixture would have been to not claim it was
+	// captured, and the assertion would skip it in silence. Same shape as a
+	// constant somebody must remember to bump. Writing a sentence is cheap for
+	// the one real exception and impossible to do by accident.
+	notCaptured string
 }{
 	{
 		// CAPTURED from a live pane on linux, byte for byte. The previous
@@ -36,8 +42,7 @@ var composerRenderings = []struct {
 		// "cannot tell", and every nudge on the fleet is skipped. That is not
 		// hypothetical: it happened for ten hours and was found by a human
 		// asking a session how it was doing.
-		name:     "unboxed heavy angle, non-breaking space (linux)",
-		captured: true,
+		name: "unboxed heavy angle, non-breaking space (linux)",
 		empty: "  \u23f5\u23f5 bypass permissions on (shift+tab to cycle)\n" +
 			"\u276f\u00a0\n" +
 			"\u2500\u2500\u2500\u2500\u2500\u2500 homelab-wsl \u2500\n",
@@ -60,8 +65,7 @@ var composerRenderings = []struct {
 		//
 		// So a description of a capture is not a capture. The bytes came back
 		// as `e2 9d af c2 a0` on both panes, which is what is encoded now.
-		name:     "unboxed heavy angle, non-breaking space (darwin)",
-		captured: true,
+		name: "unboxed heavy angle, non-breaking space (darwin)",
 		empty: "\u2500\u2500\u2500\u2500 mac \u2500\n" +
 			"\u276f\u00a0\n" +
 			"\u2500\u2500\u2500\u2500\u2500\n" +
@@ -76,7 +80,12 @@ var composerRenderings = []struct {
 		// parser must still read it — but it is now the ONLY fixture here that
 		// no machine in this fleet currently produces, and it is labelled so
 		// nobody mistakes it for evidence.
-		name:  "boxed ascii (historical, not observed on this fleet)",
+		name: "boxed ascii (historical, not observed on this fleet)",
+		notCaptured: "No machine in this fleet draws a boxed ASCII composer any " +
+			"more, so there is nothing to capture it from. Kept because older " +
+			"builds drew one and the parser must still read it — and it is " +
+			"labelled here so it is never mistaken for evidence about how a " +
+			"pane looks today.",
 		empty: "\u256d\u2500\u2500\u2500\u256e\n\u2502 >        \u2502\n\u2570\u2500\u2500\u2500\u256f\n",
 		busy:  "\u256d\u2500\u2500\u2500\u256e\n\u2502 > half a question \u2502\n\u2570\u2500\u2500\u2500\u256f\n",
 	},
@@ -96,9 +105,13 @@ var composerRenderings = []struct {
 //
 // So the separator is asserted as BYTES rather than trusted to look right. A
 // glyph cannot be reviewed: U+00A0 and U+0020 are the same picture.
+//
+// This runs on EVERY fixture. Exempting one costs a written reason in
+// notCaptured, which is a thing a reviewer can weigh — where a boolean was
+// something to forget.
 func TestCapturedFixturesKeepTheNonBreakingSpace(t *testing.T) {
 	for _, r := range composerRenderings {
-		if !r.captured {
+		if r.notCaptured != "" {
 			continue
 		}
 		t.Run(r.name, func(t *testing.T) {
