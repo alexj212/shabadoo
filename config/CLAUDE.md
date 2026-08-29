@@ -136,6 +136,21 @@ as `ok (cached)`. **Before trusting a check, name the input that would make it
 red. If you cannot, it is decoration.** That one question would have caught five
 of the six.
 
+**And confirm the check ran, because "did not run" wears good disguises.** Three
+in one evening, each read as a pass:
+
+| Disguise | What it actually was |
+|---|---|
+| `ok (cached)` | a scripted patch whose anchor had gone stale, so nothing was injected |
+| a silent `diff … && echo OK` | the diff always failed, so the echo never fired |
+| a narrow `grep` on test output | it filtered out `FAIL [build failed]`, and the next command's `ok` was read as the verdict |
+
+The third is the worst because the filter was mine and it was hiding exactly the
+line that mattered. So: **assert the injection is present before believing the
+result**, run with `-count=1`, and never pipe a verdict through a pattern narrow
+enough to drop it. A grep written to find the failure you expect will not show
+you the failure you did not.
+
 **Absence of an error is not evidence of success — and a negative check has a
 time horizon.** Four emails were reported as "no bounce, delivery verified clean
 at our end". The MX was `0 localhost.`, so nothing could ever accept them; the

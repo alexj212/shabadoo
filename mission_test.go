@@ -265,3 +265,76 @@ func TestBlankLinesDoNotCountAsDropped(t *testing.T) {
 			"and make the warning cry wolf", m.Dropped)
 	}
 }
+
+// The client asked for exactly one property from this payload: two entries on
+// the same date must be distinguishable, so a phone can keep its own watermark
+// and render "seven new since Tuesday" with no server-side read tracking.
+//
+// So what is pinned is the DISTINCTION, not the hash. Asserting a known id would
+// pass for an implementation that returned the same id for everything.
+func TestLogIDsSeparateEntriesThatMustDiffer(t *testing.T) {
+	m := readMission(writeMission(t, "# x\nstatus: active\n\n## Now\nn\n\n## Log\n"+
+		"- 2026-08-29 shipped the paging dialect\n"+
+		"- 2026-08-29 nudges were dead for ten hours\n"+ // SAME DATE
+		"- 2026-08-28 shipped the paging dialect\n"+ // SAME TEXT
+		"- undated but still an entry\n"))
+	if len(m.Log) != 4 {
+		t.Fatalf("want 4 entries, got %d: %+v", len(m.Log), m.Log)
+	}
+	seen := map[string]int{}
+	for i, e := range m.Log {
+		if e.ID == "" {
+			t.Fatalf("entry %d has no id; the watermark cannot work", i)
+		}
+		if prev, dup := seen[e.ID]; dup {
+			t.Errorf("entries %d and %d share id %s — same-date or same-text "+
+				"entries must be distinguishable", prev, i, e.ID)
+		}
+		seen[e.ID] = i
+	}
+	if m.Log[0].Date != "2026-08-29" || m.Log[0].Text != "shipped the paging dialect" {
+		t.Errorf("date not split from text: %+v", m.Log[0])
+	}
+	// Undated is a state, not a reason to drop the line.
+	if m.Log[3].Date != "" || m.Log[3].Text != "undated but still an entry" {
+		t.Errorf("undated entry mangled: %+v", m.Log[3])
+	}
+}
+
+// An id must be STABLE across an append, or every prepend marks the whole
+// history unseen and the watermark is worse than useless.
+func TestLogIDsSurviveAnAppend(t *testing.T) {
+	body := "# x\nstatus: active\n\n## Now\nn\n\n## Log\n- 2026-08-28 older line\n"
+	before := readMission(writeMission(t, body))
+	after := readMission(writeMission(t,
+		"# x\nstatus: active\n\n## Now\nn\n\n## Log\n- 2026-08-29 newer line\n- 2026-08-28 older line\n"))
+	if before.Log[0].ID != after.Log[1].ID {
+		t.Errorf("id changed when an entry was prepended (%s -> %s); a positional "+
+			"id would do this, and it marks every old entry as new",
+			before.Log[0].ID, after.Log[1].ID)
+	}
+}
+
+// Clamped at the client's request, and the true length travels with it.
+func TestLogClampsAndSaysSo(t *testing.T) {
+	long := strings.Repeat("é", 400)
+	m := readMission(writeMission(t, "# x\nstatus: active\n\n## Now\nn\n\n## Log\n"+
+		"- 2026-08-29 short\n- 2026-08-29 "+long+"\n"))
+	if m.Log[0].Truncated {
+		t.Error("a short line must not be marked truncated")
+	}
+	e := m.Log[1]
+	if !e.Truncated {
+		t.Error("a cut line must say so; a client cannot tell short from cut")
+	}
+	if e.Length != 400 {
+		t.Errorf("Length = %d, want the TRUE length 400 — the point is to report "+
+			"what was removed, not what remains", e.Length)
+	}
+	if n := utf8.RuneCountInString(e.Text); n > 200 {
+		t.Errorf("clamped to %d runes, want at most 200", n)
+	}
+	if !utf8.ValidString(e.Text) {
+		t.Error("clamp cut a multi-byte rune")
+	}
+}

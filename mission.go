@@ -13,6 +13,8 @@ package main
 
 import (
 	"bufio"
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
 	"path/filepath"
 	"strings"
@@ -50,6 +52,35 @@ type Mission struct {
 	// by silent truncation cannot be complied with by attention, and four
 	// failures under concentration is not a discipline problem.
 	Dropped int `json:"mission_dropped,omitempty"`
+
+	// Log is `## Log`, newest first. NOT reported on the agent's periodic
+	// report — it is append-only and unbounded, and Waiting is clamped to six
+	// short rows precisely because that path runs every five seconds for every
+	// project. This is read on demand instead.
+	Log []MissionLog `json:"log,omitempty"`
+}
+
+// MissionLog is one `- <date> <text>` line.
+type MissionLog struct {
+	// ID is a content hash, which is what makes "since I last looked" possible
+	// without the server tracking anyone's reads. The client keeps its own
+	// watermark and renders the boundary.
+	//
+	// Content-addressed rather than positional, deliberately: the log is
+	// newest-first, so a new entry shifts every index below it and a positional
+	// id would mark the whole history as unseen on every append. Hashing date
+	// and text together also settles the case the client asked about — two
+	// entries on the same date are distinguishable, because their text differs.
+	// Two byte-identical entries on one date are genuinely the same entry.
+	ID   string `json:"id"`
+	Date string `json:"date,omitempty"`
+	Text string `json:"text"`
+
+	// Truncated and Length report a clamped line AND its true size. A client
+	// cannot tell a short line from a cut one, and a state that is known and not
+	// shown is indistinguishable from that state not existing.
+	Truncated bool `json:"truncated,omitempty"`
+	Length    int  `json:"length,omitempty"` // runes, before clamping
 }
 
 // MissionWait is one line of `## Waiting on`.
@@ -138,6 +169,8 @@ func readMission(root string) *Mission {
 			if m.Now == "" {
 				m.Now = clampMission(trimmed)
 			}
+		case "log":
+			m.addLog(trimmed)
 		case "waiting on", "waiting":
 			m.addWaiting(trimmed)
 		case "blocked on", "blocked":
@@ -161,7 +194,8 @@ func readMission(root string) *Mission {
 		}
 	}
 
-	if m.Headline == "" && m.Status == "" && m.Now == "" && len(m.Waiting) == 0 {
+	if m.Headline == "" && m.Status == "" && m.Now == "" &&
+		len(m.Waiting) == 0 && len(m.Log) == 0 {
 		return nil // a file that says nothing is the same as no file
 	}
 	return &m
@@ -200,6 +234,56 @@ func (m *Mission) addWaiting(line string) {
 	}
 	w.Truncated = w.Item != full
 	m.Waiting = append(m.Waiting, w)
+}
+
+// addLog parses one `- <date> <text>` line.
+//
+// Clamped at 200 runes on the SERVER, at the mobile client's request: log lines
+// are free prose with markdown and backticks, a phone cell is unforgiving, and
+// making every client relearn that is how three clients end up with three
+// answers. 200 is two or three lines on a phone and enough for a real sentence.
+func (m *Mission) addLog(line string) {
+	const maxEntries = 500 // a bound, not a page size; the endpoint pages at 50
+	if len(m.Log) >= maxEntries {
+		return
+	}
+	line = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "- "))
+	if line == "" {
+		return
+	}
+	e := MissionLog{Text: line}
+	// A leading ISO date, and only that shape. Prose beginning with a number is
+	// not a date, and a log line whose author did not date it still belongs in
+	// the log — undated is a state, not a reason to discard the entry.
+	if len(line) >= 10 && isISODate(line[:10]) {
+		e.Date = line[:10]
+		e.Text = strings.TrimSpace(line[10:])
+	}
+	if e.Text == "" {
+		return
+	}
+	sum := sha256.Sum256([]byte(e.Date + "\x00" + e.Text))
+	e.ID = hex.EncodeToString(sum[:6])
+	e.Length = utf8.RuneCountInString(e.Text)
+	if e.Text = clampMissionTo(e.Text, 200); e.Length > utf8.RuneCountInString(e.Text) {
+		e.Truncated = true
+	}
+	m.Log = append(m.Log, e)
+}
+
+func isISODate(s string) bool {
+	if len(s) != 10 || s[4] != '-' || s[7] != '-' {
+		return false
+	}
+	for i, r := range s {
+		if i == 4 || i == 7 {
+			continue
+		}
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // clampMission bounds one field. These ride every agent report, and a project
