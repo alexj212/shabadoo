@@ -960,3 +960,63 @@ func TestDrainSurvivesConcurrentWrites(t *testing.T) {
 		}
 	}
 }
+
+// The mission fields must survive the ROUND TRIP, not merely parse.
+//
+// This is the test whose absence let `mission_waiting` ship documented, rendered
+// by a dashboard, and carried by nothing: the parser produced it, the agent never
+// copied it, the Session struct had no field and the table had no column. Every
+// unit test passed, because every unit test tested the parser. The fleet reported
+// fifteen projects and zero waiting rows, and the only reason anyone noticed is
+// that a live listing was read instead of a green suite.
+//
+// So this asserts the far end of the path, and it asserts the DISTINCTIONS —
+// owners preserved, truncated separate from dropped — because a round trip that
+// flattened them would satisfy any check that only counted rows.
+func TestMissionWaitingSurvivesTheRoundTrip(t *testing.T) {
+	ten := testStore(t)
+	ctx := context.Background()
+	now := time.Now()
+
+	in := Session{
+		SessionID: "claude-x", Agent: "n1", Project: "p", Kind: "claude",
+		MissionStatus: "active", MissionNow: "doing a thing", MissionDropped: 3,
+		MissionWaiting: []MissionWait{
+			{Owner: "you", Item: "decide the thing"},
+			{Owner: "", Item: "unattributed"},
+			{Owner: "nobody", Item: "open work"},
+			{Owner: "mac", Item: "cut short", Truncated: true},
+		},
+	}
+	if err := ten.ReplaceAgentSessions(ctx, "n1", []Session{in}, now); err != nil {
+		t.Fatal(err)
+	}
+	out, err := ten.ListSessions(ctx, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out) != 1 {
+		t.Fatalf("want 1 session, got %d", len(out))
+	}
+	got := out[0]
+	if len(got.MissionWaiting) != 4 {
+		t.Fatalf("MissionWaiting = %d rows, want 4 — the list did not survive "+
+			"the report path", len(got.MissionWaiting))
+	}
+	if got.MissionDropped != 3 {
+		t.Errorf("MissionDropped = %d, want 3", got.MissionDropped)
+	}
+	for i, w := range in.MissionWaiting {
+		if got.MissionWaiting[i] != w {
+			t.Errorf("row %d = %+v, want %+v", i, got.MissionWaiting[i], w)
+		}
+	}
+	// The two states that must not merge, asserted as a difference rather than
+	// as values: unattributed is not "nobody", and truncated is not dropped.
+	if got.MissionWaiting[1].Owner == got.MissionWaiting[2].Owner {
+		t.Error("unattributed and \"nobody\" arrived identical")
+	}
+	if !got.MissionWaiting[3].Truncated || got.MissionDropped == 0 {
+		t.Error("truncated and dropped must be independently observable at the far end")
+	}
+}

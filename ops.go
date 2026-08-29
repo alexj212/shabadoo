@@ -232,15 +232,15 @@ func reportSessions(ctx context.Context) ([]hub.Session, error) {
 				tok := sessionTokens(pn.Path)
 				mission := readMission(root)
 				sess := hub.Session{
-					InputState:  state,
-					Asking:      asking,
-					Kind:        kindOf(w, core),
-					ToolsStale:  stale[pn.PID] == toolStale,
+					InputState: state,
+					Asking:     asking,
+					Kind:       kindOf(w, core),
+					ToolsStale: stale[pn.PID] == toolStale,
 					// Known separates "serving the current surface" from "could
 					// not be established" — a child predating this mechanism, or
 					// one whose identity could not be read. Without it the two
 					// collapse into not-stale, which is the defect being fixed.
-					ToolsKnown: stale[pn.PID] != toolUnknown,
+					ToolsKnown:  stale[pn.PID] != toolUnknown,
 					TokensIn:    tok.Input,
 					TokensOut:   tok.Output,
 					TokensCache: tok.CacheRead + tok.CacheWrite,
@@ -267,6 +267,12 @@ func reportSessions(ctx context.Context) ([]hub.Session, error) {
 					sess.MissionNow = mission.Now
 					sess.MissionBlocked = mission.Blocked
 					sess.MissionUpdated = mission.Updated
+					sess.MissionDropped = mission.Dropped
+					for _, w := range mission.Waiting {
+						sess.MissionWaiting = append(sess.MissionWaiting,
+							hub.MissionWait{Owner: w.Owner, Item: w.Item,
+								Truncated: w.Truncated})
+					}
 				}
 				out = append(out, sess)
 			}

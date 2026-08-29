@@ -18,6 +18,7 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -150,6 +151,8 @@ CREATE TABLE IF NOT EXISTS sessions (
   mission_now TEXT NOT NULL DEFAULT '',
   mission_blocked TEXT NOT NULL DEFAULT '',
   mission_updated TEXT NOT NULL DEFAULT '',
+  mission_waiting TEXT NOT NULL DEFAULT '',
+  mission_dropped INTEGER NOT NULL DEFAULT 0,
   win_name     TEXT NOT NULL DEFAULT '',
   command      TEXT NOT NULL DEFAULT '',
   activity     INTEGER NOT NULL DEFAULT 0,
@@ -298,6 +301,8 @@ func (s *Store) migrate(ctx context.Context) error {
 		`ALTER TABLE sessions ADD COLUMN mission_now TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE sessions ADD COLUMN mission_blocked TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE sessions ADD COLUMN mission_updated TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE sessions ADD COLUMN mission_waiting TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE sessions ADD COLUMN mission_dropped INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE devices ADD COLUMN scope TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE devices ADD COLUMN push_token TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE devices ADD COLUMN push_env TEXT NOT NULL DEFAULT ''`,
@@ -958,6 +963,17 @@ type Session struct {
 	MissionBlocked string `json:"mission_blocked,omitempty"`
 	MissionUpdated string `json:"mission_updated,omitempty"`
 
+	// MissionWaiting is the owner-tagged blocker list. Stored as JSON in one
+	// column rather than a child table: it is at most six short rows, it is
+	// replaced wholesale with the rest of the session on every report, and a
+	// join would buy nothing but a second place for the two to disagree.
+	//
+	// MissionDropped counts rows the parser discarded for exceeding that cap.
+	// It travels because a blocker that exists and is not shown is the failure
+	// this whole panel exists to prevent.
+	MissionWaiting []MissionWait `json:"mission_waiting,omitempty"`
+	MissionDropped int           `json:"mission_dropped,omitempty"`
+
 	// Tokens is what this session has spent, summed from its own transcript.
 	//
 	// The direction document calls context the scarce resource and then measured
@@ -1049,14 +1065,51 @@ func (t *Tenant) UpsertSession(ctx context.Context, sess Session, now time.Time)
 	return t.upsertSession(ctx, t.s.db, sess, now)
 }
 
+// MissionWait is one `## Waiting on` row: who is blocked, and on what.
+type MissionWait struct {
+	Owner     string `json:"owner,omitempty"`
+	Item      string `json:"item"`
+	Truncated bool   `json:"truncated,omitempty"`
+}
+
+// encodeWaiting/decodeWaiting round-trip the list through one TEXT column.
+//
+// Both fail SOFT and in the same direction: an unmarshalable value stores as
+// empty and unreadable JSON reads back as none. A session's whole report must
+// not be lost because one project wrote something strange in its MISSION.md —
+// losing the fleet's session list to a bad blocker row would be a far worse
+// outcome than losing that row.
+func encodeWaiting(w []MissionWait) string {
+	if len(w) == 0 {
+		return ""
+	}
+	b, err := json.Marshal(w)
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
+func decodeWaiting(s string) []MissionWait {
+	if s == "" {
+		return nil
+	}
+	var w []MissionWait
+	if err := json.Unmarshal([]byte(s), &w); err != nil {
+		return nil
+	}
+	return w
+}
+
 func (t *Tenant) upsertSession(ctx context.Context, db execer, sess Session, now time.Time) error {
 	_, err := db.ExecContext(ctx, `
 		INSERT INTO sessions (tenant, session_id, agent, project, cwd, alias, window, status,
 		                      updated_at, tmux_session, win_index, win_name, command, activity, panes,
 		                      input_state, asking, kind, description, pane_index,
 		                      tokens_in, tokens_out, tokens_cache, tools_stale, tools_known,
-		                      mission_status, mission_now, mission_blocked, mission_updated)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		                      mission_status, mission_now, mission_blocked, mission_updated,
+		                      mission_waiting, mission_dropped)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(tenant, session_id) DO UPDATE SET
 		  agent=excluded.agent, project=excluded.project, cwd=excluded.cwd,
 		  alias=excluded.alias, window=excluded.window, status=excluded.status,
@@ -1069,13 +1122,15 @@ func (t *Tenant) upsertSession(ctx context.Context, db execer, sess Session, now
 		  tokens_out=excluded.tokens_out, tokens_cache=excluded.tokens_cache,
 		  tools_stale=excluded.tools_stale, tools_known=excluded.tools_known,
 		  mission_status=excluded.mission_status, mission_now=excluded.mission_now,
-		  mission_blocked=excluded.mission_blocked, mission_updated=excluded.mission_updated`,
+		  mission_blocked=excluded.mission_blocked, mission_updated=excluded.mission_updated,
+		  mission_waiting=excluded.mission_waiting, mission_dropped=excluded.mission_dropped`,
 		t.id, sess.SessionID, sess.Agent, sess.Project, sess.CWD, sess.Alias,
 		sess.Window, sess.Status, now.Unix(), sess.TmuxSession, sess.Index,
 		sess.Name, sess.Command, sess.Activity, sess.Panes, sess.InputState, sess.Asking,
 		sess.Kind, sess.Description, sess.Pane,
 		sess.TokensIn, sess.TokensOut, sess.TokensCache, sess.ToolsStale, sess.ToolsKnown,
-		sess.MissionStatus, sess.MissionNow, sess.MissionBlocked, sess.MissionUpdated)
+		sess.MissionStatus, sess.MissionNow, sess.MissionBlocked, sess.MissionUpdated,
+		encodeWaiting(sess.MissionWaiting), sess.MissionDropped)
 	return err
 }
 
@@ -1125,7 +1180,8 @@ func (t *Tenant) ListSessions(ctx context.Context, now time.Time) ([]Session, er
 		       s.activity, s.panes, s.input_state, s.asking, s.kind, s.description,
 		       s.pane_index, s.tokens_in, s.tokens_out, s.tokens_cache, s.tools_stale,
 		       s.tools_known, s.mission_status, s.mission_now, s.mission_blocked,
-		       s.mission_updated, COALESCE(n.note, '')
+		       s.mission_updated, s.mission_waiting, s.mission_dropped,
+		       COALESCE(n.note, '')
 		  FROM sessions s
 		  LEFT JOIN session_status n
 		    ON n.tenant = s.tenant AND n.session_id = s.session_id AND n.at >= ?
@@ -1138,15 +1194,17 @@ func (t *Tenant) ListSessions(ctx context.Context, now time.Time) ([]Session, er
 	var out []Session
 	for rows.Next() {
 		var s2 Session
+		var waiting string
 		if err := rows.Scan(&s2.SessionID, &s2.Agent, &s2.Project, &s2.CWD,
 			&s2.Alias, &s2.Window, &s2.Status, &s2.UpdatedAt,
 			&s2.TmuxSession, &s2.Index, &s2.Name, &s2.Command,
 			&s2.Activity, &s2.Panes, &s2.InputState, &s2.Asking, &s2.Kind, &s2.Description,
 			&s2.Pane, &s2.TokensIn, &s2.TokensOut, &s2.TokensCache, &s2.ToolsStale,
 			&s2.ToolsKnown, &s2.MissionStatus, &s2.MissionNow, &s2.MissionBlocked,
-			&s2.MissionUpdated, &s2.Note); err != nil {
+			&s2.MissionUpdated, &waiting, &s2.MissionDropped, &s2.Note); err != nil {
 			return nil, err
 		}
+		s2.MissionWaiting = decodeWaiting(waiting)
 		out = append(out, s2)
 	}
 	if err := rows.Err(); err != nil {
