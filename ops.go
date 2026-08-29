@@ -162,11 +162,30 @@ func handleOp(ctx context.Context, op string, payload json.RawMessage) (any, err
 		if tmux.InputState(pane) != tmux.InputComposer {
 			return map[string]string{"nudged": "no", "reason": "dialog"}, nil
 		}
-		if tmux.ComposerBusy(pane) {
-			return map[string]string{"nudged": "no", "reason": "composer in use"}, nil
+		// A draft no longer blocks the nudge — it is preserved and put back.
+		//
+		// Refusing was right about the danger and wrong about the choice: it
+		// treated "type over it" and "do nothing" as the only two options, and
+		// doing nothing cost a person fourteen minutes on a spoken instruction
+		// that reached the session and was never noticed, behind a draft that
+		// had been sitting there for hours. A message a peer sent is not less
+		// important than a sentence somebody started and walked away from.
+		draft, found := tmux.ComposerDraft(pane)
+		if !found {
+			// Still refuse when the input row cannot be read at all. That is
+			// the cannot-tell case, and typing into a pane whose state is
+			// unknown is the thing the guard exists for.
+			return map[string]string{"nudged": "no", "reason": "no readable input row"}, nil
 		}
-		if err := tmux.SendCommand(ctx, a.Session, a.Window, a.pane(), "check inbox"); err != nil {
+		if err := tmux.SendCommandPreservingDraft(ctx, a.Session, a.Window, a.pane(), "check inbox", draft); err != nil {
 			return nil, err
+		}
+		if draft != "" {
+			// Recorded, not just restored. If the restore ever fails, this line
+			// is the only copy of what somebody had written — and a lost draft
+			// with no record is exactly the outcome the old refusal existed to
+			// prevent.
+			return map[string]string{"nudged": "yes", "restored_draft": draft}, nil
 		}
 		return map[string]string{"nudged": "yes"}, nil
 

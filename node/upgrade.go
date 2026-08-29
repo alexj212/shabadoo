@@ -139,9 +139,17 @@ func (c *Client) upgrade(ctx context.Context, payload json.RawMessage) (any, err
 			// field: the binary on disk is signed immediately, but a
 			// long-running process that has not restarted is still the
 			// responsible identity, so macOS asks once at the moment it does.
-			signed += ". macOS will ask for permission once more when each " +
-				"long-running process restarts into this binary — that is the " +
-				"changeover, not a failure, and grants persist afterwards"
+			// Corrected by the node that measured it. "Grants persist
+			// afterwards" is true of THIS process, which restarts here, and
+			// optimistic for a session-hosted one: `shabadoo mcp` is a child of
+			// a Claude session and nothing in an upgrade can restart it. So a
+			// machine can be fully upgraded, correctly signed, and still be
+			// running sessions whose consent identity is a binary no longer on
+			// disk — for them the changeover has not begun.
+			signed += ". macOS asks once more when each long-running process " +
+				"restarts into this binary; for session-hosted processes " +
+				"(shabadoo mcp) that is whenever the session restarts, which " +
+				"may be much later — no upgrade can accelerate it"
 		}
 	}
 	log.Printf("node: upgraded %s -> %s at %s; restarting", c.cfg.Version, req.Version, self)

@@ -732,3 +732,54 @@ func atoi64(s string) int64 {
 	n, _ := strconv.ParseInt(strings.TrimSpace(s), 10, 64)
 	return n
 }
+
+// SendCommandPreservingDraft submits cmd, then puts back whatever was in the
+// composer first.
+//
+// The nudge used to refuse a pane holding an unsent draft, because clearing the
+// line to type into it destroys somebody's half-written message. That refusal
+// was right about the danger and wrong about the choice — it treated "type over
+// it" and "do nothing" as the only options, and the cost of doing nothing
+// finally landed on a person: a spoken instruction to turn on a light sat
+// undelivered for fourteen minutes behind a draft that had been sitting in that
+// composer for hours. Every component worked; the session was never told.
+//
+// So the draft is read, the command is submitted, and the draft is typed back —
+// unsent, exactly as it was found. The draft is also returned so a caller can
+// record it, because the one unacceptable outcome here is losing text a person
+// wrote and having no copy of it anywhere.
+//
+// Restoration is NOT verified by re-reading the pane. It would race the
+// application redrawing, and a check that reports failure on a timing artifact
+// would be worse than none — the caller logs what it held, which is the
+// recovery that actually matters.
+func SendCommandPreservingDraft(ctx context.Context, session string, window, pane int, cmd, draft string) error {
+	if err := SendCommand(ctx, session, window, pane, cmd); err != nil {
+		return err
+	}
+	if draft == "" {
+		return nil
+	}
+	// Literal, and no Enter: it goes back as text somebody is still writing,
+	// not as a message they are now deemed to have sent.
+	t := paneTarget(session, window, pane)
+	if out, err := run(ctx, "send-keys", "-t", t, "-l", "--", draft); err != nil {
+		return fmt.Errorf("restoring draft: %s", firstLine(out))
+	}
+	return nil
+}
+
+// ComposerDraft returns the text currently in a pane's input row, and whether an
+// input row was found at all. Exported so a caller can preserve it.
+func ComposerDraft(pane string) (string, bool) {
+	lines := strings.Split(strings.TrimRight(pane, "\n"), "\n")
+	if n := len(lines); n > 6 {
+		lines = lines[n-6:]
+	}
+	for _, l := range lines {
+		if d, ok := composerDraft(l); ok {
+			return d, true
+		}
+	}
+	return "", false
+}

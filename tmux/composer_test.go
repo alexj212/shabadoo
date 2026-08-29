@@ -220,3 +220,42 @@ func TestComposerDraftReadsLivePanes(t *testing.T) {
 			"skipped as 'cannot tell'", panes)
 	}
 }
+
+// The draft has to come back out for the nudge to put it back, so the exported
+// reader must agree with the parser on every rendering — including the one that
+// disabled every nudge on the fleet for ten hours.
+func TestComposerDraftIsReadableForRestoration(t *testing.T) {
+	for _, r := range composerRenderings {
+		t.Run(r.name, func(t *testing.T) {
+			empty, ok := ComposerDraft(r.empty)
+			if !ok {
+				t.Fatal("no input row found in the empty pane; nothing could be nudged here")
+			}
+			if empty != "" {
+				t.Errorf("empty composer yielded draft %q", empty)
+			}
+
+			busy, ok := ComposerDraft(r.busy)
+			if !ok {
+				t.Fatal("no input row found in the typed-in pane")
+			}
+			if busy == "" {
+				t.Fatal("a pane with text yielded no draft — restoring it would " +
+					"put back nothing, which is the data loss the guard existed to prevent")
+			}
+			if busy == empty {
+				t.Error("empty and typed-in produced the same draft")
+			}
+		})
+	}
+}
+
+// A pane whose input row cannot be read must yield nothing AND say so, because
+// the caller refuses to type there — that is still the cannot-tell case.
+func TestComposerDraftReportsWhenItCannotSee(t *testing.T) {
+	for _, pane := range []string{"", "just output\nand more\n", "  ❯ 1. Resume\n  2. No\n"} {
+		if d, ok := ComposerDraft(pane); ok {
+			t.Errorf("claimed an input row in %q, draft %q", pane, d)
+		}
+	}
+}

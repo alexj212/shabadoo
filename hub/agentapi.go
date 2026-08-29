@@ -391,11 +391,19 @@ func (h *Hub) nudge(ctx context.Context, tenant, sessionID string) {
 				detail = "failed: " + err.Error()
 			} else if len(raw) > 0 {
 				var r struct {
-					Nudged string `json:"nudged"`
-					Reason string `json:"reason"`
+					Nudged   string `json:"nudged"`
+					Reason   string `json:"reason"`
+					Restored string `json:"restored_draft"`
 				}
-				if json.Unmarshal(raw, &r) == nil && r.Nudged == "no" {
-					detail = "skipped: " + r.Reason
+				if json.Unmarshal(raw, &r) == nil {
+					switch {
+					case r.Nudged == "no":
+						detail = "skipped: " + r.Reason
+					case r.Restored != "":
+						// The audit is the recovery path for a draft the
+						// restore might have dropped, so it carries the text.
+						detail = "nudged; restored draft: " + r.Restored
+					}
 				}
 			}
 			h.store.Tenant(tenant).Audit(c, AuditEntry{
