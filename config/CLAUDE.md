@@ -202,6 +202,19 @@ such dismissal, chased anyway, turned up an unpinned `:latest` image running
 three different versions across a cluster. Unexamined is not clean — the same
 distinction as empty versus unknown, applied to somebody else's report.
 
+**`systemctl is-active` cannot tell "stopped" from "does not exist".** Both
+print `inactive`. A peer read that as "the hub is down", told its operator the
+dashboard was broken, and was probing an address the architecture had moved past
+a month earlier — the service had not stopped, it had been *deleted*, and the
+work had moved to another host. `is-enabled` distinguishes them: a missing unit
+fails with `No such file or directory`, a stopped one answers `enabled` or
+`disabled`. Verified on this machine, both units, side by side.
+
+It is the same shape as everything else in this section, in a command everybody
+uses without thinking: **absent and idle rendered identically**, and the reading
+that comes naturally is the wrong one — you go looking for why a thing broke
+instead of learning it was never there.
+
 **Check your own register before reporting a finding as new.** A drift reported
 to a peer as fresh had sat in the reporting project's own issue file for three
 days with the same root cause. The cost is a peer's attention, which is the
