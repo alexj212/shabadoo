@@ -1644,6 +1644,33 @@ documentation, and a scanner that cries wolf gets ignored.
   a screenshot. Take the fixture from a real pane, on a machine that is not the
   one you developed on where the platform differs.
 
+  **And a description of a capture is not a capture.** The darwin fixtures came
+  from a peer's prose — *"the composer row reads `❯ ` with nothing following
+  it"* — and a non-breaking space rendered as prose is a plain space by the time
+  it has crossed a message and an editor. Both darwin cases said U+0020, one of
+  them committed as "a real capture" a commit after this rule was written. They
+  parsed fine and read correctly to a reviewer, and under an ASCII-only trim they
+  passed where the real bytes fail. Prose is a lossy channel for bytes, and
+  losslessly *plausible*, which is what makes it worse than an invention: an
+  invention is at least suspect. Ask for the hexdump.
+
+  **Assert the bytes, because a glyph cannot be reviewed.** U+00A0 and U+0020 are
+  the same picture. `TestCapturedFixturesKeepTheNonBreakingSpace` checks the
+  separator as bytes on every fixture, which is the one thing the file could not
+  otherwise see: the parser stays correct, the pairing assertion stays green, and
+  the evidence quietly stops exercising the byte that disabled every nudge on the
+  fleet for ten hours.
+
+  **An exemption costs a sentence, never a flag.** That check first carried
+  `captured bool`, which was an opt-out from the property it enforced — adding a
+  hand-written fixture required no lie, only an omission. It is `notCaptured
+  string` now, a written reason, and empty is the default: every fixture is
+  asserted unless somebody justifies why it cannot be. Writing the one real
+  exception down is also what corrected the claim — the file is not
+  "captures-only", it is captures plus one named historical rendering, which is
+  a different and more defensible policy than the one asserted an hour earlier.
+  Same shape as `operatorOnly` in `skill_test.go`.
+
 - **A change to platform-specific code is verified on a second node.** Not as
   courtesy — as the only way to see it. In one evening a peer on another machine
   found four things invisible from here: `/proc` absent on darwin, `ps -o
@@ -1673,6 +1700,14 @@ documentation, and a scanner that cries wolf gets ignored.
   `qrencode`; `launch_test.go`'s expected hashes were computed with `sha1sum`;
   `stale_test.go` runs **both** process-table readers and requires them to
   agree. A fixture only ever agrees with whatever its author assumed.
+
+  **A verification that did not run is indistinguishable from one that passed.**
+  The sharpest instance is one layer above the code, in the act of checking: a
+  scripted patch meant to prove an assertion had teeth silently did not apply —
+  a stale anchor string — and `go test` answered `ok (cached)`, which reads
+  exactly like the check passing. So a teeth-check asserts that its own injection
+  landed and runs with `-count=1`. Otherwise the ritual of verifying becomes the
+  thing being trusted.
 
   Operationally the same: verify a deploy by reading the served page, not the
   green checkmark; verify an email alias from an unrelated account, never from

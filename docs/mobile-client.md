@@ -423,7 +423,8 @@ A session object:
 | `tools_stale` | bool | **absent unless true** — this session is serving a tool surface that differs from the running agent's |
 | `mission_status` | string | **absent unless the project has a `MISSION.md`** — `active`, `blocked`, `paused` or `done` |
 | `mission_now` | string | one line: what that project is working on |
-| `mission_blocked` | string | **absent when not blocked**; a named thing, from the project's own file |
+| `mission_blocked` | string | **absent when not blocked**; DERIVED from the first `mission_waiting` entry whose owner is not `nobody`, so the two cannot disagree |
+| `mission_waiting` | array | `[{owner, item}]`, at most 6, item ≤120 runes. `owner` is `you` (the human), a session name, or `nobody` (open, unblocked). **`owner` is absent when the line did not name one — which is NOT `nobody`**: one is a blocker without an assignee, the other is a decision that it needs no one. Group by `owner` to render; do not merge those two |
 | `mission_updated` | string | the date the project last touched its mission |
 | `tools_known` | bool | **absent unless true** — whether the surface could be established at all. `tools_stale` is meaningless without it |
 | `input_state` | string | `composer` \| `dialog` \| **absent** |
@@ -864,6 +865,11 @@ arriving in a third place.
 and anything else is dropped rather than passed through, so a client can switch
 on it exhaustively. `paused` and `blocked` are deliberately different: one is a
 choice, the other is a wait.
+
+`mission_waiting` is what a wrap-up view should render: group by `owner`, put
+the viewer's own rows first, and collapse `nobody` to prose since it needs no
+action. An entry with no `owner` belongs with the blocked rows, not the
+unblocked ones.
 
 `mission_blocked` is absent when nothing is blocking, so its presence alone is
 the signal. It is the field most worth surfacing and the one most likely to go

@@ -2,9 +2,10 @@ package main
 
 import (
 	"os"
-	"unicode/utf8"
 	"path/filepath"
+	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func writeMission(t *testing.T, body string) string {
@@ -131,5 +132,92 @@ func TestReadMissionClampsLongFields(t *testing.T) {
 	w := readMission(writeMission(t, "# x\nstatus: active\n\n## Now\n"+wide+"\n"))
 	if w == nil || !utf8.ValidString(w.Now) {
 		t.Error("clamping multi-byte prose produced invalid UTF-8")
+	}
+}
+
+// The owner is what the whole grouping rests on, so what is pinned is that
+// owners which MUST render differently do parse differently. A test asserting
+// one line yields one owner passes just as happily when the parser has stopped
+// telling any of them apart.
+func TestWaitingSeparatesTheOwnersThatMustDiffer(t *testing.T) {
+	m := readMission(writeMission(t, "# x\nstatus: active\n\n## Now\nn\n\n## Waiting on\n"+
+		"- you: run the smoke test — untested integrated; 30s\n"+
+		"- mac: darwin capture set\n"+
+		"- nobody: background room audio\n"+
+		"- an unattributed blocker nobody was named for\n"))
+	if m == nil || len(m.Waiting) != 4 {
+		t.Fatalf("want 4 entries, got %+v", m)
+	}
+	for i, want := range []string{"you", "mac", "nobody", ""} {
+		if got := m.Waiting[i].Owner; got != want {
+			t.Errorf("entry %d owner = %q, want %q", i, got, want)
+		}
+	}
+	// The distinction that costs something when it collapses: an unattributed
+	// blocker is not resolved work. If these ever render alike, a line nobody
+	// has been named for disappears into the "needs no one" group.
+	if m.Waiting[3].Owner == m.Waiting[2].Owner {
+		t.Error(`unattributed and "nobody" must not be the same owner — one ` +
+			`needs somebody, the other is a decision that it does not`)
+	}
+	if m.Waiting[0].Item != "run the smoke test — untested integrated; 30s" {
+		t.Errorf("owner not stripped from item: %q", m.Waiting[0].Item)
+	}
+}
+
+// Blocked is DERIVED from the list, which is what keeps the two from
+// disagreeing — and it must skip the group that is deliberately unblocked.
+func TestBlockedSkipsWorkNobodyIsWaitingOn(t *testing.T) {
+	m := readMission(writeMission(t, "# x\nstatus: active\n\n## Now\nn\n\n## Waiting on\n"+
+		"- nobody: background room audio\n- mac: darwin capture set\n"))
+	if m.Blocked != "mac: darwin capture set" {
+		t.Errorf(`Blocked = %q — a "nobody" entry is open work, not a blocker`, m.Blocked)
+	}
+}
+
+// Prose contains colons far more often than it contains owners, so the
+// discriminator is a SINGLE SHORT TOKEN before one. That is syntactic, and its
+// limit is worth pinning rather than papering over: a one-word prose lead-in is
+// indistinguishable from an owner, and nothing on a node knows which names are
+// sessions. So "note:" reads as an owner, and that is accepted rather than
+// guessed around — a heuristic trying to tell them apart would be confidently
+// wrong on the case it cannot see, which is worse than a rule an author learns
+// once.
+func TestWaitingOwnerIsAShortLeadingToken(t *testing.T) {
+	long := strings.Repeat("x", 40)
+	for _, c := range []struct{ line, owner, item string }{
+		{"shipped the dialect: the iOS client is unblocked", "", "shipped the dialect: the iOS client is unblocked"},
+		{"mac: darwin capture set", "mac", "darwin capture set"},
+		{"note: this one is fine", "note", "this one is fine"}, // THE BOUNDARY
+		{long + ": tail", "", long + ": tail"},
+	} {
+		m := readMission(writeMission(t, "# x\nstatus: active\n\n## Now\nn\n\n## Waiting on\n- "+c.line+"\n"))
+		if m == nil || len(m.Waiting) != 1 {
+			t.Fatalf("%q: want 1 entry, got %+v", c.line, m)
+		}
+		if m.Waiting[0].Owner != c.owner || m.Waiting[0].Item != c.item {
+			t.Errorf("%q -> owner %q item %q; want owner %q item %q",
+				c.line, m.Waiting[0].Owner, m.Waiting[0].Item, c.owner, c.item)
+		}
+	}
+}
+
+// These ride EVERY agent report, every five seconds, for every project.
+func TestWaitingIsBounded(t *testing.T) {
+	body := "# x\nstatus: active\n\n## Now\nn\n\n## Waiting on\n"
+	for i := 0; i < 40; i++ {
+		body += "- you: " + strings.Repeat("é", 400) + "\n"
+	}
+	m := readMission(writeMission(t, body))
+	if len(m.Waiting) > 6 {
+		t.Errorf("got %d entries, want at most 6", len(m.Waiting))
+	}
+	for _, w := range m.Waiting {
+		if n := utf8.RuneCountInString(w.Item); n > 120 {
+			t.Errorf("item is %d runes, want at most 120", n)
+		}
+		if !utf8.ValidString(w.Item) {
+			t.Error("clamp emitted invalid UTF-8 — cut on a byte boundary")
+		}
 	}
 }

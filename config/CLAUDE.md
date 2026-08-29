@@ -233,9 +233,10 @@ updated: 2026-08-29
 ## Now
 What is being worked on. One or two lines, present tense.
 
-## Blocked on
-Empty when nothing. A named thing with an owner where there is one —
-"waiting on the darwin set from mac", not "waiting on infra".
+## Waiting on
+- you: end-to-end smoke test — untested integrated; ~30s of recording
+- mac: darwin capture set — can't verify a platform I don't run
+- nobody: background room audio (hard)
 
 ## Log
 - 2026-08-29 shipped the paging dialect; the iOS client is unblocked
@@ -251,15 +252,99 @@ a commit log — git already has that, in more detail than anyone wants. It is t
 decisions and the outcomes: what changed, what broke, what was learned. If a line
 would be obvious from `git log`, leave it out.
 
-**`Blocked on` is the field with the most value and the shortest life.** Fill it
+**`Waiting on` is the field with the most value and the shortest life.** Fill it
 the moment you are stuck and empty it the moment you are not, because a stale
 blocker is worse than none — it sends somebody to help with a thing that is
-already done. Name what would unblock it, so a peer reading it can tell whether
-they are the answer.
+already done.
+
+**Every line names an owner**, which is the whole reason it beats the `Blocked
+on` it replaces: `you` (the human), a session name, or `nobody`. A blocker
+without an owner is a complaint, and a peer reading it cannot tell whether they
+are the answer.
 
 **`status` is for a reader who is not you.** `paused` and `blocked` are
 different: paused is a choice, blocked is a wait. `done` does not mean the repo
 is finished, it means this mission is — start a new one rather than reopening.
+
+### End an interaction with a wrap-up
+
+The file above goes stale the moment updating it depends on somebody
+remembering. So the update is not a chore performed afterwards — it IS how a
+working interaction ends, and the same content is what you print:
+
+```
+📋 Open issues
+
+🔴 Waiting on you — 3
+┌─────┬───────────────────────┬──────────────────────────────────────────────┐
+│     │ Item                  │ Risk if not · cost to do                     │
+├─────┼───────────────────────┼──────────────────────────────────────────────┤
+│ 🔴  │ End-to-end smoke test │ Wiring is unit-tested, not integrated ·       │
+│     │                       │ ~30s of recording, when nothing's playing     │
+└─────┴───────────────────────┴──────────────────────────────────────────────┘
+
+🔵 Waiting on mac — 2
+┌─────┬────────────────────────┬──────────────────────────────────────────────┐
+│ 🔵  │ Re-verify degraded     │ I changed shipped text on a platform I can't  │
+│     │                        │ run                                          │
+└─────┴────────────────────────┴──────────────────────────────────────────────┘
+
+⚪ Open, nobody blocked — 3
+Background room audio (hard) · native Linux capture · honest track name
+```
+
+**Group by who is blocked, never by topic.** This is the design, and everything
+else is formatting. A list sorted by subject makes every reader scan all of it
+to find their own items; grouped by blocker, the human reads the first table and
+stops. The counts are in the headers so the size is known before the reading.
+
+**An ask states the risk of not doing it and the cost of doing it.** That is
+what the third column is for, and it is not optional on a 🔴 row. "Run the smoke
+test" is a nag. "Wiring is unit-tested, not integrated · ~30s of recording, when
+nothing's playing" is a decision someone can make in one read — and if the cost
+turns out to be high and the risk low, they were right to skip it. Without both
+halves you have handed back the analysis you were meant to do.
+
+**The unblocked group collapses to prose, deliberately.** It needs no action, so
+it gets no table. Rendering everything at equal weight is how the rows that
+matter stop being noticed.
+
+**Keep it brief.** Three tables is a wrap-up; ten is a report nobody finishes.
+If a group runs long, the items are too small — merge them, or they belong in
+`Log` rather than here.
+
+**Write the entries as they arise, not at the end.** A wrap-up reconstructed
+from memory is a summary, and it quietly omits whatever you have stopped
+noticing. The same reason `Log` is written as things land.
+
+### One word asks for it: `status`
+
+A wrap-up nobody can request is a wrap-up that only happens when a session feels
+like it. So one word triggers it, in any session, at any time:
+
+```
+status
+```
+
+The session answers with exactly three things, in this order, and nothing else —
+no preamble, no restating the question, no offer to continue:
+
+1. **The mission line.** Headline and what `Now` says, on one line. A reader who
+   stops here should still know what this project is doing.
+2. **The inbox.** Unread count and who from. **This line is never omitted** —
+   `inbox: clear` is a fact, silence is not, and the difference is the same one
+   this file makes everywhere else. If the coordinator cannot be reached, say
+   *that*; an unreachable inbox is not an empty one.
+3. **The wrap-up tables**, grouped by owner as above.
+
+**`status` is a read and must stay one.** It never drains mail, never marks
+anything, never starts work. The moment asking has a side effect people stop
+asking, and the value here is entirely in it being free — a question you can put
+to a session mid-task without costing it anything.
+
+`wrap` and `brief` mean the same thing; a word you have to remember exactly is a
+word you will stop using. **`shaba blockers` is the same question asked of the
+whole fleet**, and `shaba who` adds what each project says it is for.
 
 ### Why a file rather than a status call
 

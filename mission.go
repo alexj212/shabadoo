@@ -13,10 +13,10 @@ package main
 
 import (
 	"bufio"
-	"unicode/utf8"
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode/utf8"
 )
 
 // Mission is the reportable part of a MISSION.md.
@@ -27,10 +27,28 @@ import (
 // able to tell that from a project that said it is idle.
 type Mission struct {
 	Headline string `json:"mission_headline,omitempty"`
-	Status   string `json:"mission_status,omitempty"`  // active | blocked | paused | done
+	Status   string `json:"mission_status,omitempty"` // active | blocked | paused | done
 	Now      string `json:"mission_now,omitempty"`
 	Blocked  string `json:"mission_blocked,omitempty"` // absent when not blocked
 	Updated  string `json:"mission_updated,omitempty"`
+
+	// Waiting is `## Waiting on`, one entry per line, each naming WHO is
+	// blocked. That owner is the whole value: it is what lets a dashboard group
+	// by blocker rather than by project, so a person reads their own rows and
+	// stops. "you" is the human, "nobody" is open-but-unblocked, anything else
+	// is a session name.
+	Waiting []MissionWait `json:"mission_waiting,omitempty"`
+}
+
+// MissionWait is one line of `## Waiting on`.
+type MissionWait struct {
+	// Owner is empty when the line did not name one — which is NOT the same as
+	// "nobody", and the difference is the point. "nobody" is a decision that
+	// this needs no one; empty is a line written before owners existed, or one
+	// whose author did not say. Rendering them alike would turn an unattributed
+	// blocker into a resolved one.
+	Owner string `json:"owner,omitempty"`
+	Item  string `json:"item"`
 }
 
 // missionStates is the closed set. A status outside it is dropped rather than
@@ -102,23 +120,71 @@ func readMission(root string) *Mission {
 			if m.Now == "" {
 				m.Now = clampMission(trimmed)
 			}
+		case "waiting on", "waiting":
+			m.addWaiting(trimmed)
 		case "blocked on", "blocked":
-			if m.Blocked == "" {
-				m.Blocked = clampMission(strings.TrimPrefix(trimmed, "- "))
-			}
+			// The section `Waiting on` replaced. Read into the same list with
+			// no owner, because that is what the line actually says — it is a
+			// blocker nobody has been named for, and inventing "you" here would
+			// put words in the file's mouth.
+			m.addWaiting(trimmed)
 		}
 	}
-	if m.Headline == "" && m.Status == "" && m.Now == "" {
+	// Blocked is derived rather than stored, so the two can never disagree. It
+	// is the first entry that is waiting on somebody — "nobody" is open work,
+	// not a blocker.
+	for _, w := range m.Waiting {
+		if w.Owner != "nobody" {
+			m.Blocked = w.Item
+			if w.Owner != "" {
+				m.Blocked = w.Owner + ": " + w.Item
+			}
+			break
+		}
+	}
+
+	if m.Headline == "" && m.Status == "" && m.Now == "" && len(m.Waiting) == 0 {
 		return nil // a file that says nothing is the same as no file
 	}
 	return &m
 }
 
+// addWaiting parses one `- owner: item` line.
+//
+// Bounded at six entries of 120 runes: these ride EVERY agent report, every five
+// seconds, for every project on the node. A file that lists thirty open
+// questions must not make the report expensive for the ten projects beside it —
+// and a wrap-up that long is the sign the items are too small anyway.
+func (m *Mission) addWaiting(line string) {
+	const maxEntries = 6
+	if len(m.Waiting) >= maxEntries {
+		return
+	}
+	line = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "- "))
+	if line == "" {
+		return
+	}
+	w := MissionWait{Item: line}
+	// Only a SHORT leading token is an owner. Splitting on the first colon
+	// anywhere would turn "shipped: the paging dialect, which fixes: nothing"
+	// into an owner of "shipped", and prose contains colons far more often than
+	// it contains owners.
+	if i := strings.Index(line, ":"); i > 0 && i <= 32 && !strings.Contains(line[:i], " ") {
+		w.Owner = strings.ToLower(line[:i])
+		w.Item = strings.TrimSpace(line[i+1:])
+	}
+	if w.Item = clampMissionTo(w.Item, 120); w.Item == "" {
+		return
+	}
+	m.Waiting = append(m.Waiting, w)
+}
+
 // clampMission bounds one field. These ride every agent report, and a project
 // that wrote an essay in `Now` must not make the report expensive for the ten
 // projects beside it.
-func clampMission(s string) string {
-	const max = 240 // runes, not bytes
+func clampMission(s string) string { return clampMissionTo(s, 240) }
+
+func clampMissionTo(s string, max int) string { // max is RUNES, not bytes
 	s = strings.TrimSpace(s)
 	if utf8.RuneCountInString(s) <= max {
 		return s

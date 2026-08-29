@@ -7,10 +7,10 @@ Making a project's state legible from outside it. `MISSION.md` is the convention
 half, shipped in the payload; the agent reporting it and a dashboard rendering
 one card per project are the next two steps.
 
-## Blocked on
-Nothing. Two measurements are owed to `minutes-mac` — two no-op releases, to
-prove a macOS permission grant now survives an upgrade — and they are cheap
-rather than blocking.
+## Waiting on
+- you: wrap-up rendering — dashboard cards are unwritten; the format is settled
+- nobody: two no-op releases owed to minutes-mac, to prove a macOS grant
+  survives an upgrade — cheap, and that node cannot test until it restarts
 
 ## Log
 - 2026-08-29 signed the binary on the Mac it lands on: ad-hoc signing meant every
