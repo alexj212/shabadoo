@@ -209,7 +209,71 @@ and **`mcp__homelife-mcp__natsbridge_stats`** (with `natsbridge_sessions` /
 `natsbridge_replay`) is a *different, working* tool on another server that kept
 the old name.
 
-### Getting work done on a machine
+### A project says what it is doing: `MISSION.md`
+
+Every project folder has a `CLAUDE.md` saying what it *is*. What was missing is
+what it is *doing* — and sessions were already inventing one, separately, in
+different shapes. Two independently chose a file over the task tools and said
+why:
+
+> *"I picked a file because the file is durable, reviewable by the human in the
+> diff, survives session death, lives next to the code it describes, and is part
+> of the deliverable."*
+
+So this is not a new habit. It is the one that already exists, given a shape
+other things can read.
+
+**`MISSION.md` at the project root:**
+
+```markdown
+# One line: what this project is for.
+status: active | blocked | paused | done
+updated: 2026-08-29
+
+## Now
+What is being worked on. One or two lines, present tense.
+
+## Blocked on
+Empty when nothing. A named thing with an owner where there is one —
+"waiting on the darwin set from mac", not "waiting on infra".
+
+## Log
+- 2026-08-29 shipped the paging dialect; the iOS client is unblocked
+- 2026-08-28 nudges were dead for ten hours — fixed and instrumented
+```
+
+**Write it as the work happens, not afterwards.** A log reconstructed at the end
+is a summary; one written as things land is a record, and the difference shows
+the first time somebody asks why a decision was made.
+
+**`Log` is append-only, dated, and one line per thing that mattered.** It is not
+a commit log — git already has that, in more detail than anyone wants. It is the
+decisions and the outcomes: what changed, what broke, what was learned. If a line
+would be obvious from `git log`, leave it out.
+
+**`Blocked on` is the field with the most value and the shortest life.** Fill it
+the moment you are stuck and empty it the moment you are not, because a stale
+blocker is worse than none — it sends somebody to help with a thing that is
+already done. Name what would unblock it, so a peer reading it can tell whether
+they are the answer.
+
+**`status` is for a reader who is not you.** `paused` and `blocked` are
+different: paused is a choice, blocked is a wait. `done` does not mean the repo
+is finished, it means this mission is — start a new one rather than reopening.
+
+### Why a file rather than a status call
+
+`session_status_set` exists and is set by nearly nobody, and six sessions
+independently gave the same reason: there was no feedback loop, so nobody built
+a model that anyone reads it. A file avoids that by being read where it already
+lives — in the repo, in the diff, by the next session that opens the folder,
+whether or not anything else ever consumes it.
+
+The two are complementary rather than competing: **the status call is what you
+are doing for the next thirty minutes, `MISSION.md` is what this project is
+doing this week.** One expires; the other is committed.
+
+## Getting work done on a machine
 
 **Tell that machine's core session; do not reach across and drive it.** Every
 node has a core session named for the host (`wsl`, `mac`) — the addressable

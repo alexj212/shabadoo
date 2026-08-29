@@ -133,6 +133,15 @@ func (c *Client) upgrade(ctx context.Context, payload json.RawMessage) (any, err
 		signed = c.cfg.SignSelf(self)
 		if signed != "" {
 			log.Printf("node: %s", signed)
+			// The changeover costs exactly one permission prompt per machine,
+			// and saying so is the difference between a fix that looks like it
+			// worked and one that looks like it did not. Reported from the
+			// field: the binary on disk is signed immediately, but a
+			// long-running process that has not restarted is still the
+			// responsible identity, so macOS asks once at the moment it does.
+			signed += ". macOS will ask for permission once more when each " +
+				"long-running process restarts into this binary — that is the " +
+				"changeover, not a failure, and grants persist afterwards"
 		}
 	}
 	log.Printf("node: upgraded %s -> %s at %s; restarting", c.cfg.Version, req.Version, self)
