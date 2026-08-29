@@ -599,6 +599,52 @@ render identically, so an idle screen receives nothing but keepalives.
 Consequence — `now` stops advancing between frames, so **advance relative times
 ("idle 4m") locally** rather than waiting for a frame that is not coming.
 
+### `GET /api/missions/log` — the merged mission log
+
+```
+GET {coord}/api/missions/log?limit=50&cursor=…
+```
+
+Every project's `## Log` across every connected node, newest first, flattened
+into one list. Each entry carries its `project`, `node`, the project's `status`,
+`owner` and `mission_updated`, plus its own `id`, `date`, `text`.
+
+**Merged rather than per-project**, which was the client author's call against
+the first sketch. Per-project needs the reader to know which card to tap — a
+desktop's model. The interesting entry is the one from the project you were not
+thinking about, so making somebody choose a machine before asking a question is
+the wrong first screen. A project filter on top is fine; project-first is not.
+
+**It carries no `waiting`.** That is already on `/api/sessions`, and a second
+copy was declined: two sources for one fact is where a phone shows a blocker
+resolved an hour ago — the same defect as `tools_stale` without `tools_known`.
+
+**`id` is a content hash, and it is what makes "since I last looked" possible**
+with no server-side read tracking. Keep your own watermark and render the
+boundary. It is stable across an append, which a positional id would not be: the
+log is newest-first, so a new entry shifts every index below it and would mark
+the whole history unseen. Two entries on one date are distinguishable because
+their text differs; two byte-identical entries on one date are the same entry.
+
+**Text is clamped to 200 runes server-side**, with `truncated: true` and
+`length` carrying the TRUE rune count. Log lines are free prose with markdown and
+backticks and a phone cell is unforgiving; clamping here stops three clients
+arriving at three answers.
+
+**Paging is the `b` (backward) dialect**, ordered by `(date desc, id asc)`. The
+id tie-break is load-bearing: dates are day-granular, so many entries share a
+timestamp, and a cursor holding only the date either re-serves that whole day or
+jumps past it. `next` is always present, including on an empty page — "you are
+current" is a stated answer, not one to infer from a zero-length array.
+
+**`missing` names nodes that did not answer**, and is absent when all did. A
+merged view built from a subset must say so, or a reader who cannot find an entry
+concludes it does not exist when the truth is that a machine was unreachable.
+
+`mission_updated` is the project's own `updated:` line, NOT the newest entry's
+date. A log whose newest entry is eleven days old is a project nobody is writing
+down, and that belongs beside the entries rather than being inferred from them.
+
 ### `GET /api/claude/session` — what the Claude session is doing
 
 ```http

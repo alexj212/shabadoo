@@ -69,6 +69,18 @@ func handleOp(ctx context.Context, op string, payload json.RawMessage) (any, err
 		}
 		return map[string]string{"text": text}, nil
 
+	// Every project on this host, with its log. ONE call per node rather than
+	// one per project: the fleet view merges across machines, so a per-project
+	// endpoint would make a reader choose a machine before asking a question —
+	// which is a desktop's model, and the phone's whole premise is one question
+	// answered across every node at once.
+	//
+	// Deliberately NOT on the periodic report. A log is append-only and
+	// unbounded where Waiting is six short rows, and that path runs every five
+	// seconds for every project on this node.
+	case "mission_logs":
+		return missionLogs(ctx)
+
 	case "select":
 		return nil, tmux.Select(ctx, a.Session, a.Window, a.pane())
 
