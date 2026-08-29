@@ -64,16 +64,53 @@ type ReleaseStore struct {
 	rels map[string]Release // keyed version\x00platform
 }
 
-// Release is one published binary.
+// Release is one published file.
+//
+// A release used to be one binary per platform, which is true of shabadoo and
+// false of everything else. The meeting recorder is two files that must land
+// together — an orchestrator and a native capture helper — and installing one
+// without the other leaves a tool that refuses to run and blames the missing
+// half. So a release is a SET, and this is one member of one.
 type Release struct {
-	Version   string `json:"version"`
-	Platform  string `json:"platform"` // "linux/amd64"
+	// Tool is empty for shabadoo itself, which keeps every previously published
+	// release addressable and every older agent's request answerable.
+	Tool string `json:"tool,omitempty"`
+
+	// Component is the file's installed name. Empty means the tool itself.
+	Component string `json:"component,omitempty"`
+
+	Version string `json:"version"`
+
+	// Platform is the NODE this set is for, not the file's own architecture.
+	// A linux/amd64 node running the recorder needs a linux orchestrator AND a
+	// windows helper reached over interop, so both are published against
+	// linux/amd64 — because the question a node asks is "what do I need", never
+	// "what was this compiled for".
+	Platform  string `json:"platform"`
 	SHA256    string `json:"sha256"`
 	Size      int64  `json:"size"`
 	Published int64  `json:"published"`
 }
 
-func (r Release) key() string { return r.Version + "\x00" + r.Platform }
+// ToolName is the tool a release belongs to, with the default spelled out.
+func (r Release) ToolName() string {
+	if r.Tool == "" {
+		return "shabadoo"
+	}
+	return r.Tool
+}
+
+// FileName is what this component installs as.
+func (r Release) FileName() string {
+	if r.Component == "" {
+		return r.ToolName()
+	}
+	return r.Component
+}
+
+func (r Release) key() string {
+	return r.Tool + "\x00" + r.Version + "\x00" + r.Platform + "\x00" + r.Component
+}
 
 // platformFile is the on-disk name for a platform, with the slash removed so
 // it is one path segment rather than a directory nobody asked for.
@@ -107,18 +144,36 @@ func OpenReleaseStore(dir string) (*ReleaseStore, error) {
 }
 
 func (s *ReleaseStore) path(rel Release) string {
-	return filepath.Join(s.dir, rel.Version+"-"+platformFile(rel.Platform))
+	name := rel.Version + "-" + platformFile(rel.Platform)
+	if rel.Tool != "" {
+		name = rel.Tool + "-" + name
+	}
+	if rel.Component != "" {
+		name += "-" + strings.ReplaceAll(rel.Component, "/", "-")
+	}
+	return filepath.Join(s.dir, name)
 }
 
 // Publish stores a binary and returns its record.
 func (s *ReleaseStore) Publish(version, platform string, body io.Reader, now time.Time) (Release, error) {
+	return s.PublishComponent("", "", version, platform, body, now)
+}
+
+// PublishComponent stores one member of one tool's release set.
+//
+// tool and component are empty for shabadoo itself, which keeps every release
+// published before this addressable and every older agent's request answerable.
+func (s *ReleaseStore) PublishComponent(tool, component, version, platform string, body io.Reader, now time.Time) (Release, error) {
 	if version == "" || platform == "" {
 		return Release{}, fmt.Errorf("version and platform are required")
 	}
 	if !strings.Contains(platform, "/") {
 		return Release{}, fmt.Errorf("platform must be GOOS/GOARCH, got %q", platform)
 	}
-	rel := Release{Version: version, Platform: platform, Published: now.Unix()}
+	rel := Release{
+		Tool: tool, Component: component,
+		Version: version, Platform: platform, Published: now.Unix(),
+	}
 
 	// Temp file then rename: a node may be downloading a release of the same
 	// name, and a partially-written file served mid-upload would fail its
@@ -168,18 +223,36 @@ func (s *ReleaseStore) prune() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	// Grouped by (tool, platform), and pruned by VERSION rather than by file.
+	//
+	// A release is a set, so keeping "the newest three files" would keep three
+	// components of one version and delete the other half of it — leaving a
+	// version that looks published and cannot be installed. Three versions of
+	// the set, every component of each.
 	byPlatform := map[string][]Release{}
 	for _, rel := range s.rels {
-		byPlatform[rel.Platform] = append(byPlatform[rel.Platform], rel)
+		byPlatform[rel.Tool+"\x00"+rel.Platform] = append(byPlatform[rel.Tool+"\x00"+rel.Platform], rel)
 	}
 	for _, rels := range byPlatform {
-		if len(rels) <= keepVersions {
+		seen := map[string]bool{}
+		for _, r := range rels {
+			seen[r.Version] = true
+		}
+		if len(seen) <= keepVersions {
 			continue
 		}
 		// Newest first by publish time — `git describe` strings cannot be
 		// ordered, which is why the downgrade guard uses a timestamp too.
 		sort.Slice(rels, func(i, j int) bool { return rels[i].Published > rels[j].Published })
-		for _, old := range rels[keepVersions:] {
+		keep, doomed := map[string]bool{}, []Release{}
+		for _, r := range rels {
+			if len(keep) < keepVersions || keep[r.Version] {
+				keep[r.Version] = true
+				continue
+			}
+			doomed = append(doomed, r)
+		}
+		for _, old := range doomed {
 			// Remove the file first: a manifest entry with no file is
 			// self-healing (OpenReleaseStore drops it), while a file with no
 			// entry is invisible disk nobody will ever look for.
@@ -258,6 +331,31 @@ func (s *ReleaseStore) writeManifest() error {
 // because the downloader is an agent, holding an agent's token — the operator
 // who publishes is a human and uses the human plane.
 func (h *Hub) ReleaseRoutes(mux *http.ServeMux) {
+	// Tool components get their own route rather than overloading the original
+	// with an optional segment: an older agent asking the old path must keep
+	// getting the old answer, and a path that means two things depending on
+	// segment count is how a mixed fleet breaks quietly.
+	mux.HandleFunc("GET /agent/release/{tool}/{component}/{version}/{platform}", func(w http.ResponseWriter, r *http.Request) {
+		if _, ok := h.authed(r); !ok {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		if h.releases == nil {
+			http.Error(w, "no releases published", http.StatusNotFound)
+			return
+		}
+		platform := strings.ReplaceAll(r.PathValue("platform"), "-", "/")
+		rel, path, ok := h.releases.GetComponent(
+			r.PathValue("tool"), r.PathValue("component"), r.PathValue("version"), platform)
+		if !ok {
+			http.Error(w, "no such component", http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/octet-stream")
+		w.Header().Set("X-Shabadoo-SHA256", rel.SHA256)
+		http.ServeFile(w, r, path)
+	})
+
 	mux.HandleFunc("GET /agent/release/{version}/{platform}", func(w http.ResponseWriter, r *http.Request) {
 		if _, ok := h.authed(r); !ok {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -453,4 +551,90 @@ func (h *Hub) nodePlatform(tenant, node string) (platform string, connected bool
 		return "", false
 	}
 	return c.platform, true
+}
+
+// GetComponent finds one member of one tool's set.
+func (s *ReleaseStore) GetComponent(tool, component, version, platform string) (Release, string, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	rel, ok := s.rels[Release{Tool: tool, Component: component, Version: version, Platform: platform}.key()]
+	if !ok {
+		return Release{}, "", false
+	}
+	return rel, s.path(rel), true
+}
+
+// ToolSet returns every component of a tool's release for one node platform,
+// and whether one exists at all.
+//
+// The distinction matters: "no set for your platform" and "a set exists and you
+// are behind" are different answers, and a node told the wrong one either
+// installs nothing forever or chases a version that cannot exist for it. Not
+// every host can build every set — a capture helper needs MSVC or swiftc — so
+// a missing platform is an ordinary state rather than an error.
+func (s *ReleaseStore) ToolSet(tool, version, platform string) ([]Release, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	newest := version
+	if newest == "" {
+		for _, rel := range s.rels {
+			if rel.Tool != tool || rel.Platform != platform {
+				continue
+			}
+			if cur, ok := s.rels[Release{Tool: tool, Version: newest, Platform: platform}.key()]; newest == "" || (ok && rel.Published > cur.Published) {
+				newest = rel.Version
+			}
+		}
+	}
+	if newest == "" {
+		return nil, false
+	}
+	var set []Release
+	for _, rel := range s.rels {
+		if rel.Tool == tool && rel.Platform == platform && rel.Version == newest {
+			set = append(set, rel)
+		}
+	}
+	sort.Slice(set, func(i, j int) bool { return set[i].Component < set[j].Component })
+	return set, len(set) > 0
+}
+
+// UpgradeNodeTool tells one node to install a tool's set for its own platform.
+//
+// Separate from upgradeNode because the two are not the same operation. Its own
+// binary is replaced under a running process which then exits for its
+// supervisor; another tool is simply installed, which is strictly simpler and
+// must not borrow the restart dance.
+func (h *Hub) UpgradeNodeTool(ctx context.Context, tenant, node, tool, version string) ([]Release, error) {
+	if h.releases == nil {
+		return nil, fmt.Errorf("no releases published")
+	}
+	platform := h.NodePlatform(tenant, node)
+	if platform == "" {
+		return nil, fmt.Errorf("%s has not reported a platform — it is either not "+
+			"connected, or running a build that predates platform reporting", node)
+	}
+	set, ok := h.releases.ToolSet(tool, version, platform)
+	if !ok {
+		return nil, fmt.Errorf("no %s set published for %s. That is not the same as "+
+			"being behind: not every host can build every set, so somebody with a "+
+			"%s machine has to publish one", tool, platform, platform)
+	}
+
+	components := make([]map[string]any, 0, len(set))
+	for _, rel := range set {
+		components = append(components, map[string]any{
+			"name":   rel.FileName(),
+			"sha256": rel.SHA256,
+			"path": fmt.Sprintf("/agent/release/%s/%s/%s/%s",
+				rel.Tool, rel.Component, rel.Version, platformFile(rel.Platform)),
+		})
+	}
+	_, err := h.Call(ctx, tenant, node, "install_tool", map[string]any{
+		"tool":       tool,
+		"version":    set[0].Version,
+		"components": components,
+	})
+	return set, err
 }

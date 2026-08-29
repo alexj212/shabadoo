@@ -182,3 +182,90 @@ func verifyBinary(ctx context.Context, path, want string) error {
 	}
 	return nil
 }
+
+type installToolReq struct {
+	Tool       string `json:"tool"`
+	Version    string `json:"version"`
+	Components []struct {
+		Name   string `json:"name"`
+		SHA256 string `json:"sha256"`
+		Path   string `json:"path"`
+	} `json:"components"`
+}
+
+// installTool downloads and installs another tool's release set.
+//
+// Simpler than upgrading this binary, and deliberately not sharing its path:
+// there is no running process to replace and no restart to arrange. What it
+// does share is the property that matters — nothing is moved into place until
+// EVERY component has been fetched and checksummed.
+//
+// That staging is the whole design. A release set is a set precisely because
+// half of it is useless: installing an orchestrator without its capture helper
+// leaves a tool that starts, refuses to work, and blames a missing file. A
+// download that fails on the second of two files must leave the first
+// untouched rather than half-upgrading the host.
+func (c *Client) installTool(ctx context.Context, payload json.RawMessage) (any, error) {
+	var req installToolReq
+	if err := json.Unmarshal(payload, &req); err != nil {
+		return nil, err
+	}
+	if req.Tool == "" || len(req.Components) == 0 {
+		return nil, fmt.Errorf("tool and components are required")
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return nil, fmt.Errorf("cannot locate my own binary, so I cannot tell where tools live: %w", err)
+	}
+	binDir := filepath.Dir(exe)
+
+	// Stage everything first, beside the destination so the final move is a
+	// rename within one filesystem — a cross-device rename fails, and copying
+	// instead would be the non-atomic write this exists to avoid.
+	staged := make([]string, 0, len(req.Components))
+	defer func() {
+		for _, p := range staged {
+			os.Remove(p) // a no-op once renamed away
+		}
+	}()
+
+	for _, comp := range req.Components {
+		if comp.Name == "" || strings.ContainsAny(comp.Name, `/\`) {
+			return nil, fmt.Errorf("refusing component name %q: a set member names a "+
+				"file in the bin directory, never a path", comp.Name)
+		}
+		tmp := filepath.Join(binDir, "."+comp.Name+".incoming")
+		f, err := os.OpenFile(tmp, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o755)
+		if err != nil {
+			return nil, err
+		}
+		staged = append(staged, tmp)
+		sum, err := c.download(ctx, comp.Path, f)
+		f.Close()
+		if err != nil {
+			return nil, fmt.Errorf("downloading %s: %w", comp.Name, err)
+		}
+		if sum != comp.SHA256 {
+			return nil, fmt.Errorf("%s checksum mismatch: got %s, expected %s",
+				comp.Name, sum[:12], comp.SHA256[:12])
+		}
+	}
+
+	// Every component is present and verified; now move them in. The previous
+	// copy is kept as .prev for the same reason the binary's is — not an
+	// automatic rollback, but one `mv` over SSH instead of a rebuild.
+	installed := []string{}
+	for i, comp := range req.Components {
+		dst := filepath.Join(binDir, comp.Name)
+		if _, err := os.Stat(dst); err == nil {
+			_ = os.Rename(dst, dst+".prev")
+		}
+		if err := os.Rename(staged[i], dst); err != nil {
+			return nil, fmt.Errorf("installing %s: %w", comp.Name, err)
+		}
+		installed = append(installed, comp.Name)
+	}
+	return map[string]any{
+		"tool": req.Tool, "version": req.Version, "installed": installed, "dir": binDir,
+	}, nil
+}

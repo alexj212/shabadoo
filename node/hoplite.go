@@ -401,9 +401,15 @@ func (c *Client) dispatch(ctx context.Context, id, op string, payload json.RawMe
 	// both are the agent's, not the host's.
 	var out any
 	var err error
-	if op == "upgrade" {
+	switch op {
+	case "upgrade":
 		out, err = c.upgrade(ctx, payload)
-	} else {
+	case "install_tool":
+		// Also handled here rather than by the host's op table: it needs the
+		// coordinator URL and this session's token to fetch, and both are the
+		// agent's.
+		out, err = c.installTool(ctx, payload)
+	default:
 		out, err = c.handle(ctx, op, payload)
 	}
 	if err != nil {

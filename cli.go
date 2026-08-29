@@ -1369,6 +1369,7 @@ func runPublish(args []string) {
 	fset := flag.NewFlagSet("publish", flag.ExitOnError)
 	coord := fset.String("coord", "", "coordinator base URL")
 	version := fset.String("version", "", "version to publish as (default: from the filename or `shabadoo version`)")
+	tool := fset.String("tool", "", "publish a SET for another tool, described by the version.json in that directory")
 	fset.Usage = func() {
 		fmt.Fprint(os.Stderr, `usage: shabadoo publish <file-or-dir>...
 
@@ -1392,6 +1393,15 @@ flags:
 	c, err := newClient(*coord)
 	if err != nil {
 		fatalf("%v", err)
+	}
+
+	if *tool != "" {
+		if len(paths) != 1 {
+			fatalf("--tool takes exactly one directory: a release set is described "+
+				"by the version.json inside it, not assembled from a file list")
+		}
+		publishToolSet(c, *tool, paths[0])
+		return
 	}
 
 	var files []string
@@ -1548,6 +1558,7 @@ func runUpgrade(args []string) {
 	coord := fset.String("coord", "", "coordinator base URL")
 	version := fset.String("version", "", "version to install (default: the newest published for that platform)")
 	all := fset.Bool("all", false, "upgrade every connected node, one at a time")
+	tool := fset.String("tool", "", "install another tool's release set instead of shabadoo itself")
 	fset.Usage = func() {
 		fmt.Fprint(os.Stderr, `usage: shabadoo upgrade <node>... | --all
 
@@ -1598,6 +1609,11 @@ flags:
 	// A warning rather than a refusal: the version strings are `git describe`
 	// output and cannot be ordered (see The downgrade guard), so this can spot
 	// "they differ" and must not pretend to know which is newer.
+	if *tool != "" {
+		installToolOnNodes(c, *tool, *version, targets)
+		return
+	}
+
 	if hv := hubVersion(c); hv != "" && *version != "" && hv != *version {
 		fmt.Fprintf(os.Stderr,
 			"warning: coordinator is %s and you are upgrading nodes to %s.\n"+

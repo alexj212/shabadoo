@@ -182,7 +182,10 @@ func (h *humanAPI) publishRelease(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	q := r.URL.Query()
-	rel, err := rs.Publish(q.Get("version"), q.Get("platform"), r.Body, h.now())
+	// tool and component are empty for shabadoo itself, which keeps every
+	// release published before tool sets existed addressable unchanged.
+	rel, err := rs.PublishComponent(q.Get("tool"), q.Get("component"),
+		q.Get("version"), q.Get("platform"), r.Body, h.now())
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -198,6 +201,7 @@ func (h *humanAPI) upgradeNode(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Node    string `json:"node"`
 		Version string `json:"version"`
+		Tool    string `json:"tool"`
 	}
 	if !readJSON(w, r, &req) {
 		return
@@ -207,6 +211,29 @@ func (h *humanAPI) upgradeNode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tenant := tenantOf(r.Context())
+
+	// Another tool is INSTALLED, not swapped under a running process, so it
+	// takes the simpler path and never borrows the restart dance.
+	if req.Tool != "" {
+		set, err := h.hub.UpgradeNodeTool(r.Context(), tenant, req.Node, req.Tool, req.Version)
+		detail := req.Tool
+		if len(set) > 0 {
+			detail = fmt.Sprintf("%s %s (%d components)", req.Tool, set[0].Version, len(set))
+		}
+		if err != nil {
+			detail += " — " + err.Error()
+		}
+		h.hub.store.Tenant(tenant).Audit(r.Context(), AuditEntry{
+			Actor: actor(r.Context()), Action: "node.install_tool",
+			Target: req.Node, Detail: detail,
+		}, h.now())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeJSON(w, map[string]any{"tool": req.Tool, "components": len(set), "version": set[0].Version})
+		return
+	}
 
 	rel, err := h.hub.upgradeNode(r.Context(), tenant, req.Node, req.Version)
 	// Audited either way. An upgrade that failed is more interesting than one
