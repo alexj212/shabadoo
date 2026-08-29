@@ -59,6 +59,20 @@ whether to hand it work, so a blank is worth filling.
 				what = "— no description; a peer sees this name and nothing else"
 			}
 			fmt.Printf("%-28s %-5s %s\n", truncate(name, 28), n.Node, truncate(what, 88))
+			// The mission, where the project has said. Indented under the
+			// project it belongs to rather than in a column, because most
+			// projects will not have one and an empty column reads as an
+			// answer.
+			if s.MissionStatus != "" || s.MissionNow != "" {
+				st := s.MissionStatus
+				if st == "" {
+					st = "?"
+				}
+				fmt.Printf("%-28s %-5s   [%s] %s\n", "", "", st, truncate(s.MissionNow, 78))
+			}
+			if s.MissionBlocked != "" {
+				fmt.Printf("%-28s %-5s   blocked on: %s\n", "", "", truncate(s.MissionBlocked, 70))
+			}
 			if s.Note != "" {
 				fmt.Printf("%-28s %-5s   doing: %s\n", "", "", truncate(s.Note, 80))
 			}

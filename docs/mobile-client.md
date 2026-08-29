@@ -421,6 +421,10 @@ A session object:
 | `status` | string | `active` \| `idle` |
 | `pane` | int | which pane within the window; **0 unless a window has been split** |
 | `tools_stale` | bool | **absent unless true** — this session is serving a tool surface that differs from the running agent's |
+| `mission_status` | string | **absent unless the project has a `MISSION.md`** — `active`, `blocked`, `paused` or `done` |
+| `mission_now` | string | one line: what that project is working on |
+| `mission_blocked` | string | **absent when not blocked**; a named thing, from the project's own file |
+| `mission_updated` | string | the date the project last touched its mission |
 | `tools_known` | bool | **absent unless true** — whether the surface could be established at all. `tools_stale` is meaningless without it |
 | `input_state` | string | `composer` \| `dialog` \| **absent** |
 | `tokens_in`, `tokens_out`, `tokens_cache` | int64 | what this session has spent; **absent** for anything with no transcript |
@@ -840,6 +844,31 @@ were already travelling:
 `restart_from` alone was rejected for being ambiguous: handing a backward-paging
 client a tail cursor silently reverses its direction, which is worse than the
 expiry it is recovering from.
+
+### What a project says it is doing
+
+`description` says what a project **is** and is stable for months. The `mission_*`
+fields say what it is **doing** and change weekly. They come from a `MISSION.md`
+at the project root, read by the agent rather than reported by the session —
+because a peer deciding whether to hand work over cannot open somebody else's
+repo, and asking a session to report its own status is the arrangement that
+produced a status field set by nobody.
+
+**All four are absent when the project has no `MISSION.md`, and that is not the
+same as idle.** A project without one has not said; a project with
+`mission_status: paused` has. Render those differently or you are inventing an
+answer nobody gave. Same rule as `capabilities_known` and `tools_known`,
+arriving in a third place.
+
+`mission_status` is a **closed set** — `active`, `blocked`, `paused`, `done` —
+and anything else is dropped rather than passed through, so a client can switch
+on it exhaustively. `paused` and `blocked` are deliberately different: one is a
+choice, the other is a wait.
+
+`mission_blocked` is absent when nothing is blocking, so its presence alone is
+the signal. It is the field most worth surfacing and the one most likely to go
+stale, since a project that becomes unblocked has to remember to empty it —
+`mission_updated` is what lets a reader weigh it.
 
 ## 5. Things that will bite you
 

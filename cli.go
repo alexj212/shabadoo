@@ -435,6 +435,11 @@ type cliSession struct {
 	Note        string `json:"note"`
 	Project     string `json:"project"`
 	Description string `json:"description"`
+
+	MissionStatus  string `json:"mission_status"`
+	MissionNow     string `json:"mission_now"`
+	MissionBlocked string `json:"mission_blocked"`
+	MissionUpdated string `json:"mission_updated"`
 	Asking     string `json:"asking"`
 	ToolsStale bool   `json:"tools_stale"`
 

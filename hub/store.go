@@ -146,6 +146,10 @@ CREATE TABLE IF NOT EXISTS sessions (
   tokens_cache INTEGER NOT NULL DEFAULT 0,
   tools_stale  INTEGER NOT NULL DEFAULT 0,
   tools_known  INTEGER NOT NULL DEFAULT 0,
+  mission_status TEXT NOT NULL DEFAULT '',
+  mission_now TEXT NOT NULL DEFAULT '',
+  mission_blocked TEXT NOT NULL DEFAULT '',
+  mission_updated TEXT NOT NULL DEFAULT '',
   win_name     TEXT NOT NULL DEFAULT '',
   command      TEXT NOT NULL DEFAULT '',
   activity     INTEGER NOT NULL DEFAULT 0,
@@ -290,6 +294,10 @@ func (s *Store) migrate(ctx context.Context) error {
 		`ALTER TABLE sessions ADD COLUMN tokens_cache INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE sessions ADD COLUMN tools_stale INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE sessions ADD COLUMN tools_known INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE sessions ADD COLUMN mission_status TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE sessions ADD COLUMN mission_now TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE sessions ADD COLUMN mission_blocked TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE sessions ADD COLUMN mission_updated TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE devices ADD COLUMN scope TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE devices ADD COLUMN push_token TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE devices ADD COLUMN push_env TEXT NOT NULL DEFAULT ''`,
@@ -942,6 +950,14 @@ type Session struct {
 	// and why it lives apart from the body of the file it is written in.
 	Description string `json:"description,omitempty"`
 
+	// Mission is what the project SAYS it is doing, from its MISSION.md.
+	// Absent when the project has none — which is not the same as idle, and a
+	// reader must be able to tell those apart.
+	MissionStatus  string `json:"mission_status,omitempty"`
+	MissionNow     string `json:"mission_now,omitempty"`
+	MissionBlocked string `json:"mission_blocked,omitempty"`
+	MissionUpdated string `json:"mission_updated,omitempty"`
+
 	// Tokens is what this session has spent, summed from its own transcript.
 	//
 	// The direction document calls context the scarce resource and then measured
@@ -1038,8 +1054,9 @@ func (t *Tenant) upsertSession(ctx context.Context, db execer, sess Session, now
 		INSERT INTO sessions (tenant, session_id, agent, project, cwd, alias, window, status,
 		                      updated_at, tmux_session, win_index, win_name, command, activity, panes,
 		                      input_state, asking, kind, description, pane_index,
-		                      tokens_in, tokens_out, tokens_cache, tools_stale, tools_known)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		                      tokens_in, tokens_out, tokens_cache, tools_stale, tools_known,
+		                      mission_status, mission_now, mission_blocked, mission_updated)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(tenant, session_id) DO UPDATE SET
 		  agent=excluded.agent, project=excluded.project, cwd=excluded.cwd,
 		  alias=excluded.alias, window=excluded.window, status=excluded.status,
@@ -1050,12 +1067,15 @@ func (t *Tenant) upsertSession(ctx context.Context, db execer, sess Session, now
 		  kind=excluded.kind, description=excluded.description,
 		  pane_index=excluded.pane_index, tokens_in=excluded.tokens_in,
 		  tokens_out=excluded.tokens_out, tokens_cache=excluded.tokens_cache,
-		  tools_stale=excluded.tools_stale, tools_known=excluded.tools_known`,
+		  tools_stale=excluded.tools_stale, tools_known=excluded.tools_known,
+		  mission_status=excluded.mission_status, mission_now=excluded.mission_now,
+		  mission_blocked=excluded.mission_blocked, mission_updated=excluded.mission_updated`,
 		t.id, sess.SessionID, sess.Agent, sess.Project, sess.CWD, sess.Alias,
 		sess.Window, sess.Status, now.Unix(), sess.TmuxSession, sess.Index,
 		sess.Name, sess.Command, sess.Activity, sess.Panes, sess.InputState, sess.Asking,
 		sess.Kind, sess.Description, sess.Pane,
-		sess.TokensIn, sess.TokensOut, sess.TokensCache, sess.ToolsStale, sess.ToolsKnown)
+		sess.TokensIn, sess.TokensOut, sess.TokensCache, sess.ToolsStale, sess.ToolsKnown,
+		sess.MissionStatus, sess.MissionNow, sess.MissionBlocked, sess.MissionUpdated)
 	return err
 }
 
@@ -1104,7 +1124,8 @@ func (t *Tenant) ListSessions(ctx context.Context, now time.Time) ([]Session, er
 		       s.updated_at, s.tmux_session, s.win_index, s.win_name, s.command,
 		       s.activity, s.panes, s.input_state, s.asking, s.kind, s.description,
 		       s.pane_index, s.tokens_in, s.tokens_out, s.tokens_cache, s.tools_stale,
-		       s.tools_known, COALESCE(n.note, '')
+		       s.tools_known, s.mission_status, s.mission_now, s.mission_blocked,
+		       s.mission_updated, COALESCE(n.note, '')
 		  FROM sessions s
 		  LEFT JOIN session_status n
 		    ON n.tenant = s.tenant AND n.session_id = s.session_id AND n.at >= ?
@@ -1122,7 +1143,8 @@ func (t *Tenant) ListSessions(ctx context.Context, now time.Time) ([]Session, er
 			&s2.TmuxSession, &s2.Index, &s2.Name, &s2.Command,
 			&s2.Activity, &s2.Panes, &s2.InputState, &s2.Asking, &s2.Kind, &s2.Description,
 			&s2.Pane, &s2.TokensIn, &s2.TokensOut, &s2.TokensCache, &s2.ToolsStale,
-			&s2.ToolsKnown, &s2.Note); err != nil {
+			&s2.ToolsKnown, &s2.MissionStatus, &s2.MissionNow, &s2.MissionBlocked,
+			&s2.MissionUpdated, &s2.Note); err != nil {
 			return nil, err
 		}
 		out = append(out, s2)

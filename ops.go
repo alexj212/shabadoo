@@ -211,7 +211,8 @@ func reportSessions(ctx context.Context) ([]hub.Session, error) {
 				state, asking := windowInput(ctx, s.Name, w.Index, pn.Index)
 				root := projectRoot(pn.Path)
 				tok := sessionTokens(pn.Path)
-				out = append(out, hub.Session{
+				mission := readMission(root)
+				sess := hub.Session{
 					InputState:  state,
 					Asking:      asking,
 					Kind:        kindOf(w, core),
@@ -225,6 +226,9 @@ func reportSessions(ctx context.Context) ([]hub.Session, error) {
 					TokensOut:   tok.Output,
 					TokensCache: tok.CacheRead + tok.CacheWrite,
 					Description: projectDescription(root),
+					// Read here rather than reported by the session, for the
+					// same reason the description is: a peer deciding whether
+					// to hand work over cannot open somebody else's repo.
 					SessionID:   paneSessionID(w, pn.Index),
 					Project:     projectName(pn.Path),
 					CWD:         pn.Path,
@@ -238,7 +242,14 @@ func reportSessions(ctx context.Context) ([]hub.Session, error) {
 					Command:     pn.Command,
 					Activity:    w.Activity,
 					Panes:       w.Panes,
-				})
+				}
+				if mission != nil {
+					sess.MissionStatus = mission.Status
+					sess.MissionNow = mission.Now
+					sess.MissionBlocked = mission.Blocked
+					sess.MissionUpdated = mission.Updated
+				}
+				out = append(out, sess)
 			}
 		}
 	}
