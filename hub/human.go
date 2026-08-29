@@ -8,6 +8,7 @@ package hub
 // human and recorded in the audit log, which the flock could not do.
 
 import (
+	"errors"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -595,9 +596,29 @@ func (h *humanAPI) tasks(w http.ResponseWriter, r *http.Request) {
 	if n, err := strconv.Atoi(q.Get("limit")); err == nil {
 		limit = n
 	}
-	list, err := h.hub.store.Tenant(tenantOf(r.Context())).Tasks(
-		r.Context(), q.Get("session"), q.Get("requested_by"),
-		q.Get("include_done") == "1", limit)
+	tn := h.hub.store.Tenant(tenantOf(r.Context()))
+	list, page, err := tn.TasksPage(r.Context(), TaskQuery{
+		Session:     q.Get("session"),
+		RequestedBy: q.Get("requested_by"),
+		IncludeDone: q.Get("include_done") == "1",
+		Limit:       limit,
+		After:       q.Get("after"),
+		Before:      q.Get("before"),
+	})
+	if errors.Is(err, ErrCursorExpired) {
+		// 410, and it names WHICH END it is handing back. `restart_from` alone
+		// is ambiguous: giving a backward-paging client a tail cursor silently
+		// reverses its direction, which is a worse failure than the expiry it
+		// is recovering from, because it looks like data.
+		newest, oldest := tn.taskEnds(r.Context(), q.Get("session"), q.Get("requested_by"))
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusGone)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"error": "cursor expired", "detail": err.Error(),
+			"newest": newest, "oldest": oldest,
+		})
+		return
+	}
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -606,7 +627,11 @@ func (h *humanAPI) tasks(w http.ResponseWriter, r *http.Request) {
 		list = []Task{} // an empty list, never null: a client must not have to
 		// distinguish "no tasks" from "field absent" at the JSON layer.
 	}
-	writeJSON(w, map[string]any{"tasks": list})
+	out := map[string]any{"tasks": list, "next": page.Next}
+	if page.Clamped != "" {
+		out["clamped"] = page.Clamped
+	}
+	writeJSON(w, out)
 }
 
 func (h *humanAPI) messages(w http.ResponseWriter, r *http.Request) {

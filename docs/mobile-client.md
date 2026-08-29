@@ -780,6 +780,67 @@ worse than not offering it.
 `/api/sessions` carries no `seq`. It has no stream, so a number there would
 always be the same and mean nothing.
 
+### The paging dialect
+
+Specified against `/api/tasks` first because it is small, live and depended on by
+nothing. `/api/messages` and `/api/audit` will adopt the same shape; there will
+not be three dialects.
+
+```
+GET /api/tasks                      -> the latest page
+GET /api/tasks?before=<cursor>      -> older, scrolling back through history
+GET /api/tasks?after=<cursor>       -> what has CHANGED since that cursor
+```
+
+```json
+{ "tasks": [ … ],
+  "next": "eyJkIjoiYiIs…",     // always present, even when tasks is empty
+  "tail": "eyJkIjoiYSIs…",     // initial page only — the entry point to the tail
+  "clamped": "count" }         // absent when the page was served whole
+```
+
+**The cursor is opaque by contract, not by cryptography.** It is base64 JSON and
+you *can* decode it. What makes it opaque is that the format is unspecified and
+may change in any release. A client doing arithmetic on one breaks, and the
+breakage is the client's.
+
+**`next` is always present**, including on an empty page. Catching up must be a
+stated answer rather than inferred from a zero-length array.
+
+**An initial page returns `tail` as well as `next`**, because it is the entry
+point to both directions and you cannot mint a cursor yourself. Hold `next` for
+scrollback and `tail` for following changes.
+
+**The two directions order by different columns, and that is what they mean.**
+`before` pages by creation, which never changes, so it cannot skip or repeat a
+row while somebody edits one. `after` pages by last change, so a task that moves
+from `open` to `blocked` **comes back** — which is the whole reason to tail.
+A cursor carries which direction it was minted for and **the other refuses it**:
+silently paging the wrong way at a boundary looks like data.
+
+**`clamped` says why a page was short**, and is absent when it was not.
+`"count"` means ask for more next time; `"bytes"` means asking for more will not
+help and may cost a round trip that returns less. `next` answers *whether* more
+exists; this answers *why this page stopped*.
+
+**Truncation is declared per item, never silent.** A cut field sets
+`<field>_truncated` and `<field>_bytes` with the **true** size — so a short value
+is never passed off as the whole thing, and you can decide whether to offer the
+rest. On tasks that is `brief_truncated` / `brief_bytes`.
+
+**An expired or malformed cursor is `410`**, never a silent restart from the
+beginning — which would append a whole collection a second time and read as new
+activity. The body names **both ends** so you can resume in the direction you
+were already travelling:
+
+```json
+{ "error": "cursor expired", "newest": "eyJkIjoiYSIs…", "oldest": "eyJkIjoiYiIs…" }
+```
+
+`restart_from` alone was rejected for being ambiguous: handing a backward-paging
+client a tail cursor silently reverses its direction, which is worse than the
+expiry it is recovering from.
+
 ## 5. Things that will bite you
 
 **An offline node's sessions are frozen, including `input_state`.** They are its

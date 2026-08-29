@@ -54,6 +54,12 @@ type Task struct {
 	Note        string `json:"note,omitempty"` // the assignee's last word
 	CreatedAt   int64  `json:"created_at"`
 	UpdatedAt   int64  `json:"updated_at"`
+
+	// BriefTruncated says the brief was CUT on the wire, with BriefBytes giving
+	// its true length. Absent means whole — a client must never have to guess
+	// whether a short brief is short or merely shown short.
+	BriefTruncated bool `json:"brief_truncated,omitempty"`
+	BriefBytes     int  `json:"brief_bytes,omitempty"`
 }
 
 // CreateTask records work handed to a session.
@@ -164,4 +170,145 @@ func (t *Tenant) Tasks(ctx context.Context, session, requestedBy string, include
 		out = append(out, k)
 	}
 	return out, rows.Err()
+}
+
+
+// TaskQuery is one page request.
+type TaskQuery struct {
+	Session     string
+	RequestedBy string
+	IncludeDone bool
+	Limit       int
+	After       string // live tail: what has CHANGED since this cursor
+	Before      string // history: what was CREATED before this cursor
+}
+
+// TasksPage returns one page and the cursor for the next.
+//
+// The two directions order by different columns, and that is not a wart — it is
+// what they mean for a collection whose rows mutate. `before` walks history, so
+// it orders by creation, which never changes and therefore cannot skip or
+// repeat a row while somebody edits one. `after` is a live tail, so it orders by
+// last change, and a task that moved from open to blocked comes back — which is
+// the entire reason a client is tailing.
+//
+// A cursor carries which direction it was minted for and the other refuses it,
+// because silently paging the wrong way at a boundary looks like data.
+func (t *Tenant) TasksPage(ctx context.Context, q TaskQuery) ([]Task, Page, error) {
+	limit := q.Limit
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	clamped := ""
+	if q.Limit > 200 {
+		clamped = "count"
+	}
+
+	col, cmp, dir := "updated_at", "<", "a"
+	if q.Before != "" || q.After == "" {
+		col, cmp, dir = "created_at", "<", "b"
+	}
+	if q.After != "" {
+		col, cmp, dir = "updated_at", ">", "a"
+	}
+
+	sql := taskCols + ` WHERE tenant = ?`
+	args := []any{t.id}
+	if q.Session != "" {
+		sql += ` AND session_id = ?`
+		args = append(args, q.Session)
+	}
+	if q.RequestedBy != "" {
+		sql += ` AND requested_by = ?`
+		args = append(args, q.RequestedBy)
+	}
+	if !q.IncludeDone {
+		sql += ` AND state NOT IN (?, ?)`
+		args = append(args, TaskDone, TaskDropped)
+	}
+
+	raw := q.After
+	if raw == "" {
+		raw = q.Before
+	}
+	if raw != "" {
+		c, err := decodeCursor(raw, dir)
+		if err != nil {
+			return nil, Page{}, err
+		}
+		// Keyset, with the id as tie-break: two rows sharing a timestamp must
+		// not loop forever or skip one, and both happen with a bare comparison.
+		sql += fmt.Sprintf(` AND (%s %s ? OR (%s = ? AND id %s ?))`, col, cmp, col, cmp)
+		args = append(args, c.TS, c.TS, c.ID)
+	}
+
+	order := "DESC"
+	if dir == "a" {
+		order = "ASC" // a tail reads forward in time
+	}
+	sql += fmt.Sprintf(` ORDER BY %s %s, id %s LIMIT ?`, col, order, order)
+	args = append(args, limit)
+
+	rows, err := t.s.db.QueryContext(ctx, sql, args...)
+	if err != nil {
+		return nil, Page{}, err
+	}
+	defer rows.Close()
+
+	out := []Task{}
+	bytes := 0
+	var lastTS int64
+	var lastID string
+	for rows.Next() {
+		k, err := scanTask(rows)
+		if err != nil {
+			return nil, Page{}, err
+		}
+		// A brief runs to kilobytes and this is the common case, not an edge:
+		// cut it, say so, and report the TRUE size so a client can decide
+		// whether to offer the whole thing rather than discovering the limit.
+		if txt, cut, full := truncatedText(k.Brief, 2000); cut {
+			k.Brief, k.BriefTruncated, k.BriefBytes = txt, true, full
+		}
+		bytes += len(k.Brief) + len(k.Note)
+		lastTS, lastID = k.UpdatedAt, k.ID
+		if dir == "b" {
+			lastTS = k.CreatedAt
+		}
+		out = append(out, k)
+		if bytes >= pageBudget {
+			clamped = "bytes"
+			break
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, Page{}, err
+	}
+	if len(out) == limit && clamped == "" {
+		clamped = "count"
+	}
+	page := Page{Next: nowCursor(dir, lastTS, lastID), Clamped: clamped}
+	// An initial page also hands back the forward cursor, because it is the
+	// entry point to both directions and a client cannot mint one itself.
+	if q.After == "" && q.Before == "" && len(out) > 0 {
+		newest := out[0]
+		for _, k := range out {
+			if k.UpdatedAt > newest.UpdatedAt {
+				newest = k
+			}
+		}
+		page.Tail = nowCursor("a", newest.UpdatedAt, newest.ID)
+	}
+	return out, page, nil
+}
+
+// taskEnds returns the cursors for both ends of a collection, so a client whose
+// cursor expired can resume in the direction it was already travelling.
+func (t *Tenant) taskEnds(ctx context.Context, session, requestedBy string) (newest, oldest string) {
+	q := TaskQuery{Session: session, RequestedBy: requestedBy, IncludeDone: true, Limit: 1}
+	if list, _, err := t.TasksPage(ctx, q); err == nil && len(list) > 0 {
+		newest = nowCursor("a", list[0].UpdatedAt, list[0].ID)
+		oldest = nowCursor("b", list[0].CreatedAt, list[0].ID)
+	}
+	return
 }
