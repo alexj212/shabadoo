@@ -141,6 +141,15 @@ release:
 	@git diff --quiet || { echo "working tree is dirty; commit first"; exit 2; }
 	@git rev-parse -q --verify "refs/tags/$(TAG)" >/dev/null || \
 	  { echo "tag $(TAG) does not exist; create it with a message first"; exit 2; }
+	@# The publish guard runs HERE, at the last moment anything is private.
+	@# It existed and was only ever run by hand, so it caught a private project
+	@# name in a commit message AFTER that commit was already on a public
+	@# remote. A guard that has to be remembered is a guard that protects
+	@# whoever remembers it.
+	@RANGE="origin/main..HEAD" ./scripts_publish_check.sh || { echo; \
+	  echo "refusing to push: the publish check failed above."; \
+	  echo "A push is not reversible — the commit reaches a public remote and"; \
+	  echo "stays reachable by SHA even after a rewrite."; exit 2; }
 	@echo "pushing main..."
 	@git push origin main
 	@echo "pushing $(TAG) alone (one tag per push, deliberately)..."

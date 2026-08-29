@@ -199,6 +199,16 @@ Whoever asked is told automatically when it ends, so nobody has to poll.
 the moment of the call, where this file is not. If the two ever disagree, the
 description is the one that was written against the code.
 
+**The session bridge is `shabadoo`** — `~/bin/shabadoo mcp`, tools `mcp__shabadoo__*`.
+It replaced `mcp-natsbridge`, retired 2026-08-29: repo dead, dm relay container
+removed. Do not reach for that repo or those tool names.
+
+Two things that survived the retirement and are easy to sweep away by mistake:
+**NATS itself is unrelated and still live** — global infrastructure, untouched —
+and **`mcp__homelife-mcp__natsbridge_stats`** (with `natsbridge_sessions` /
+`natsbridge_replay`) is a *different, working* tool on another server that kept
+the old name.
+
 ### Getting work done on a machine
 
 **Tell that machine's core session; do not reach across and drive it.** Every

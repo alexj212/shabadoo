@@ -1518,9 +1518,21 @@ than an MCP client. Hooks call it as `shabadoo inbox 2>/dev/null || true`,
 which is the form to keep — an unknown subcommand exits 2, and a
 `UserPromptSubmit` hook exiting 2 blocks the prompt. It prints nothing on an
 empty inbox and always exits 0, for the same reason.
-`mcp-natsbridge` is now removed from both hosts: unconfigured everywhere, the
+`mcp-natsbridge` was **unconfigured** on both hosts: no MCP entry anywhere, the
 15-minute `-mode=nudge` cron on wsl retired (the coordinator nudges instantly),
 and the binary moved to `~/bin/archives/claude-legacy/`.
+
+**This paragraph used to say "removed from both hosts", and that was false when
+written.** The MCP was unconfigured; the **relay container on dm kept running**
+— `Up 4 weeks`, `RestartCount=0` — and went on running for a month after this
+claimed it was gone. It only stopped when somebody went and looked, on
+2026-08-29.
+
+Worth keeping as an entry rather than an edit, because the shape is one this
+file names elsewhere: **"unconfigured" and "removed" are different states and
+the sentence asserted the stronger one.** Nobody checked dm for a month
+precisely because this read as done. A retirement note is a claim about the
+world, and the world does not read it.
 `shabadoo` is the only session-messaging MCP server configured on wsl and mac.
 A wsl session was canaried first — it reported its own id, listed all 9 sessions
 across both hosts, and a send/drain round trip confirmed drained mail never

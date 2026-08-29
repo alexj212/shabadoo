@@ -49,8 +49,18 @@ scan() {
 # Scanned separately because the FIX is different. A file is edited; a message
 # is only fixable by rewriting history, which is cheap while a repository is
 # private and expensive once it is not. Knowing before publishing is the value.
+# RANGE bounds which commits are read. Default is every commit, which is the
+# right scope for an audit — "is anything private in this repo".
+#
+# `make release` passes the UNPUSHED range instead, because at that moment the
+# question is narrower and different: "does this push add a leak". A historical
+# one is a remediation decision for a person, and letting it block every future
+# release turns a guard into a deadlock — which it did, within a minute of being
+# wired in, on a commit message this very script had just found.
+: "${RANGE:=--all}"
+
 scan_messages() {
-  git log --format='%h %s %b' --all 2>/dev/null \
+  git log --format='%h %s %b' $RANGE 2>/dev/null \
     | grep -InEi "$1" \
     | grep -v 'publish-check:allow' \
     | cut -c1-160
