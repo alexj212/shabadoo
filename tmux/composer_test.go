@@ -41,16 +41,22 @@ var composerRenderings = []struct {
 			"\u2500\u2500\u2500\u2500\u2500\u2500 homelab-wsl \u2500\n",
 	},
 	{
-		// CAPTURED on darwin by the node that runs it: no box characters
-		// anywhere in the pane, horizontal rules above and below, and no
-		// closing delimiter — the draft runs to end of line.
+		// CAPTURED on darwin by the node that runs it, BOTH states: no box
+		// characters anywhere in the pane, horizontal rules above and below,
+		// and no closing delimiter — the draft runs to end of line.
+		//
+		// The busy case is a real pane, offered by that node when it noticed one
+		// of its sessions parked with unsent text. The line it replaced was
+		// something I made up, which is the last hand-written fixture in this
+		// file — and inventing one is what cost the fleet ten hours of dead
+		// nudges the first time.
 		name: "unboxed heavy angle, plain space (darwin)",
 		empty: "\u2500\u2500\u2500\u2500 mac \u2500\n" +
 			"\u276f \n" +
 			"\u2500\u2500\u2500\u2500\u2500\n" +
 			"   mac  Opus 5\n",
 		busy: "\u2500\u2500\u2500\u2500 mac \u2500\n" +
-			"\u276f half a question about the\n" +
+			"\u276f delete the two test runs\n" +
 			"\u2500\u2500\u2500\u2500\u2500\n" +
 			"   mac  Opus 5\n",
 	},
