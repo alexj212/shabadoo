@@ -167,10 +167,41 @@ to a peer as fresh had sat in the reporting project's own issue file for three
 days with the same root cause. The cost is a peer's attention, which is the
 resource this arrangement spends most freely.
 
-**Twice is a script.** Nine hand-edits across four version fields that had
-already drifted apart under a comment claiming they were kept in step; a
-compiler file list reassembled six times. A repeated multi-file edit belongs in
-a script the moment it is done the second time.
+**Twice is a script — and look for the one that already exists.** Nine hand-edits
+across four version fields that had already drifted apart under a comment
+claiming they were kept in step; a compiler file list reassembled six times. A
+repeated multi-file edit belongs in a script the moment it is done the second
+time. The inverse is just as common and more embarrassing: one session
+hand-wrote an ad-hoc link checker **six times** while the repo shipped
+`bin/linkcheck.py` and other agents in the same repo were calling it. Search
+before you improvise.
+
+**A source read is a hypothesis; the running state is the evidence.** Three
+times in one session, configuration and live state disagreed and the
+configuration was believed: a Rails source read said registration was ungated
+and one empirical POST showed it gated all along; a QA database called a domain
+dead for four years while production had traded on it in June; a leak was
+attributed to the server being closed down and the affected repositories turned
+out to live on the other one. Reading the source tells you what should happen.
+**The cheap falsifying check — one POST, one production query, one `ls` — is
+what should gate filing a finding**, and it is nearly always cheaper than the
+read that produced the hypothesis.
+
+**A claim loses its hedge when it crosses a session boundary.** Two sessions,
+same shape: a peer's *prediction* ("that rename will cost one prompt") was
+relayed onward as the measured reason a change was urgent — it cost zero — and a
+human's instruction ("use the .pem") was relayed to a third session with an
+unchecked premise attached, which would have meant re-downloading a leaked
+private key from a public repository. Both were caught by the recipient. **State
+the provenance when you pass something on**, and when something arrives without
+one, ask: *did you measure that or predict it?*
+
+**A document derived from stale documents inherits their staleness, and
+launders it.** A mission charter written from docs that had not been re-verified
+listed a task that had been true for months and pointed at a hypothesis that was
+wrong — and it now read as a fresh, authoritative artifact rather than as a
+copy. Writing a plan, a charter or a brief IS writing documentation, and it
+carries the same obligation to verify before recording.
 
 **Record the rule, not the instance.** A machine's `claude` binary was found
 off-PATH and the path was written down; the *rule* — on this machine assume a
