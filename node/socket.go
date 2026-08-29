@@ -130,13 +130,36 @@ func (c *Client) localRoutes() http.Handler {
 	// Who am I, and is the agent usable right now? The first question any
 	// client asks, and the one that distinguishes "nothing to report" from
 	// "this is broken".
+	//
+	// It also names this host's CORE SESSION, which is the question a worker
+	// actually has: a tool delivering into the session plane needs to know
+	// where to send when nobody named a destination, and the only answer
+	// available was to infer it from the state directory's layout.
+	//
+	// That inference broke, twice, and the second time was my doing: a new
+	// subdirectory appeared beside the node directories and a worker's "exactly
+	// one directory" rule silently began returning nothing — automatic delivery
+	// with nowhere to go, no failure, no message. A layout is not an interface,
+	// and anything that has to read one is a defect waiting for the next
+	// release to change something adjacent.
 	mux.HandleFunc("GET /whoami", func(w http.ResponseWriter, r *http.Request) {
-		writeLocalJSON(w, map[string]any{
+		out := map[string]any{
 			"node":      c.cfg.Node,
 			"coord":     c.cfg.Coord,
 			"version":   c.cfg.Version,
 			"connected": c.tokenValue() != "",
-		})
+		}
+		// Absent rather than empty when it cannot be determined: a worker must
+		// be able to tell "this host has no core session" from "this build
+		// cannot tell you", and defaulting one to the other is how a delivery
+		// goes quietly nowhere.
+		if c.cfg.CoreSession != nil {
+			if id, path, ok := c.cfg.CoreSession(); ok {
+				out["core_session"] = id
+				out["core_path"] = path
+			}
+		}
+		writeLocalJSON(w, out)
 	})
 
 	mux.HandleFunc("GET /peers", func(w http.ResponseWriter, r *http.Request) {

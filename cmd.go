@@ -85,6 +85,9 @@ func runNode(args []string) {
 		// Cheap: cached for five minutes, since it changes when somebody runs
 		// setup and not otherwise.
 		Facts: func() any { return payloadPending(defaultClaudeDir()) },
+		// So a worker can ask where to deliver instead of reading this
+		// directory's layout and guessing.
+		CoreSession: coreSessionIdentity,
 		// The adapter is the transport's `any`-typed seam; reportSessions itself
 		// is concretely typed so `serve` can use its result without asserting.
 	}, handleOp, func(ctx context.Context) (any, error) {

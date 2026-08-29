@@ -16,6 +16,7 @@ package main
 // See docs/build-plan.md (Phase 2).
 
 import (
+	"os"
 	"context"
 	"log"
 	"sort"
@@ -178,4 +179,28 @@ func declaredCapabilities(dir string) []string {
 		}
 	}
 	return out
+}
+
+// coreSessionIdentity names this host's core session for a local caller.
+//
+// A worker delivering into the session plane needs a default destination and
+// had no way to ask for one, so it read the state directory and took the sole
+// subdirectory. That broke the first time anything else created a directory
+// there — which this program then did, adding a place for MCP children to
+// record their tool surface. The worker's delivery silently began going
+// nowhere: no failure, no message, an automatic path with no destination.
+//
+// The layout was never an interface. This is.
+func coreSessionIdentity() (string, string, bool) {
+	path := coreProjectPath()
+	if path == "" {
+		return "", "", false
+	}
+	if _, err := os.Stat(path); err != nil {
+		return "", "", false
+	}
+	// The same id the launcher injects as CLAUDE_SESSION_ID, derived the same
+	// way — computing it a second way here would let the two drift, and the
+	// drift would be a message addressed to a session that does not exist.
+	return "claude-" + loadLaunchConfig().windowName(path), path, true
 }

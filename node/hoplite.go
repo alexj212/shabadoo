@@ -71,6 +71,12 @@ type Config struct {
 	// matches this binary's payload. Returning nil omits the field, which an
 	// older coordinator ignores and a newer one reads as "cannot tell".
 	Facts func() any
+
+	// CoreSession names this host's core session — its id and directory — for
+	// anything that needs to deliver into the session plane without being a
+	// session. Returning false means "cannot tell", which is deliberately not
+	// the same as "there is none".
+	CoreSession func() (id, path string, ok bool)
 }
 
 // Handler executes one command locally and returns its result payload.
