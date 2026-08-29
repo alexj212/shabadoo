@@ -926,6 +926,60 @@ developer account that does not exist yet, and writing an untestable APNs client
 against an unknown bundle id would be worse than the Apprise path, which reaches
 the same phone today through Telegram/Pushover.
 
+## Distributing a tool that is not this one (`--tool`)
+
+Every other tool on the fleet was installed by hand on whichever machine had a
+checkout, which is the ritual dial-out agents exist to remove. The meeting
+recorder is the first real case and it broke three assumptions at once.
+
+```bash
+minutes version --json > dist/release/version.json   # the tool describes itself
+shabadoo publish --tool minutes dist/release         # publish that set
+shabadoo upgrade --tool minutes --all                # install it, one node at a time
+```
+
+**A release is a SET.** An orchestrator plus a native capture helper, and
+installing one without the other leaves a tool that starts, refuses to work and
+blames a missing file. So the node stages every component and verifies each
+checksum before moving ANY into place: a fetch that fails on the second of two
+must leave the first untouched rather than half-upgrading the host. The previous
+copies are kept as `.prev`, as for this binary.
+
+**Platform is the NODE's, not the file's.** A linux node running the recorder
+needs a linux orchestrator *and* a Windows helper reached over interop, so both
+are published against `linux/amd64`. The question a node asks is "what do I
+need", never "what was this compiled for".
+
+**No host can build every set**, and that is the feature working rather than a
+limitation: the helper exists precisely because the audio APIs are not portable,
+so it needs MSVC on Windows or `swiftc` and a signing identity on macOS.
+Publishing is therefore **partial by design** and merged from several machines
+over time — this host publishes the Windows set, the Mac publishes the darwin
+one. `upgrade --tool` **skips** a node with no set rather than failing, because
+*"not published for your platform"* and *"published and you are behind"* are
+different answers: a node told the wrong one either installs nothing forever or
+chases a version that cannot exist for it.
+
+**The manifest is the tool's own `version --json`.** Reading what a tool says
+about itself beats inventing a second format that has to be kept in step with
+it, and a component the tool marks `present: false` is refused rather than
+published — half a set is a broken install on every node that takes it.
+
+### What a tool needs to join
+
+Two things, and the first is the whole contract:
+
+1. **`<tool> version --json`** emitting `{version, built, platform, components:[{name, platform, present}]}`. Two of the four checks between a published file and a node running it talk to this; with nothing to ask, distribution means shipping unverified binaries.
+2. **A dist directory** holding each component under the `name` it installs as, plus that JSON as `version.json`.
+
+A `make publish` target is then two lines, and belongs in the tool's own
+Makefile rather than here — the tool knows when it has built a complete set and
+this does not.
+
+Pruning keeps the newest three **versions** of a set per platform, not the
+newest three files: keeping files would keep three components of one version and
+half of another, leaving a version that looks published and cannot be installed.
+
 ## Upgrading a node (`publish` / `upgrade`)
 
 Upgrading a node was scp plus a service restart, per host, per platform, by
