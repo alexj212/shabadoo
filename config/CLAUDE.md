@@ -79,7 +79,16 @@ provisioned nothing; a PUT accepted a filter and silently reverted it on
 read-back; every CoreAudio call returned `noErr` while zero packets arrived; an
 HTTP client returned 200 and then delivered nothing; a line reader dropped the
 empty lines that terminate SSE frames, so nine frames arrived and no events
-fired, with no error anywhere. **Verify the effect, not the call.** The call is
+fired, with no error anywhere. A fifth arrived within an hour of this being
+written, and it is the sharpest: a preflight check reported `mic ok` for a
+microphone macOS had denied — the device opened, every call returned success, and
+it handed over zeros. **The gate built to catch this class was itself the thing
+that lied.** What fixed it was not restating the rule but a check that could go
+red: a *categorical* test (is the signal constant?) rather than a threshold,
+mutation-tested both ways — a zero-check passes a device pinned at a non-zero DC
+offset, and an always-true check passes a synthetic noise floor.
+
+**Verify the effect, not the call.** The call is
 what the system tells you about itself, and it is the one thing that cannot fail
 to be reassuring.
 
@@ -111,10 +120,14 @@ travels very differently between sessions, and between sessions is where the
 confidence gets stripped.
 
 **A verification must be able to fail.** The strongest finding of the round —
-one session counted **six** instances of it in itself. A webhook update was
-"verified" by asserting the value was 79 characters; both the old and new URLs
-were 79, so the check could not have distinguished them, and the update had
-silently no-op'd. Alongside it: a guard that could not tell a staging
+one session counted **six** instances of it in itself. The cleanest specimen is a
+webhook update "verified" by asserting the value was 79 characters — both the old
+and new URLs were 79, so the check could not have distinguished them, and the
+update had silently no-op'd. The **most expensive** one that session reported is
+the shape people actually hit: three deploys reported success while a dead
+webhook stayed live, because Alertmanager does not watch its config file.
+**Config written is not config loaded**, and the check that could not fail sat
+downstream of a fix that had never applied. Alongside it: a guard that could not tell a staging
 certificate from a production one, a config written but never reloaded, an
 upsert comparing content while ignoring two fields, a test that went on passing
 when the bug it covered was reinstated, and — while writing this section — a
@@ -192,9 +205,17 @@ same shape: a peer's *prediction* ("that rename will cost one prompt") was
 relayed onward as the measured reason a change was urgent — it cost zero — and a
 human's instruction ("use the .pem") was relayed to a third session with an
 unchecked premise attached, which would have meant re-downloading a leaked
-private key from a public repository. Both were caught by the recipient. **State
-the provenance when you pass something on**, and when something arrives without
-one, ask: *did you measure that or predict it?*
+private key from a public repository. Both were caught by the recipient, neither
+by the relay.
+
+The relaying session's own correction is the useful half, and it is not about
+hedging harder: **a hedge is invisible when everything around it is evidence.**
+That prediction arrived inside a message otherwise full of real measurements and
+was not sorted from them — camouflage rather than carelessness. So the burden
+sits at both ends. Sending: mark an unmeasured claim in the line itself, because
+its neighbours will vouch for it otherwise. Receiving: when a number is about to
+become the reason for something, ask *did you measure that or predict it?* It is
+the question nobody thinks to put to a figure that arrived in good company.
 
 **A document derived from stale documents inherits their staleness, and
 launders it.** A mission charter written from docs that had not been re-verified
