@@ -8,11 +8,17 @@ half, shipped in the payload; the agent reporting it and a dashboard rendering
 one card per project are the next two steps.
 
 ## Waiting on
-- you: wrap-up rendering — dashboard cards are unwritten; the format is settled
-- nobody: two no-op releases owed to minutes-mac, to prove a macOS grant
-  survives an upgrade — cheap, and that node cannot test until it restarts
+- you: four decisions out of the retro — a mis-addressed send, a leaked key, 224MB
+  of recordings, two undelivered meetings. All in the wrap-up, none are mine to make
+- you: dashboard cards (step 3) — format settled, nothing renders it
+- me: `shabadoo open` returns before the coordinator registers the session; two
+  sessions independently wrote the same poll loop
+- me: no scoped broadcast — running the retro cost wsl eight hand-copied sends
+- nobody: spawn-with-inheritance, unsketched
 
 ## Log
+- 2026-08-29 first retro: 8 sessions asked, 14 findings shipped to the payload;
+  the round found more by being asked than by being read
 - 2026-08-29 signed the binary on the Mac it lands on: ad-hoc signing meant every
   release silently revoked TCC grants, which cost a peer a 12-minute measurement run
 - 2026-08-29 tool distribution — a release is a SET, published per node platform,
