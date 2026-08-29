@@ -1020,3 +1020,38 @@ func TestMissionWaitingSurvivesTheRoundTrip(t *testing.T) {
 		t.Error("truncated and dropped must be independently observable at the far end")
 	}
 }
+
+// The owner must survive the report path, for the reason mission_waiting did
+// not: a field that parses and never reaches the wire is worse than one that was
+// never added, because a dashboard gets written against it.
+func TestMissionOwnerSurvivesTheRoundTrip(t *testing.T) {
+	ten := testStore(t)
+	ctx := context.Background()
+	now := time.Now()
+	in := []Session{
+		{SessionID: "a", Agent: "n1", Project: "p", Kind: "claude",
+			MissionStatus: "active", MissionOwner: "p-mac"},
+		{SessionID: "b", Agent: "n1", Project: "q", Kind: "claude",
+			MissionStatus: "active"},
+	}
+	if err := ten.ReplaceAgentSessions(ctx, "n1", in, now); err != nil {
+		t.Fatal(err)
+	}
+	out, err := ten.ListSessions(ctx, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, s := range out {
+		got[s.SessionID] = s.MissionOwner
+	}
+	if got["a"] != "p-mac" {
+		t.Errorf("declared owner = %q, want p-mac", got["a"])
+	}
+	if got["b"] != "" {
+		t.Errorf("undeclared owner = %q, want empty", got["b"])
+	}
+	if got["a"] == got["b"] {
+		t.Error("declared and undeclared arrived identical")
+	}
+}

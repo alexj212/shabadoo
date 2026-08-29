@@ -267,6 +267,7 @@ func reportSessions(ctx context.Context) ([]hub.Session, error) {
 					sess.MissionNow = mission.Now
 					sess.MissionBlocked = mission.Blocked
 					sess.MissionUpdated = mission.Updated
+					sess.MissionOwner = mission.Owner
 					sess.MissionDropped = mission.Dropped
 					for _, w := range mission.Waiting {
 						sess.MissionWaiting = append(sess.MissionWaiting,

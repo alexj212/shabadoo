@@ -576,12 +576,27 @@ matter stop being noticed.
 If a group runs long, the items are too small — merge them, or they belong in
 `Log` rather than here.
 
-**One file, one writer, when a project spans machines.** The path rule makes a
-project checked out on two hosts *one* project with *one* `MISSION.md` — and
-nothing says who writes it. Two sessions editing it on a five-second report cycle
-collided twice before agreeing. Pick an owner, and have the other send its rows
-across rather than editing. The dashboard qualifies such a project with its node
-so both sides remain visible; the file itself has no such affordance.
+**One file, one writer, when a project spans machines — and say so in the file.**
+The path rule makes a project checked out on two hosts *one* project with *one*
+`MISSION.md` per host, and nothing said who writes it. Two sessions editing on a
+five-second report cycle collided twice before agreeing one by hand.
+
+So the header carries it:
+
+```markdown
+owner: minutes-mac
+```
+
+The other session sends its rows across rather than editing. **Visible rather
+than enforced**, deliberately: those collisions were caught quickly and cheaply,
+and what was missing was the file saying who writes it — a lock would be real
+machinery for a rare event, and one nobody can clear is worse than the collision.
+
+**Absent means nobody declared, not "this node owns it".** On a single-machine
+project that is normal and the dashboard says nothing. On one that spans
+machines, the dashboard flags it — and flags two checkouts naming *different*
+owners more loudly, because disagreeing about the writer is worse than having
+none.
 
 **Write the entries as they arise, not at the end.** A wrap-up reconstructed
 from memory is a summary, and it quietly omits whatever you have stopped

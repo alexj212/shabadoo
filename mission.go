@@ -34,6 +34,22 @@ type Mission struct {
 	Blocked  string `json:"mission_blocked,omitempty"` // absent when not blocked
 	Updated  string `json:"mission_updated,omitempty"`
 
+	// Owner is the session that WRITES this file, for a project checked out on
+	// more than one machine. The path rule makes such a checkout one project
+	// with one MISSION.md per host and no stated writer, and two sessions
+	// editing on a five-second report cycle collided twice in an hour before
+	// agreeing one by hand.
+	//
+	// Visible rather than enforced, deliberately. Those collisions were caught
+	// quickly and cheaply; what was missing was the file saying who writes it. A
+	// lock would be real machinery for a rare event, and a lock nobody can clear
+	// is worse than the collision it prevents.
+	//
+	// Absent means NOBODY DECLARED, which is not "this node owns it". On a
+	// single-node project that is normal and uninteresting. On one that spans
+	// nodes it is the warning.
+	Owner string `json:"mission_owner,omitempty"`
+
 	// Waiting is `## Waiting on`, one entry per line, each naming WHO is
 	// blocked. That owner is the whole value: it is what lets a dashboard group
 	// by blocker rather than by project, so a person reads their own rows and
@@ -156,6 +172,8 @@ func readMission(root string) *Mission {
 					}
 				case "updated":
 					m.Updated = clampMission(strings.TrimSpace(v))
+				case "owner":
+					m.Owner = clampMissionTo(strings.TrimSpace(v), 64)
 				}
 			}
 			continue

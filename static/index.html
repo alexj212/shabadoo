@@ -725,7 +725,7 @@ function renderMissions(nodes) {
       projects.set(key, {
         project: proj, node: n.node, status: w.mission_status || "",
         now: w.mission_now || "", waiting: w.mission_waiting || [],
-        dropped: w.mission_dropped || 0,
+        dropped: w.mission_dropped || 0, owner: w.mission_owner || "",
       });
     }
   }
@@ -750,6 +750,20 @@ function renderMissions(nodes) {
     // failure mode this panel exists to prevent, committed by the panel.
     if (m.dropped) dropped.push({ project: nameOf(m), n: m.dropped });
   }
+
+  // A project on ONE node needs no declared writer and saying so would be noise.
+  // A project on several with none declared is the collision that cost two
+  // sessions an hour, and it is invisible from either machine — each sees a
+  // perfectly normal file. This view is the only place both are visible at once,
+  // which makes flagging it this page's job rather than a linter's.
+  const unowned = [];
+  for (const [name, count] of seen) {
+    if (count < 2) continue;
+    const owners = new Set([...projects.values()]
+      .filter(m => m.project === name).map(m => m.owner));
+    if (owners.size === 1 && [...owners][0]) continue; // agreed, and declared
+    unowned.push({ project: name, split: owners.size > 1 });
+  }
   // you, unassigned, peers alphabetically, then nobody last.
   const rank = o => o === "you" ? 0 : o === "" ? 1 : o === "nobody" ? 3 : 2;
   const owners = [...groups.keys()].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
@@ -773,6 +787,11 @@ function renderMissions(nodes) {
   // Both tails are stated. "Nothing waiting" and "has not said" are different
   // answers and neither may be rendered as the other, or as absence.
   const tails = [];
+  for (const u of unowned) tails.push(u.split
+    ? `<b class="warnrow">${esc(u.project)} disagrees about its writer</b> — two ` +
+      `checkouts naming different owners is worse than naming none`
+    : `<b class="warnrow">${esc(u.project)} is on two machines with no declared ` +
+      `writer</b> — add <code>owner:</code> to its MISSION.md header`);
   if (dropped.length) tails.push(
     `<b class="warnrow">${dropped.reduce((a, d) => a + d.n, 0)} waiting ` +
     `${dropped.reduce((a, d) => a + d.n, 0) === 1 ? "row is" : "rows are"} not ` +

@@ -338,3 +338,24 @@ func TestLogClampsAndSaysSo(t *testing.T) {
 		t.Error("clamp cut a multi-byte rune")
 	}
 }
+
+// Declared, absent, and the closed-set states around it. What is pinned is that
+// an owner survives and that ABSENT stays absent — a parser defaulting the owner
+// to anything would satisfy a test that only checked the declared case, and
+// "nobody declared" is the state the dashboard's warning depends on.
+func TestOwnerIsReadAndAbsenceIsPreserved(t *testing.T) {
+	with := readMission(writeMission(t,
+		"# x\nstatus: active\nowner: minutes-mac\nupdated: 2026-08-29\n\n## Now\nn\n"))
+	if with.Owner != "minutes-mac" {
+		t.Errorf("Owner = %q, want minutes-mac", with.Owner)
+	}
+	without := readMission(writeMission(t, "# x\nstatus: active\n\n## Now\nn\n"))
+	if without.Owner != "" {
+		t.Errorf("Owner = %q for a file that declares none — absent must stay "+
+			"absent, or a project with no writer is indistinguishable from one "+
+			"whose writer is agreed", without.Owner)
+	}
+	if with.Status != "active" || without.Status != "active" {
+		t.Error("the owner key must not disturb the other header keys")
+	}
+}

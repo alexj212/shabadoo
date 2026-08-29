@@ -151,6 +151,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   mission_now TEXT NOT NULL DEFAULT '',
   mission_blocked TEXT NOT NULL DEFAULT '',
   mission_updated TEXT NOT NULL DEFAULT '',
+  mission_owner TEXT NOT NULL DEFAULT '',
   mission_waiting TEXT NOT NULL DEFAULT '',
   mission_dropped INTEGER NOT NULL DEFAULT 0,
   win_name     TEXT NOT NULL DEFAULT '',
@@ -301,6 +302,7 @@ func (s *Store) migrate(ctx context.Context) error {
 		`ALTER TABLE sessions ADD COLUMN mission_now TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE sessions ADD COLUMN mission_blocked TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE sessions ADD COLUMN mission_updated TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE sessions ADD COLUMN mission_owner TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE sessions ADD COLUMN mission_waiting TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE sessions ADD COLUMN mission_dropped INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE devices ADD COLUMN scope TEXT NOT NULL DEFAULT ''`,
@@ -962,6 +964,7 @@ type Session struct {
 	MissionNow     string `json:"mission_now,omitempty"`
 	MissionBlocked string `json:"mission_blocked,omitempty"`
 	MissionUpdated string `json:"mission_updated,omitempty"`
+	MissionOwner   string `json:"mission_owner,omitempty"`
 
 	// MissionWaiting is the owner-tagged blocker list. Stored as JSON in one
 	// column rather than a child table: it is at most six short rows, it is
@@ -1108,8 +1111,8 @@ func (t *Tenant) upsertSession(ctx context.Context, db execer, sess Session, now
 		                      input_state, asking, kind, description, pane_index,
 		                      tokens_in, tokens_out, tokens_cache, tools_stale, tools_known,
 		                      mission_status, mission_now, mission_blocked, mission_updated,
-		                      mission_waiting, mission_dropped)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		                      mission_owner, mission_waiting, mission_dropped)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(tenant, session_id) DO UPDATE SET
 		  agent=excluded.agent, project=excluded.project, cwd=excluded.cwd,
 		  alias=excluded.alias, window=excluded.window, status=excluded.status,
@@ -1123,6 +1126,7 @@ func (t *Tenant) upsertSession(ctx context.Context, db execer, sess Session, now
 		  tools_stale=excluded.tools_stale, tools_known=excluded.tools_known,
 		  mission_status=excluded.mission_status, mission_now=excluded.mission_now,
 		  mission_blocked=excluded.mission_blocked, mission_updated=excluded.mission_updated,
+		  mission_owner=excluded.mission_owner,
 		  mission_waiting=excluded.mission_waiting, mission_dropped=excluded.mission_dropped`,
 		t.id, sess.SessionID, sess.Agent, sess.Project, sess.CWD, sess.Alias,
 		sess.Window, sess.Status, now.Unix(), sess.TmuxSession, sess.Index,
@@ -1130,7 +1134,7 @@ func (t *Tenant) upsertSession(ctx context.Context, db execer, sess Session, now
 		sess.Kind, sess.Description, sess.Pane,
 		sess.TokensIn, sess.TokensOut, sess.TokensCache, sess.ToolsStale, sess.ToolsKnown,
 		sess.MissionStatus, sess.MissionNow, sess.MissionBlocked, sess.MissionUpdated,
-		encodeWaiting(sess.MissionWaiting), sess.MissionDropped)
+		sess.MissionOwner, encodeWaiting(sess.MissionWaiting), sess.MissionDropped)
 	return err
 }
 
@@ -1180,7 +1184,7 @@ func (t *Tenant) ListSessions(ctx context.Context, now time.Time) ([]Session, er
 		       s.activity, s.panes, s.input_state, s.asking, s.kind, s.description,
 		       s.pane_index, s.tokens_in, s.tokens_out, s.tokens_cache, s.tools_stale,
 		       s.tools_known, s.mission_status, s.mission_now, s.mission_blocked,
-		       s.mission_updated, s.mission_waiting, s.mission_dropped,
+		       s.mission_updated, s.mission_owner, s.mission_waiting, s.mission_dropped,
 		       COALESCE(n.note, '')
 		  FROM sessions s
 		  LEFT JOIN session_status n
@@ -1201,7 +1205,8 @@ func (t *Tenant) ListSessions(ctx context.Context, now time.Time) ([]Session, er
 			&s2.Activity, &s2.Panes, &s2.InputState, &s2.Asking, &s2.Kind, &s2.Description,
 			&s2.Pane, &s2.TokensIn, &s2.TokensOut, &s2.TokensCache, &s2.ToolsStale,
 			&s2.ToolsKnown, &s2.MissionStatus, &s2.MissionNow, &s2.MissionBlocked,
-			&s2.MissionUpdated, &waiting, &s2.MissionDropped, &s2.Note); err != nil {
+			&s2.MissionUpdated, &s2.MissionOwner, &waiting, &s2.MissionDropped,
+			&s2.Note); err != nil {
 			return nil, err
 		}
 		s2.MissionWaiting = decodeWaiting(waiting)
