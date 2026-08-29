@@ -88,6 +88,7 @@ func runNode(args []string) {
 		// So a worker can ask where to deliver instead of reading this
 		// directory's layout and guessing.
 		CoreSession: coreSessionIdentity,
+		SignSelf:    signSelf,
 		// The adapter is the transport's `any`-typed seam; reportSessions itself
 		// is concretely typed so `serve` can use its result without asserting.
 	}, handleOp, func(ctx context.Context) (any, error) {

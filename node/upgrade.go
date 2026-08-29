@@ -120,6 +120,21 @@ func (c *Client) upgrade(ctx context.Context, payload json.RawMessage) (any, err
 	if err := os.Rename(staged, self); err != nil {
 		return nil, fmt.Errorf("install %s: %w", self, err)
 	}
+	// Sign the NEW binary before restarting into it.
+	//
+	// On macOS a permission grant is recorded against the designated
+	// requirement, which for an ad-hoc binary is a bare hash of the bytes — so
+	// every upgrade silently revokes every grant a human has given. It cannot be
+	// done at build time because darwin binaries are cross-compiled elsewhere
+	// and `codesign` is macOS-only; this is the only moment the binary and an
+	// identity are on the same machine.
+	signed := ""
+	if c.cfg.SignSelf != nil {
+		signed = c.cfg.SignSelf(self)
+		if signed != "" {
+			log.Printf("node: %s", signed)
+		}
+	}
 	log.Printf("node: upgraded %s -> %s at %s; restarting", c.cfg.Version, req.Version, self)
 
 	// Reply first, then exit. The operator is waiting on this result, and a
@@ -129,7 +144,14 @@ func (c *Client) upgrade(ctx context.Context, payload json.RawMessage) (any, err
 		time.Sleep(500 * time.Millisecond)
 		os.Exit(exitUpgraded)
 	}()
-	return map[string]any{"upgraded": true, "version": req.Version, "restarting": true}, nil
+	out := map[string]any{"upgraded": true, "version": req.Version, "restarting": true}
+	if signed != "" {
+		// Reported to the operator, not just logged. An unsigned binary on a Mac
+		// revokes permissions somebody already granted, and the person running
+		// the upgrade is the one who can do something about it.
+		out["signing"] = signed
+	}
+	return out, nil
 }
 
 // download streams a release to w and returns its hex sha256.

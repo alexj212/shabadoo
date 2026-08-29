@@ -486,7 +486,16 @@ func (t *Tenant) ResolveSession(ctx context.Context, want string, now time.Time)
 		if strings.HasPrefix(want, "claude-") {
 			return want, nil // an offline session, addressed precisely
 		}
-		return "", fmt.Errorf("%w: %q (known: %s)", ErrNoSuchSession, want, sessionNames(sessions))
+		// "known aliases", not "known" — the list holds ALIASES, and a raw
+		// session id is also a valid recipient while never appearing in it. A
+		// peer wiring /whoami to session_send hit exactly that: the id it was
+		// handed does not appear here, so the refusal reads as though the id is
+		// unaddressable. It is not; they probed it and got a 200. A list that
+		// enumerates one namespace while the tool accepts two invites the reader
+		// to conclude the wrong thing, which is this refusal's whole failure
+		// mode — it reads as authoritative about what exists.
+		return "", fmt.Errorf("%w: %q (known aliases: %s; a full session id also works)",
+			ErrNoSuchSession, want, sessionNames(sessions))
 	default:
 		return "", fmt.Errorf("%q is ambiguous: %s", want, sessionNames(matches))
 	}

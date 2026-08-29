@@ -77,6 +77,11 @@ type Config struct {
 	// session. Returning false means "cannot tell", which is deliberately not
 	// the same as "there is none".
 	CoreSession func() (id, path string, ok bool)
+
+	// SignSelf is called on the newly-installed binary before the process
+	// restarts, on platforms where a permission grant is tied to a signature.
+	// Returns a human-readable outcome, empty where it does not apply.
+	SignSelf func(path string) string
 }
 
 // Handler executes one command locally and returns its result payload.
