@@ -101,7 +101,20 @@ deploy: install
 VENDOR_EXCLUDES := --exclude='.git' --exclude='.gitmodules' --exclude='*.bak.*' \
                    --exclude='__pycache__' --exclude='*.pyc' --exclude='.venv' \
                    --exclude='node_modules' --exclude='.DS_Store'
-VENDOR_FILES := CLAUDE.md settings.json claude-powerline.json \
+# CLAUDE.md is DELIBERATELY ABSENT. It is owned by config/ — the portable half,
+# the thing every machine is meant to receive improvements to — and vendoring the
+# live copy into config.local/ made a personal snapshot mask it permanently.
+#
+# That is not theoretical. On 2026-08-29 a node upgraded, self-installed its
+# payload at startup, and the stale 616-line vendored copy replaced a live
+# 956-line file, silently reverting an evening of guidance on the machine that
+# wrote it. The backup saved it; nothing announced it. The feature exists so an
+# upgrade brings its guidance WITH it, and here it did the exact opposite.
+#
+# Machine-specific content belongs in CLAUDE.local.md, which is never vendored.
+# Everything else here is config (settings) or cosmetic, where overlay-wins is
+# what you want.
+VENDOR_FILES := settings.json claude-powerline.json \
                 statusline-powerline.sh session-bridge-prompts.md
 # plans/ is deliberately absent: those are per-session plan documents, scratch
 # from whatever one machine was doing. Vendoring them shipped one WSL session's
@@ -200,6 +213,15 @@ vendor:
 # is tracked — which is the second check.
 vendor-check:
 	@fail=0; \
+	if [ -f $(LOCAL_DIR)/CLAUDE.md ]; then \
+	  echo "vendor-check: $(LOCAL_DIR)/CLAUDE.md exists."; \
+	  echo "  config/ OWNS CLAUDE.md. An overlay copy wins at install time, so it"; \
+	  echo "  masks every payload improvement AND overwrites the live file on a"; \
+	  echo "  node upgrade — which silently reverted an evening of guidance once."; \
+	  echo "  Machine-specific content belongs in CLAUDE.local.md, never vendored."; \
+	  echo "  Fix: rm $(LOCAL_DIR)/CLAUDE.md"; \
+	  fail=1; \
+	fi; \
 	for t in $(VENDOR_DENY); do \
 	  hits=$$(grep -ril "$$t" config/ 2>/dev/null); \
 	  if [ -n "$$hits" ]; then \
