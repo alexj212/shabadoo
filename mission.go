@@ -38,6 +38,18 @@ type Mission struct {
 	// stops. "you" is the human, "nobody" is open-but-unblocked, anything else
 	// is a session name.
 	Waiting []MissionWait `json:"mission_waiting,omitempty"`
+
+	// Dropped counts `Waiting on` lines the cap discarded ENTIRELY. It exists
+	// because the alternative is this feature failing at its own first job: a
+	// blocker present in the file, absent from the dashboard, with nobody able
+	// to find out — not the author, who watched it parse, and not the reader,
+	// who cannot miss what was never shown.
+	//
+	// Reported by two sessions who each blew the limit twice within an hour of
+	// reading the rule and while specifically watching for it. A limit enforced
+	// by silent truncation cannot be complied with by attention, and four
+	// failures under concentration is not a discipline problem.
+	Dropped int `json:"mission_dropped,omitempty"`
 }
 
 // MissionWait is one line of `## Waiting on`.
@@ -49,6 +61,12 @@ type MissionWait struct {
 	// blocker into a resolved one.
 	Owner string `json:"owner,omitempty"`
 	Item  string `json:"item"`
+
+	// Truncated marks a row that was cut to fit. Kept separate from Dropped
+	// because they are different answers: this row is present and shortened,
+	// that one is not here at all. Collapsing them would tell a reader "some
+	// rows are incomplete" when the truth is "one is missing".
+	Truncated bool `json:"truncated,omitempty"`
 }
 
 // missionStates is the closed set. A status outside it is dropped rather than
@@ -157,11 +175,14 @@ func readMission(root string) *Mission {
 // and a wrap-up that long is the sign the items are too small anyway.
 func (m *Mission) addWaiting(line string) {
 	const maxEntries = 6
-	if len(m.Waiting) >= maxEntries {
-		return
-	}
 	line = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "- "))
 	if line == "" {
+		return
+	}
+	// Counted BEFORE the cap check, so a dropped row is reported rather than
+	// forgotten. An empty line is not a dropped row and must not inflate this.
+	if len(m.Waiting) >= maxEntries {
+		m.Dropped++
 		return
 	}
 	w := MissionWait{Item: line}
@@ -173,9 +194,11 @@ func (m *Mission) addWaiting(line string) {
 		w.Owner = strings.ToLower(line[:i])
 		w.Item = strings.TrimSpace(line[i+1:])
 	}
+	full := w.Item
 	if w.Item = clampMissionTo(w.Item, 120); w.Item == "" {
 		return
 	}
+	w.Truncated = w.Item != full
 	m.Waiting = append(m.Waiting, w)
 }
 

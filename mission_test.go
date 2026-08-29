@@ -221,3 +221,47 @@ func TestWaitingIsBounded(t *testing.T) {
 		}
 	}
 }
+
+// Dropped, truncated and intact are THREE states and none may render as another.
+// Asserting only that a long file yields six rows passes for the parser that
+// silently discarded the rest — which is the behaviour being replaced.
+func TestWaitingReportsWhatItDiscarded(t *testing.T) {
+	body := "# x\nstatus: active\n\n## Now\nn\n\n## Waiting on\n" +
+		"- you: intact\n" +
+		"- you: " + strings.Repeat("c", 400) + "\n"
+	for i := 0; i < 6; i++ { // takes it past the six-row cap
+		body += "- you: filler\n"
+	}
+	m := readMission(writeMission(t, body))
+
+	if len(m.Waiting) != 6 {
+		t.Fatalf("want 6 reported, got %d", len(m.Waiting))
+	}
+	if m.Dropped != 2 {
+		t.Errorf("Dropped = %d, want 2 — a row discarded without being counted "+
+			"is a blocker present in the file, absent from the dashboard, and "+
+			"findable by nobody", m.Dropped)
+	}
+	if m.Waiting[0].Truncated {
+		t.Error("an intact row must not be marked truncated")
+	}
+	if !m.Waiting[1].Truncated {
+		t.Error("a cut row must say so; the reader cannot see what was removed")
+	}
+	// The distinction itself: present-but-shortened is not the same answer as
+	// not-here-at-all, and a build that reported one number for both would
+	// satisfy every assertion above except this one.
+	if m.Dropped > 0 && !m.Waiting[1].Truncated {
+		t.Error("dropped and truncated must be independently observable")
+	}
+}
+
+// An empty line is not a discarded row.
+func TestBlankLinesDoNotCountAsDropped(t *testing.T) {
+	m := readMission(writeMission(t, "# x\nstatus: active\n\n## Now\nn\n\n## Waiting on\n"+
+		"- you: one\n\n\n- you: two\n\n"))
+	if m.Dropped != 0 {
+		t.Errorf("Dropped = %d, want 0 — blank lines would inflate the count "+
+			"and make the warning cry wolf", m.Dropped)
+	}
+}

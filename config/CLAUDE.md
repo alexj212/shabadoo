@@ -546,6 +546,13 @@ nothing's playing" is a decision someone can make in one read — and if the cos
 turns out to be high and the risk low, they were right to skip it. Without both
 halves you have handed back the analysis you were meant to do.
 
+**A quantity invites a threshold judgment; a description invites a decision.**
+Reported from a row that had read *"5.2 GB with no expiry anyone chose"* for two
+days without being acted on. Rewritten as *"recordings of you and your home"*, it
+was acted on. A number asks the reader to decide whether it is big enough, which
+is a question they can defer forever; naming what the thing actually is does not
+offer that exit. Where you want somebody to act rather than assess, describe.
+
 **The unblocked group collapses to prose, deliberately.** It needs no action, so
 it gets no table. Rendering everything at equal weight is how the rows that
 matter stop being noticed.
@@ -553,6 +560,13 @@ matter stop being noticed.
 **Keep it brief.** Three tables is a wrap-up; ten is a report nobody finishes.
 If a group runs long, the items are too small — merge them, or they belong in
 `Log` rather than here.
+
+**One file, one writer, when a project spans machines.** The path rule makes a
+project checked out on two hosts *one* project with *one* `MISSION.md` — and
+nothing says who writes it. Two sessions editing it on a five-second report cycle
+collided twice before agreeing. Pick an owner, and have the other send its rows
+across rather than editing. The dashboard qualifies such a project with its node
+so both sides remain visible; the file itself has no such affordance.
 
 **Write the entries as they arise, not at the end.** A wrap-up reconstructed
 from memory is a summary, and it quietly omits whatever you have stopped

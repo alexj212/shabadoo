@@ -252,6 +252,8 @@
   .missions .silent { padding: .45rem .7rem .6rem; color: var(--dim);
     font-size: .78rem; border-top: 1px solid var(--line); }
   .missions .silent b { color: var(--fg); }
+  .missions .silent b.warnrow { color: var(--warn); }
+  .missions td.item .cut { color: var(--warn); font-size: .72rem; margin-left: .35rem; }
 
   /* The waiting queue. Rendered only when something is in it: a panel that is
      usually empty teaches people to skip that part of the page, which is the
@@ -723,13 +725,14 @@ function renderMissions(nodes) {
       projects.set(key, {
         project: proj, node: n.node, status: w.mission_status || "",
         now: w.mission_now || "", waiting: w.mission_waiting || [],
+        dropped: w.mission_dropped || 0,
       });
     }
   }
   if (!projects.size && !silent) return "";
 
   const groups = new Map(); // owner -> [{project, item, status}]
-  const quiet = [];
+  const quiet = [], dropped = [];
   // A project name is only ambiguous when it is on more than one node, so the
   // node is appended only then — a suffix on every row would be noise, and a
   // suffix on none of them is the bug above.
@@ -739,8 +742,13 @@ function renderMissions(nodes) {
     for (const it of m.waiting) {
       const owner = (it.owner || "").toLowerCase();
       if (!groups.has(owner)) groups.set(owner, []);
-      groups.get(owner).push({ project: nameOf(m), item: it.item, status: m.status });
+      groups.get(owner).push({ project: nameOf(m), item: it.item,
+        status: m.status, truncated: !!it.truncated });
     }
+    // A row the cap discarded is a blocker that exists and is not on this page.
+    // Saying so is the whole reason the parser counts them: silence here is the
+    // failure mode this panel exists to prevent, committed by the panel.
+    if (m.dropped) dropped.push({ project: nameOf(m), n: m.dropped });
   }
   // you, unassigned, peers alphabetically, then nobody last.
   const rank = o => o === "you" ? 0 : o === "" ? 1 : o === "nobody" ? 3 : 2;
@@ -759,11 +767,16 @@ function renderMissions(nodes) {
           <td class="proj">${esc(r.project)}${
             r.status && r.status !== "active"
               ? ` <span class="st">${esc(r.status)}</span>` : ""}</td>
-          <td class="item">${esc(r.item)}</td></tr>`).join("")}</tbody></table>`).join("");
+          <td class="item">${esc(r.item)}${
+            r.truncated ? `<span class="cut" title="cut to fit">…cut</span>` : ""}</td></tr>`).join("")}</tbody></table>`).join("");
 
   // Both tails are stated. "Nothing waiting" and "has not said" are different
   // answers and neither may be rendered as the other, or as absence.
   const tails = [];
+  if (dropped.length) tails.push(
+    `<b class="warnrow">${dropped.reduce((a, d) => a + d.n, 0)} waiting ` +
+    `${dropped.reduce((a, d) => a + d.n, 0) === 1 ? "row is" : "rows are"} not ` +
+    `shown</b> — over the six-row cap in ${dropped.map(d => esc(d.project)).join(", ")}`);
   if (quiet.length) tails.push(
     `<b>${quiet.length}</b> reporting, nothing waiting: ${quiet.map(esc).join(" · ")}`);
   if (silent) tails.push(
