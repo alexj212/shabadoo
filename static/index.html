@@ -232,6 +232,27 @@
     padding: 0.04rem 0.4rem; margin-left: 0.35rem; font-weight: 700;
   }
   #meta.waiting { color: var(--warn); }
+  /* ---- missions ----
+     The fleet grouped by WHO IS BLOCKED rather than by project. A list sorted by
+     project makes every reader scan all of it to find their own rows; grouped by
+     blocker, a person reads the first group and stops.
+
+     The three markers are the ones the convention defines, and the fourth state
+     is the one that matters most here: a project with no MISSION.md has NOT SAID,
+     which is not the same as having nothing to report. It is counted and named in
+     the footer rather than being silently absent, because absent renders exactly
+     like idle and that is the distinction this whole file argues about. */
+  .missions .mgroup { padding: .35rem .7rem .1rem; color: var(--dim);
+    font-size: .74rem; letter-spacing: .04em; text-transform: uppercase; }
+  .missions .mgroup .n { color: var(--fg); font-weight: 700; }
+  .missions td.mark { width: 1.6rem; text-align: center; }
+  .missions td.proj { white-space: nowrap; color: var(--fg); font-weight: 600; }
+  .missions td.proj .st { font-weight: 400; color: var(--warn); font-size: .74rem; }
+  .missions td.item { color: var(--dim); }
+  .missions .silent { padding: .45rem .7rem .6rem; color: var(--dim);
+    font-size: .78rem; border-top: 1px solid var(--line); }
+  .missions .silent b { color: var(--fg); }
+
   /* The waiting queue. Rendered only when something is in it: a panel that is
      usually empty teaches people to skip that part of the page, which is the
      one habit this must not create. */
@@ -672,6 +693,83 @@ function renderAgent(n, now, hubVersion) {
     </section>`;
 }
 
+// Every project's MISSION.md, grouped by who is blocked.
+//
+// The grouping IS the design. Ordered: Alex, then entries nobody was named for,
+// then each peer, then work that is deliberately unblocked. An unattributed
+// entry sits with the blocked groups and not with `nobody` — one is a blocker
+// with no assignee, the other is a decision that it needs no one, and rendering
+// them alike is how the first quietly becomes the second.
+function renderMissions(nodes) {
+  const projects = new Map(); // project -> {status, now, waiting, node}
+  let silent = 0;
+  for (const n of nodes) {
+    if (!n.online) continue;
+    for (const w of n.sessions || []) {
+      const proj = w.project || w.alias;
+      if (!proj || projects.has(proj)) continue;
+      if (!w.mission_status && !w.mission_now && !w.mission_headline) {
+        if (w.kind === "claude") silent++;
+        continue;
+      }
+      projects.set(proj, {
+        node: n.node, status: w.mission_status || "",
+        now: w.mission_now || "", waiting: w.mission_waiting || [],
+      });
+    }
+  }
+  if (!projects.size && !silent) return "";
+
+  const groups = new Map(); // owner -> [{project, item, status}]
+  const quiet = [];
+  for (const [proj, m] of projects) {
+    if (!m.waiting.length) { quiet.push(proj); continue; }
+    for (const it of m.waiting) {
+      const owner = (it.owner || "").toLowerCase();
+      if (!groups.has(owner)) groups.set(owner, []);
+      groups.get(owner).push({ project: proj, item: it.item, status: m.status });
+    }
+  }
+  // you, unassigned, peers alphabetically, then nobody last.
+  const rank = o => o === "you" ? 0 : o === "" ? 1 : o === "nobody" ? 3 : 2;
+  const owners = [...groups.keys()].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
+
+  const label = o => o === "you" ? "🔴 Waiting on you"
+    : o === "" ? "🔴 Waiting on — nobody named"
+    : o === "nobody" ? "⚪ Open, nobody blocked"
+    : `🔵 Waiting on ${esc(o)}`;
+  const mark = o => o === "nobody" ? "⚪" : o === "you" || o === "" ? "🔴" : "🔵";
+
+  const body = owners.map(o => `
+    <div class="mgroup">${label(o)} — <span class="n">${groups.get(o).length}</span></div>
+    <table><tbody>${groups.get(o).map(r => `
+      <tr><td class="mark">${mark(o)}</td>
+          <td class="proj">${esc(r.project)}${
+            r.status && r.status !== "active"
+              ? ` <span class="st">${esc(r.status)}</span>` : ""}</td>
+          <td class="item">${esc(r.item)}</td></tr>`).join("")}</tbody></table>`).join("");
+
+  // Both tails are stated. "Nothing waiting" and "has not said" are different
+  // answers and neither may be rendered as the other, or as absence.
+  const tails = [];
+  if (quiet.length) tails.push(
+    `<b>${quiet.length}</b> reporting, nothing waiting: ${quiet.map(esc).join(" · ")}`);
+  if (silent) tails.push(
+    `<b>${silent}</b> ${silent === 1 ? "project has" : "projects have"} no ` +
+    `MISSION.md — <i>has not said</i>, which is not the same as idle`);
+
+  return `
+    <section class="session missions">
+      <div class="panel-head">
+        <span class="ptitle">Missions</span>
+        <span class="badge">${projects.size}</span>
+        <span class="spacer"></span>
+      </div>
+      ${body}
+      ${tails.length ? `<div class="silent">${tails.join("<br>")}</div>` : ""}
+    </section>`;
+}
+
 // The waiting queue: every session blocked on a prompt, longest first.
 //
 // The per-row badge already marks a blocked session, but finding it means
@@ -773,6 +871,7 @@ function render(data) {
   }
   compose.hidden = false;
   root.innerHTML = renderQueue(nodes, now)
+    + renderMissions(nodes)
     + nodes.map(n => renderAgent(n, now, data.version)).join("");
 }
 
