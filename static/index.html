@@ -701,19 +701,27 @@ function renderAgent(n, now, hubVersion) {
 // with no assignee, the other is a decision that it needs no one, and rendering
 // them alike is how the first quietly becomes the second.
 function renderMissions(nodes) {
-  const projects = new Map(); // project -> {status, now, waiting, node}
+  // Keyed by NODE AND project, never by project alone. The same project name
+  // exists on two machines — `minutes` is checked out on both, with its own
+  // MISSION.md and its own blockers on each — so a map keyed by name drops one
+  // of them silently, which is indistinguishable from that machine having
+  // nothing to say. Found by reading a listing, not by review.
+  const projects = new Map(); // "node\0project" -> {project, node, status, waiting}
+  const seen = new Map();     // project -> node count, for disambiguating labels
   let silent = 0;
   for (const n of nodes) {
     if (!n.online) continue;
     for (const w of n.sessions || []) {
       const proj = w.project || w.alias;
-      if (!proj || projects.has(proj)) continue;
+      const key = n.node + "\0" + proj;
+      if (!proj || projects.has(key)) continue;
       if (!w.mission_status && !w.mission_now && !w.mission_headline) {
         if (w.kind === "claude") silent++;
         continue;
       }
-      projects.set(proj, {
-        node: n.node, status: w.mission_status || "",
+      seen.set(proj, (seen.get(proj) || 0) + 1);
+      projects.set(key, {
+        project: proj, node: n.node, status: w.mission_status || "",
         now: w.mission_now || "", waiting: w.mission_waiting || [],
       });
     }
@@ -722,12 +730,16 @@ function renderMissions(nodes) {
 
   const groups = new Map(); // owner -> [{project, item, status}]
   const quiet = [];
-  for (const [proj, m] of projects) {
-    if (!m.waiting.length) { quiet.push(proj); continue; }
+  // A project name is only ambiguous when it is on more than one node, so the
+  // node is appended only then — a suffix on every row would be noise, and a
+  // suffix on none of them is the bug above.
+  const nameOf = m => seen.get(m.project) > 1 ? `${m.project} @${m.node}` : m.project;
+  for (const m of projects.values()) {
+    if (!m.waiting.length) { quiet.push(nameOf(m)); continue; }
     for (const it of m.waiting) {
       const owner = (it.owner || "").toLowerCase();
       if (!groups.has(owner)) groups.set(owner, []);
-      groups.get(owner).push({ project: proj, item: it.item, status: m.status });
+      groups.get(owner).push({ project: nameOf(m), item: it.item, status: m.status });
     }
   }
   // you, unassigned, peers alphabetically, then nobody last.
