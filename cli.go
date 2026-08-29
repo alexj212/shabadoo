@@ -1372,13 +1372,28 @@ func runPublish(args []string) {
 	tool := fset.String("tool", "", "publish a SET for another tool, described by the version.json in that directory")
 	fset.Usage = func() {
 		fmt.Fprint(os.Stderr, `usage: shabadoo publish <file-or-dir>...
+       shabadoo publish --tool NAME <dist-dir>
 
 Uploads binaries to the coordinator so nodes can be upgraded to them. The
 platform is read from each file by running it, not guessed from its name — a
 mislabelled upload would be sent to a host that cannot run it.
 
-  make dist && shabadoo publish dist/     # every platform at once
+  make dist && shabadoo publish dist/     # this binary, every platform at once
   shabadoo publish dist/shabadoo-darwin-arm64
+
+--tool publishes ANOTHER tool's release, which is a SET rather than one file:
+the directory must hold each component plus the tool's own version --json output as
+version.json, and that manifest is what says which files belong to the set.
+
+  minutes version --json > dist/release/version.json
+  shabadoo publish --tool minutes dist/release
+  shabadoo upgrade --tool minutes --all
+
+Publishing a tool is PARTIAL by design. No host can build every set — a native
+helper may need MSVC or a signing identity — so each machine publishes the set
+for its own platform and the coordinator merges them. A node with no set is
+skipped rather than failed, because "not published for your platform" and
+"published and you are behind" are different answers.
 
 flags:
 `)
