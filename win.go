@@ -313,6 +313,7 @@ func runBoot(args []string) {
 	ctx := context.Background()
 	c := loadLaunchConfig()
 	failed := false
+	var held []string
 
 	verb := "opening"
 	if *dry {
@@ -339,6 +340,7 @@ func runBoot(args []string) {
 		// resources — the thing deactivation exists for.
 		if isDeactivated(cwd) {
 			fmt.Fprintf(os.Stderr, "boot: deactivated, skipping: %s\n", cwd)
+			held = append(held, cwd)
 			continue
 		}
 		name := c.windowName(cwd)
@@ -365,6 +367,17 @@ func runBoot(args []string) {
 			fmt.Fprintf(os.Stderr, "boot: failed for %s: %v\n", cwd, err)
 			failed = true
 		}
+	}
+	// Stated as a total with the remedy, not left as N lines among the others.
+	// This runs from cron into a log nobody tails, so a skip that reads exactly
+	// like an open is a skip nobody ever sees — seventeen of nineteen folders
+	// were held this way, and the visible symptom was simply that boot did not
+	// work. A count is also what makes it legible: one held folder is a choice
+	// somebody made, and most of the list held is a mistake.
+	if len(held) > 0 {
+		fmt.Fprintf(os.Stderr, "boot: %d of the %s listed %s closed on purpose and "+
+			"stayed shut. `shabadoo boot add <dir>` clears that; `shabadoo boot list` shows which.\n",
+			len(held), "folders", map[bool]string{true: "was", false: "were"}[len(held) == 1])
 	}
 	if failed {
 		os.Exit(1)

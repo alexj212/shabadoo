@@ -267,6 +267,7 @@ func runBootList(args []string) {
 
 	open := openFolders()
 	fmt.Printf("%s\n\n", *path)
+	held := 0
 	for _, f := range folders {
 		mark, note := " ", ""
 		switch {
@@ -276,10 +277,22 @@ func runBootList(args []string) {
 			mark, note = "!", "  (missing — boot will skip it)"
 		case open[resolve(f)]:
 			mark, note = "*", "  (already open)"
+		case isDeactivated(f):
+			// Listed AND deactivated is a contradiction: this file says start
+			// it, the other says do not. Nothing said so before, and the cost
+			// was a boot list of nineteen folders opening two — the skips went
+			// to a watchdog log nobody tails, so from every visible surface the
+			// list simply did not work.
+			mark, note = "x", "  (closed on purpose — boot will skip it)"
+			held++
 		}
 		fmt.Printf("  %s %s%s\n", mark, f, note)
 	}
-	fmt.Println("\n  * already open    ! missing")
+	fmt.Println("\n  * already open    ! missing    x closed on purpose")
+	if held > 0 {
+		fmt.Printf("\n%d listed folder%s will not open. `shabadoo boot add <dir>` clears that.\n",
+			held, plural(held))
+	}
 }
 
 func runBootAdd(args []string) {
@@ -312,6 +325,7 @@ func runBootAdd(args []string) {
 		for _, f := range folders {
 			if resolve(f) == resolve(abs) {
 				fmt.Printf("already listed: %s\n", f)
+				undeactivate(abs)
 				goto next
 			}
 		}
@@ -319,6 +333,7 @@ func runBootAdd(args []string) {
 			fatalf("%v", err)
 		}
 		fmt.Printf("added %s\n", abs)
+		undeactivate(abs)
 	next:
 	}
 }
@@ -446,4 +461,27 @@ func resolve(p string) string {
 func dirExists(p string) bool {
 	st, err := os.Stat(p)
 	return err == nil && st.IsDir()
+}
+
+// undeactivate clears a deactivation because somebody has just asked, in the
+// plainest way there is, for this folder to run.
+//
+// Listing a folder for boot is the same class of statement as `open`: explicit,
+// present-tense, and made by a person watching. Deactivation is episodic — "I
+// closed this one just now" — and the older of two statements must not silently
+// beat the newer one.
+//
+// It is also the only repair anybody can reach. The trap is entered by exiting
+// a session to restart it, which is indistinguishable at the exit from closing
+// one to free resources, and it is left by editing a file nothing points at.
+// Reported after a boot list of nineteen folders opened two.
+//
+// Said out loud, because a silent repair of a state the operator could not see
+// teaches nothing about why their folders were not opening.
+func undeactivate(dir string) {
+	if !isDeactivated(dir) {
+		return
+	}
+	clearDeactivated(dir)
+	fmt.Printf("  (was closed on purpose — cleared, so boot will open it again)\n")
 }
