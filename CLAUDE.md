@@ -769,6 +769,21 @@ looking completely healthy, which is the same failure family as `tools_stale`.
 It was found the same way, too — a peer ran the right command out of `CLAUDE.md`
 and never opened the skill, an hour after the skill was rewritten.
 
+**And it NAMES the files, not just the count** — `payload_drift`, up to six,
+sorted, with `payload_pending` staying the authoritative total. This is Phase
+11's first step and the argument for it was paid the same afternoon: a count of
+`1` stood on this node while the file behind it was a skill whose vendored copy
+was three and a half months stale, and nobody looked because nothing said WHICH
+file. A quantity invites a threshold judgment a reader can defer forever; a name
+does not offer that exit. Same reasoning as naming the projects with no
+`MISSION.md`.
+
+The cap is its own function (`capDrift`) so it can be TESTED. A test that waited
+for a seventh differing file would have skipped, because this build embeds
+exactly six — and **a check that only ever skips is exactly as useless as one
+that only ever fails**, which is a peer's finding from that morning met an hour
+later in my own test.
+
 The agent compares its installed `~/.claude` against the payload it would
 install and reports the count on every periodic report — **not at login**, since
 it changes the moment somebody runs `setup` and a badge that only cleared on
@@ -2523,7 +2538,7 @@ The short version, because a pointer nobody follows is a pointer nobody reads:
 | ~~**9 — reading a conversation on a phone**~~ | **shipped** — see above |
 | ~~**10 — the board**~~ | **shipped** — see above |
 | **10b — browsing a project's files** | rides Phase 9's read surface, rooted at project directories rather than the filesystem |
-| **11 — the ethos as a managed thing** | name the drifted payload files rather than counting them; then rule layering; then proposals upward. Speculative past the first step |
+| **11 — the ethos as a managed thing** | ~~name the drifted payload files~~ **shipped**; then rule layering, then proposals upward. Speculative past that |
 
 Three questions are recorded as genuinely undecided in `docs/direction.md` —
 the board's shape, how much of a conversation a phone should show, and whether a

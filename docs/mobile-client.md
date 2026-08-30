@@ -349,6 +349,7 @@ All JSON, all behind the bearer token unless noted.
         "capabilities_known": true,
         "payload_known": true,
         "payload_pending": 0,
+        "payload_drift": [],
       "sessions": [ … ]
     }
   ]
@@ -381,6 +382,14 @@ when `capabilities_known` is `true` does an empty list mean "this host can do
 none of these things". Treating the two as the same is how a router declines to
 send work a machine could perfectly well have done — and `upgrade --all` is
 deliberately serial, so a mixed fleet exists during every upgrade.
+
+**`payload_drift` NAMES up to six of those files**, sorted, while
+`payload_pending` stays the authoritative total — so `2 pending` with one name
+listed means one more is not shown, not that the count is wrong. Absent when
+nothing differs, and absent when the node could not look (see `payload_known`
+below). A count on its own is a question a reader defers forever: one stood at
+`1` on a live node while the file behind it was three and a half months stale,
+and nobody looked because nothing said which.
 
 **`payload_pending` is how many of that node's `~/.claude` files differ from the
 payload inside its own binary** — non-zero means somebody should run `shabadoo

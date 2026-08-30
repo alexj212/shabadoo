@@ -363,6 +363,9 @@ type nodeView struct {
 	// look" are different answers and only one of them means the node is fine.
 	PayloadKnown   bool `json:"payload_known"`
 	PayloadPending int  `json:"payload_pending,omitempty"`
+	// PayloadDrift names which files differ, so "1 pending" is actionable
+	// rather than a number somebody defers.
+	PayloadDrift []string `json:"payload_drift,omitempty"`
 	Sessions          []Session `json:"sessions"`
 }
 
@@ -428,6 +431,7 @@ func (h *humanAPI) sessionsPayload(ctx context.Context) (map[string]any, error) 
 			Capabilities:      h.hub.NodeCapabilities(tenant, node),
 			PayloadKnown:      h.hub.NodeInstalledPayload(tenant, node).Known,
 			PayloadPending:    h.hub.NodeInstalledPayload(tenant, node).Pending,
+			PayloadDrift:      h.hub.NodeInstalledPayload(tenant, node).Drift,
 			CapabilitiesKnown: h.hub.CapabilitiesKnown(tenant, node),
 			Sessions:          sessions,
 		})

@@ -554,6 +554,13 @@ type reportReq struct {
 type NodePayload struct {
 	Known   bool `json:"payload_known"`
 	Pending int  `json:"payload_pending"`
+
+	// Drift names the files, capped by the node. A count is a question a reader
+	// can defer forever; a list is one they can act on — and a count of 1 stood
+	// on a node for months while the file behind it was a skill whose vendored
+	// copy was three and a half months stale, with nothing anywhere saying
+	// which. Pending stays the authoritative total.
+	Drift []string `json:"payload_drift,omitempty"`
 }
 
 func (h *Hub) handleReport(w http.ResponseWriter, r *http.Request) {

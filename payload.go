@@ -35,7 +35,25 @@ import (
 type PayloadState struct {
 	Known   bool `json:"payload_known"`
 	Pending int  `json:"payload_pending"`
+
+	// Drift NAMES the files rather than only counting them, because a count is
+	// a question a reader can defer forever and a list is one they can act on —
+	// the same reason the fleet view names projects with no MISSION.md instead
+	// of tallying them.
+	//
+	// It is not decoration. A count of 1 stood on this node while the file
+	// behind it was a skill whose vendored copy was three and a half months
+	// stale, and nothing on any surface said WHICH file, so nobody looked.
+	//
+	// Capped, with the remainder counted: this rides every periodic report, and
+	// a node whose whole ~/.claude differs must not make that report expensive
+	// for the nodes beside it. Pending stays authoritative for the total.
+	Drift []string `json:"payload_drift,omitempty"`
 }
+
+// maxDrift bounds the named list. Six is a wrap-up's worth: past that the answer
+// is "your config is a long way behind" rather than a list anybody reads.
+const maxDrift = 6
 
 var payloadCache = struct {
 	mu    sync.Mutex
@@ -74,11 +92,13 @@ func scanPayload(claudeDir string) PayloadState {
 		return PayloadState{} // cannot tell; must not read as clean
 	}
 	n := 0
+	var drift []string
 	for rel, want := range payload {
 		got, err := os.ReadFile(filepath.Join(claudeDir, rel))
 		switch {
 		case errors.Is(err, fs.ErrNotExist):
 			n++ // absent: setup would install it
+			drift = append(drift, rel)
 		case err != nil:
 			// A file we cannot read is a file we cannot compare. Unreadable is
 			// not "the same", so this is the one case that gives up entirely
@@ -86,9 +106,10 @@ func scanPayload(claudeDir string) PayloadState {
 			return PayloadState{}
 		case !bytes.Equal(got, want):
 			n++
+			drift = append(drift, rel)
 		}
 	}
-	return PayloadState{Known: true, Pending: n}
+	return PayloadState{Known: true, Pending: n, Drift: capDrift(drift, maxDrift)}
 }
 
 // defaultClaudeDir is where setup installs by default, resolved the same way.
@@ -220,7 +241,6 @@ func installPayload(claudeDir string) {
 	payloadCache.mu.Unlock()
 }
 
-
 // buildTimeOrZero parses the build stamp, or reports zero when there is none.
 //
 // Zero means CANNOT TELL, never "the beginning of time" — a comparison against
@@ -253,4 +273,22 @@ func newerThanBuild(dst string, built time.Time) bool {
 		return false // no file: nothing to protect, install it
 	}
 	return fi.ModTime().After(built)
+}
+
+// capDrift sorts and bounds the named list.
+//
+// Its own function so the cap is testable without a payload large enough to
+// trip it — this build embeds six files, so a test that waits for a seventh
+// SKIPS, and a check that only ever skips is exactly as useless as one that
+// only ever fails. Sorted because map iteration is random, and a list that
+// reorders itself every five seconds reads as churn rather than as a fact.
+//
+// The COUNT is never capped: a reader told six when forty differ has been given
+// a wrong number, not a short one.
+func capDrift(list []string, max int) []string {
+	sort.Strings(list)
+	if len(list) > max {
+		return list[:max]
+	}
+	return list
 }

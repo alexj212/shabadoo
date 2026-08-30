@@ -425,13 +425,13 @@ func resolveNode(c *client, flagVal string) (string, error) {
 // ---------------------------------------------------------------------------
 
 type cliSession struct {
-	Alias      string `json:"alias"`
-	Window     string `json:"window"`
-	CWD        string `json:"cwd"`
-	Status     string `json:"status"`
-	Command    string `json:"command"`
-	InputState string `json:"input_state"`
-	Pending    int    `json:"pending"`
+	Alias       string `json:"alias"`
+	Window      string `json:"window"`
+	CWD         string `json:"cwd"`
+	Status      string `json:"status"`
+	Command     string `json:"command"`
+	InputState  string `json:"input_state"`
+	Pending     int    `json:"pending"`
 	Note        string `json:"note"`
 	Project     string `json:"project"`
 	Description string `json:"description"`
@@ -445,8 +445,8 @@ type cliSession struct {
 	// standing across fifteen projects answered "nothing is stuck".
 	MissionWaiting []cliWait `json:"mission_waiting"`
 	MissionDropped int       `json:"mission_dropped"`
-	Asking     string `json:"asking"`
-	ToolsStale bool   `json:"tools_stale"`
+	Asking         string    `json:"asking"`
+	ToolsStale     bool      `json:"tools_stale"`
 
 	TmuxSession string `json:"tmux_session"`
 	Index       int    `json:"index"`
@@ -503,15 +503,16 @@ func fetchSessions(c *client) ([]cliNode, error) {
 }
 
 type cliNode struct {
-	Node     string       `json:"node"`
-	Online   bool         `json:"online"`
+	Node   string `json:"node"`
+	Online bool   `json:"online"`
 	// PayloadKnown separates "config is current" from "could not check" — a
 	// node that cannot look must not render as one that looked and found
 	// nothing.
-	PayloadKnown   bool `json:"payload_known"`
-	PayloadPending int  `json:"payload_pending"`
-	Version  string       `json:"version"`
-	Sessions []cliSession `json:"sessions"`
+	PayloadKnown   bool         `json:"payload_known"`
+	PayloadPending int          `json:"payload_pending"`
+	PayloadDrift   []string     `json:"payload_drift"`
+	Version        string       `json:"version"`
+	Sessions       []cliSession `json:"sessions"`
 }
 
 // nameAndFlags pulls a leading positional NAME out of an argument list and
@@ -654,8 +655,18 @@ func runSessions(args []string) {
 		if n.Online && n.PayloadKnown && n.PayloadPending > 0 {
 			// The binary was upgraded and the config step never ran there, so
 			// this node is running current code against stale guidance.
+			// Named, not counted. A number here stood for months while the
+			// file behind it was months stale, and nobody looked because
+			// nothing said which file it was.
 			cfg = fmt.Sprintf(", %d config file%s pending — run `shabadoo setup` there",
 				n.PayloadPending, plural(n.PayloadPending))
+			if len(n.PayloadDrift) > 0 {
+				more := ""
+				if n.PayloadPending > len(n.PayloadDrift) {
+					more = fmt.Sprintf(" +%d more", n.PayloadPending-len(n.PayloadDrift))
+				}
+				cfg += ": " + strings.Join(n.PayloadDrift, ", ") + more
+			}
 		}
 		fmt.Printf("%s (%s, %d session%s%s)\n",
 			n.Node, state, len(n.Sessions), plural(len(n.Sessions)), cfg)
@@ -1484,7 +1495,7 @@ flags:
 
 	if *tool != "" {
 		if len(paths) != 1 {
-			fatalf("--tool takes exactly one directory: a release set is described "+
+			fatalf("--tool takes exactly one directory: a release set is described " +
 				"by the version.json inside it, not assembled from a file list")
 		}
 		publishToolSet(c, *tool, paths[0])
@@ -1962,7 +1973,6 @@ flags:
 		fmt.Printf("revoked %s\n", m.label)
 	}
 }
-
 
 // waitForSession blocks until the coordinator can see the session that was just
 // started, or says plainly that it cannot.
