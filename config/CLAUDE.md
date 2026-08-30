@@ -110,6 +110,20 @@ of bug into a line of output.
 "released" twice in one session while the work sat on one laptop; a peer found
 it by fetching. Use the word for the state that is actually true.
 
+**And this is about ARTIFACTS, not about releases** — filing it as a
+release-reporting rule is what let it miss. A session held the rule "the privacy
+policy is amended in the same commit as any change to the read surface", honoured
+it every single time, and it bought nothing: the file it names lived in their
+repo while the document anybody actually reads is served from another one.
+Committed and published, again, in a legal document's clothes. In their words:
+*"the version of that lesson I had already written down was about releases, so I
+did not recognise it wearing a legal document's clothes."*
+
+**An invariant whose two halves live in different repositories is not an
+invariant, it is a habit** — and it reports success by being followed. If a rule
+says two things must move together, something has to be able to see both of them
+at once. Nothing did.
+
 **A number you did not measure must not be stated in the grammar of one.** "It
 costs one prompt" was a prediction wearing the clothes of a measurement; it was
 quoted onward as the reason a change was urgent, and measured later at zero.
@@ -135,6 +149,30 @@ scripted check whose patch silently failed to apply, reported by the test runner
 as `ok (cached)`. **Before trusting a check, name the input that would make it
 red. If you cannot, it is decoration.** That one question would have caught five
 of the six.
+
+**A check that has never gone GREEN is as broken as one that has never gone
+red.** The other half of the rule above, and the one nobody thinks to ask: name
+the input that would make it *pass*, and actually run it. A checker that had only
+ever failed was read as rigour, and carried three defects at once — written an
+hour earlier for the express purpose of catching this class:
+
+- It banned a word the page was **required** to carry, in the past tense, so a
+  reader of the old policy is told what they read is no longer true. Its author
+  specified that sentence and then wrote a check forbidding it. **Assert the
+  claim a document has to make, never the presence of a word.**
+- It had no assertion at all about the one disclosure that was actually wrong, so
+  it was red for a reason that was not real while blind to one that was — and
+  *the false alarm is what hid the real gap*. Fixing only the first defect would
+  have turned it fully green on a wrong page.
+- It matched against **wrapped** text. A phrase present on the page, broken
+  across a line, was reported absent — a silent pass. Roughly half its assertions
+  were passing by luck about where a line happened to break. Flatten whitespace
+  before matching prose.
+
+Fixture it in **both directions**: the known-bad input must go red, and a correct
+one — with deliberately awkward formatting — must go green. The green fixture is
+the one that gets skipped, and it is the one that catches a check which cannot
+pass.
 
 **And confirm the check ran, because "did not run" wears good disguises.** Three
 in one evening, each read as a pass:
