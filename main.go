@@ -149,7 +149,13 @@ func main() {
 	case "help":
 		usage()
 	default:
-		fmt.Fprintf(os.Stderr, "shabadoo: unknown command %q\n\n", args[0])
+		// An unknown command is far more often an old binary than a typo, so
+		// the build is named in the error itself rather than left to the usage
+		// block below it — the reader's next move is `upgrade`, not a re-read
+		// of the command list.
+		fmt.Fprintf(os.Stderr, "shabadoo: unknown command %q\n", args[0])
+		fmt.Fprintf(os.Stderr, "this binary is %s%s — if that command was added later, "+
+			"run `shabadoo upgrade --all` or `make install`\n\n", version, builtSuffix())
 		usage()
 		os.Exit(2)
 	}
@@ -183,6 +189,19 @@ func isHelpFlag(s string) bool {
 }
 
 func usage() {
+	// The build, on the first line of every help screen.
+	//
+	// Because the commonest confusing failure here is not a missing feature, it
+	// is a STALE BINARY: `shabadoo dash` printed "unknown command" on a host
+	// where the command had shipped, and nothing on screen said the binary
+	// predated it. `version` answered it in one line, but only for somebody who
+	// already suspected the answer — and the whole difficulty of this class is
+	// that nobody suspects it.
+	//
+	// The build date is what makes it actionable rather than decorative: a tag
+	// alone cannot be compared against anything a reader knows, while a date
+	// can be read against "when did that land".
+	fmt.Fprintf(os.Stderr, "shabadoo %s%s\n\n", version, builtSuffix())
 	fmt.Fprint(os.Stderr, `shabadoo — coordinator, per-host agent, and installer for the Claude
 launcher toolchain they drive.
 
@@ -231,4 +250,14 @@ usage:
 
 Run 'shabadoo <command> -h' for a command's flags.
 `)
+}
+
+
+// builtSuffix renders the build date beside a version, and nothing when there
+// is none — an unstamped build must not be dressed up as a dated one.
+func builtSuffix() string {
+	if buildTime == "" {
+		return ""
+	}
+	return " (built " + buildTime + ")"
 }
