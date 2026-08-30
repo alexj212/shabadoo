@@ -492,6 +492,11 @@ so a session needs no credential of its own.
 | `session_send` | direct message to one session; nudges it if its host is connected |
 | `session_broadcast` | to a topic — **nothing subscribes by default**, so this reaches zero unless somebody called `session_subscribe`. Almost every message has exactly one right recipient; prefer `session_send` |
 | `session_inbox_drain` | collect and mark delivered, in one transaction. A hook already drains on each prompt, so an empty result usually means it already arrived — not that nothing was sent |
+| `session_status_set` | what you are doing right now, in a few words. **It shows up as `note` in `session_list`**, which is where a peer deciding whether to wait for you will look. Set it when starting something long; empty string clears it; it ages out after 30 minutes |
+| `task_create` | hand work over AND track it. Use instead of `session_send` when asking somebody to DO something: an unanswered task is chased, an unanswered message is forgotten |
+| `task_list` / `task_update` | what is outstanding, and reporting where it got to |
+| `notify_send` | reach a human (routed by the coordinator, not by each host) |
+
 
 **Delivered is not read, and `pending: 0` cannot tell you which.** Draining ACKS
 a message, and an ack is a claim it reached a reader — so nothing may ack on a
@@ -506,10 +511,6 @@ So startup only SAYS there is mail (`shabadoo inbox --peek`, which does not ack)
 and the first prompt delivers it. **When you hand work to a session that is not
 running, the count going to zero is not evidence it landed** — a session that has
 registered has not necessarily read a word.
-| `session_status_set` | what you are doing right now, in a few words. **It shows up as `note` in `session_list`**, which is where a peer deciding whether to wait for you will look. Set it when starting something long; empty string clears it; it ages out after 30 minutes |
-| `task_create` | hand work over AND track it. Use instead of `session_send` when asking somebody to DO something: an unanswered task is chased, an unanswered message is forgotten |
-| `task_list` / `task_update` | what is outstanding, and reporting where it got to |
-| `notify_send` | reach a human (routed by the coordinator, not by each host) |
 
 **Who sees a task:** the session it was handed to, whoever asked, and any human
 reading the dashboard or `shaba blockers`. It is not private and it does not
@@ -784,7 +785,7 @@ Two mechanical rules underneath that:
   a project the coordinator can already see. One in its node's startable folder
   list (in the boot list, or opened there before) is stored against the id it
   would have, and **waits there until that session's first PROMPT** — starting a
-session does not deliver it. **A project it has never seen is refused
+  session does not deliver it. **A project it has never seen is refused
   at send time and nothing is kept.** Check the reply; a refusal is an error, not
   a queue. Text typed into a pane is swallowed whole by the
   trust dialog a never-run folder opens with, and `send` still reports success.
