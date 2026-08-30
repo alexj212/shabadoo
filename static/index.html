@@ -14,6 +14,26 @@
     --warn: #e6b850; --danger: #ff6b6b; --danger-glow: rgba(255,107,107,.4);
     --term-bg: #080a0f; --term-fg: #e7eaf1;
     --radius: 9px;
+
+    /* Type scale. There were TWENTY-THREE distinct font sizes in this file,
+       between 0.6 and 1.5rem, because each surface was built in a different
+       hour and picked a number that looked right on its own. Six steps, and a
+       new value has to justify itself against them. */
+    --t-2xs: 0.66rem;  /* uppercase micro-labels only */
+    --t-xs:  0.72rem;  /* metadata, timestamps, counts */
+    --t-sm:  0.78rem;  /* secondary and dim prose */
+    --t-md:  0.84rem;  /* body — anything meant to be READ */
+    --t-lg:  0.95rem;  /* panel titles */
+    --t-xl:  1.5rem;   /* the page title, once */
+
+    /* Spacing, on the same argument. */
+    --s1: 0.25rem; --s2: 0.45rem; --s3: 0.6rem; --s4: 0.85rem; --s5: 1.15rem;
+
+    /* The minimum a finger can hit. Apple and Google both say ~44px; every row
+       built at 1400px landed near 24 and was fine with a mouse. This is the
+       single biggest phone problem in the file and it is invisible on a
+       desktop. */
+    --tap: 44px;
   }
   * { box-sizing: border-box; }
   html { color-scheme: dark; }
@@ -35,11 +55,11 @@
     box-shadow: 0 1px 0 rgba(255,255,255,.02) inset, 0 8px 24px rgba(0,0,0,.35);
   }
   h1 {
-    font-size: 0.95rem; margin: 0; font-weight: 700; letter-spacing: .02em;
+    font-size: var(--t-lg); margin: 0; font-weight: 700; letter-spacing: .02em;
     display: flex; align-items: baseline; gap: 0.5rem;
   }
-  h1 .sub { color: var(--dim); font-weight: 400; font-size: 0.72rem; letter-spacing: .12em; text-transform: uppercase; }
-  #meta { color: var(--dim); font-size: 0.76rem; }
+  h1 .sub { color: var(--dim); font-weight: 400; font-size: var(--t-xs); letter-spacing: .12em; text-transform: uppercase; }
+  #meta { color: var(--dim); font-size: var(--t-sm); }
   #meta.err { color: var(--danger); }
   header .spacer { flex: 1; }
 
@@ -66,7 +86,7 @@
   .panel-head .ptitle { font-weight: 700; letter-spacing: .01em; }
   .panel-head .spacer { flex: 1; }
   .badge {
-    font-size: 0.66rem; color: var(--dim); border: 1px solid var(--line2);
+    font-size: var(--t-2xs); color: var(--dim); border: 1px solid var(--line2);
     padding: 0.08rem 0.45rem; border-radius: 999px; letter-spacing: .03em;
     text-transform: uppercase;
   }
@@ -86,7 +106,7 @@
   /* ---- audit: who drove which pane. The only record that survives a pane. ---- */
   #audit { margin: 1.2rem 0 0; }
   #audit .panel-head { cursor: pointer; }
-  #audit table { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
+  #audit table { width: 100%; border-collapse: collapse; font-size: var(--t-sm); }
   #audit td {
     padding: 0.22rem 0.8rem; border-bottom: 1px solid var(--line);
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
@@ -100,7 +120,7 @@
   /* ---- mail: the durable inbox that replaced NATS ---- */
   #mail { margin: 1.2rem 0 0; }
   #mail .panel-head { cursor: pointer; }
-  #mail table { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
+  #mail table { width: 100%; border-collapse: collapse; font-size: var(--t-sm); }
   #mail td {
     padding: 0.28rem 0.55rem; border-top: 1px solid var(--line);
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -125,14 +145,14 @@
   #mail .arrow { color: var(--dim); }
   /* ---- devices: who may drive these panes ---- */
   #devices { margin: 1.2rem 0 0; }
-  #devices table { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
+  #devices table { width: 100%; border-collapse: collapse; font-size: var(--t-sm); }
   #devices td { padding: 0.32rem 0.55rem; border-top: 1px solid var(--line); }
   #devices td.dlabel { color: var(--fg); }
   #devices td.dmeta { color: var(--dim); white-space: nowrap; }
   #devices td.dact { text-align: right; width: 1%; white-space: nowrap; }
   #devices tr.self td.dlabel { color: var(--accent2); }
   .tag {
-    font-size: 0.62rem; letter-spacing: .06em; text-transform: uppercase;
+    font-size: var(--t-2xs); letter-spacing: .06em; text-transform: uppercase;
     border-radius: 999px; padding: 0.04rem 0.4rem; margin-left: 0.35rem;
     border: 1px solid var(--line2); color: var(--dim);
   }
@@ -151,11 +171,11 @@
   }
   #pairout .qrwrap img { width: 216px; height: 216px; display: block; }
   #pairout .pcode {
-    font-family: var(--mono); font-size: 1.5rem; letter-spacing: .18em;
+    font-family: var(--mono); font-size: var(--t-xl); letter-spacing: .18em;
     color: var(--accent2); user-select: all;
   }
-  #pairout .plink { word-break: break-all; font-size: 0.76rem; }
-  #pairout .pexp { color: var(--warn); font-size: 0.76rem; }
+  #pairout .plink { word-break: break-all; font-size: var(--t-sm); }
+  #pairout .pexp { color: var(--warn); font-size: var(--t-sm); }
   #pairform { display: flex; gap: 0.5rem; flex-wrap: wrap; padding: 0.6rem 0.7rem; }
   #pairform input { flex: 1 1 12rem; }
 
@@ -167,10 +187,10 @@
     border-bottom: 1px dashed var(--line2);
   }
   .node-head .nodename {
-    font-weight: 700; font-size: 0.95rem; letter-spacing: .02em;
+    font-weight: 700; font-size: var(--t-lg); letter-spacing: .02em;
   }
   .node-head .nodeurl {
-    margin-left: auto; color: var(--dim); font-size: 0.7rem;
+    margin-left: auto; color: var(--dim); font-size: var(--t-xs);
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 45%;
   }
@@ -181,7 +201,7 @@
   th, td { text-align: left; padding: 0.42rem 0.8rem; }
   tbody td { border-top: 1px solid var(--line); }
   th {
-    color: var(--faint); font-weight: 600; font-size: 0.66rem;
+    color: var(--faint); font-weight: 600; font-size: var(--t-2xs);
     text-transform: uppercase; letter-spacing: .09em; padding-top: 0.45rem; padding-bottom: 0.45rem;
   }
   tbody tr { cursor: pointer; transition: background .1s ease; }
@@ -214,7 +234,7 @@
   #compose[hidden] { display: none; }
   .bar { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
   .bar-label {
-    font-size: 0.6rem; letter-spacing: .13em; text-transform: uppercase;
+    font-size: var(--t-2xs); letter-spacing: .13em; text-transform: uppercase;
     color: var(--faint); width: 3.6rem; flex: 0 0 auto;
   }
   .bar-label.warn { color: var(--warn); }
@@ -223,11 +243,11 @@
   /* What a session says it is doing. Its own words, so it gets the emphasis a
      machine-derived column does not. */
   .note {
-    color: var(--accent2); font-size: 0.74rem; font-style: italic;
+    color: var(--accent2); font-size: var(--t-xs); font-style: italic;
     margin-left: 0.4rem;
   }
   .prompt {
-    font-size: 0.62rem; letter-spacing: .08em; text-transform: uppercase;
+    font-size: var(--t-2xs); letter-spacing: .08em; text-transform: uppercase;
     color: #05101f; background: var(--warn); border-radius: 999px;
     padding: 0.04rem 0.4rem; margin-left: 0.35rem; font-weight: 700;
   }
@@ -243,31 +263,31 @@
      the footer rather than being silently absent, because absent renders exactly
      like idle and that is the distinction this whole file argues about. */
   .missions .mgroup { padding: .35rem .7rem .1rem; color: var(--dim);
-    font-size: .74rem; letter-spacing: .04em; text-transform: uppercase; }
+    font-size: var(--t-xs); letter-spacing: .04em; text-transform: uppercase; }
   .missions .mgroup .n { color: var(--fg); font-weight: 700; }
   .missions td.mark { width: 1.6rem; text-align: center; }
   .missions td.proj { white-space: nowrap; color: var(--fg); font-weight: 600; }
-  .missions td.proj .st { font-weight: 400; color: var(--warn); font-size: .74rem; }
+  .missions td.proj .st { font-weight: 400; color: var(--warn); font-size: var(--t-xs); }
   .missions td.item { color: var(--dim); }
   .missions .silent { padding: .45rem .7rem .6rem; color: var(--dim);
-    font-size: .78rem; border-top: 1px solid var(--line); }
+    font-size: var(--t-sm); border-top: 1px solid var(--line); }
   .missions .silent b { color: var(--fg); }
   .missions .silent b.warnrow { color: var(--warn); }
   .missions .silent .hint { opacity: .75; }
   /* Right-aligned and dim: the age ranks the rows, it does not compete with
      them for attention. */
-  .missions td.mage { color: var(--dim); font-size: .74rem; text-align: right;
+  .missions td.mage { color: var(--dim); font-size: var(--t-xs); text-align: right;
     white-space: nowrap; padding-left: .6rem; }
   /* A task carries a requester and an id; a mission row is a project's note to
      itself. Marked because they are answered differently — one is reported back
      to whoever asked, the other is resolved by editing a file. */
   .missions td.item .tflag {
     display: inline-block; margin-right: .4rem; padding: 0 .32rem;
-    border-radius: 3px; font-size: .68rem; letter-spacing: .03em;
+    border-radius: 3px; font-size: var(--t-xs); letter-spacing: .03em;
     background: rgba(120,170,255,.14); color: #9dc0ff;
   }
-  .missions td.item .by { color: var(--dim); font-size: .72rem; margin-left: .45rem; }
-  .missions td.item .cut { color: var(--warn); font-size: .72rem; margin-left: .35rem; }
+  .missions td.item .by { color: var(--dim); font-size: var(--t-xs); margin-left: .45rem; }
+  .missions td.item .cut { color: var(--warn); font-size: var(--t-xs); margin-left: .35rem; }
 
   /* The waiting queue. Rendered only when something is in it: a panel that is
      usually empty teaches people to skip that part of the page, which is the
@@ -278,28 +298,28 @@
   }
   .queue .panel-head { color: var(--warn); }
   .queue tr td { cursor: pointer; }
-  .queue .qwhere { color: var(--dim); font-size: 0.76rem; }
+  .queue .qwhere { color: var(--dim); font-size: var(--t-sm); }
   /* The question the modal is asking. The point of the queue is to make
      answering possible without opening the pane first, so this gets room. */
   .queue .asking {
-    display: block; color: var(--fg); font-size: 0.82rem;
+    display: block; color: var(--fg); font-size: var(--t-md);
     margin-top: 0.15rem; white-space: normal;
   }
-  .queue .qsub { color: var(--dim); font-size: .74rem; }
+  .queue .qsub { color: var(--dim); font-size: var(--t-xs); }
   .queue tr.mrow td { cursor: default; }
   .queue .decide {
     display: inline-block; margin-left: .4rem; padding: 0 .32rem;
-    border-radius: 3px; font-size: .68rem; letter-spacing: .03em;
+    border-radius: 3px; font-size: var(--t-xs); letter-spacing: .03em;
     background: rgba(255,255,255,.07); color: var(--dim);
   }
   .queue .qhint {
-    color: var(--dim); font-size: 0.74rem; padding: 0 0.7rem 0.6rem; margin: 0;
+    color: var(--dim); font-size: var(--t-xs); padding: 0 0.7rem 0.6rem; margin: 0;
   }
-  .dialoghint { color: var(--warn); font-size: 0.76rem; flex: 1 1 auto; }
+  .dialoghint { color: var(--warn); font-size: var(--t-sm); flex: 1 1 auto; }
   #target {
     color: var(--accent2); white-space: nowrap; font-weight: 700;
     padding: 0.2rem 0.55rem; border: 1px solid var(--line2); border-radius: 6px;
-    background: rgba(91,157,255,.07); font-size: 0.8rem;
+    background: rgba(91,157,255,.07); font-size: var(--t-sm);
   }
   #target .none { color: var(--dim); font-weight: 400; }
   input[type=text], select {
@@ -313,7 +333,7 @@
   #text { flex: 1; min-width: 8rem; }
   #openpath { flex: 1; min-width: 8rem; }
   #slash { flex: 0 1 14rem; min-width: 8rem; }
-  #compose label { color: var(--dim); font-size: 0.76rem; white-space: nowrap; display: inline-flex; align-items: center; gap: 0.3rem; }
+  #compose label { color: var(--dim); font-size: var(--t-sm); white-space: nowrap; display: inline-flex; align-items: center; gap: 0.3rem; }
   button {
     background: linear-gradient(180deg, var(--accent2), var(--accent));
     color: #05101f; border: 0; border-radius: 6px;
@@ -332,7 +352,7 @@
   button.danger:not(:disabled):hover { background: var(--danger); color: #1a0505; filter: none; }
   .sep { color: var(--line2); user-select: none; }
   .spacer { flex: 1; }
-  #toast { color: var(--dim); font-size: 0.78rem; white-space: nowrap; min-height: 1.1em; }
+  #toast { color: var(--dim); font-size: var(--t-sm); white-space: nowrap; min-height: 1.1em; }
   #toast.ok { color: var(--ok); }
   #toast.bad { color: var(--danger); }
 
@@ -347,7 +367,7 @@
     display: flex; gap: 0.55rem; align-items: center; flex-wrap: wrap;
     padding: 0.45rem 0.75rem; border-bottom: 1px solid var(--line);
     background: linear-gradient(180deg, var(--elev), var(--panel));
-    font-size: 0.76rem; color: var(--dim);
+    font-size: var(--t-sm); color: var(--dim);
   }
   .vhead .dots { display: flex; gap: 5px; margin-right: 0.35rem; }
   .vhead .dots i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
@@ -356,7 +376,7 @@
   .vhead .dots i:nth-child(3) { background: #28c840; }
   .vhead .vname { color: var(--accent2); font-weight: 700; }
   .vhead .spacer { flex: 1; }
-  #vstatus { font-size: 0.72rem; }
+  #vstatus { font-size: var(--t-xs); }
   #vstatus.live { color: var(--ok); }
   button.x { background: transparent; color: var(--dim); border: 0; padding: 0.15rem 0.5rem; font-weight: 700; cursor: pointer; border-radius: 4px; }
   button.x:hover { color: var(--fg); background: var(--elev); }
@@ -373,7 +393,7 @@
   /* ---- viewer tabs: Pane (tmux scrape) vs Session (claude's own record) ---- */
   .vtab {
     background: transparent; color: var(--dim); border: 1px solid transparent;
-    border-radius: 6px; padding: 0.22rem 0.7rem; font: inherit; font-size: 0.76rem;
+    border-radius: 6px; padding: 0.22rem 0.7rem; font: inherit; font-size: var(--t-sm);
     font-weight: 600; cursor: pointer; letter-spacing: .04em;
   }
   .vtab:hover:not(.on) { color: var(--fg); background: var(--elev); filter: none; }
@@ -393,16 +413,16 @@
   #chat .older {
     display: block; width: 100%; margin: 0 0 0.7rem; padding: 0.5rem;
     background: var(--elev); color: var(--dim); border: 1px solid var(--line);
-    border-radius: 8px; font: inherit; font-size: 0.78rem; cursor: pointer;
+    border-radius: 8px; font: inherit; font-size: var(--t-sm); cursor: pointer;
   }
   #chat .older:disabled { opacity: .5; cursor: default; }
   #chat .cnote { color: var(--dim); text-align: center; padding: 1.4rem 0.5rem;
-    font-size: 0.82rem; }
+    font-size: var(--t-md); }
   #chat .cnote.bad { color: var(--danger); }
 
   .turn { margin: 0 0 0.75rem; max-width: 100%; }
   .turn .who {
-    font-size: 0.66rem; letter-spacing: .07em; text-transform: uppercase;
+    font-size: var(--t-2xs); letter-spacing: .07em; text-transform: uppercase;
     color: var(--dim); margin-bottom: 0.2rem; display: flex; gap: .45rem;
     align-items: baseline;
   }
@@ -412,13 +432,13 @@
     /* break-word, not break-all: a long path must wrap rather than push the
        page sideways, but ordinary prose must still break on spaces. */
     overflow-wrap: anywhere; word-break: normal;
-    font-size: 0.86rem; line-height: 1.45;
+    font-size: var(--t-md); line-height: 1.45;
   }
   .turn.user .body { background: rgba(91,157,255,.10); border-color: rgba(91,157,255,.30); }
   .turn.assistant .body { background: var(--elev); }
   .turn.sub .who { color: var(--accent2); }
   .turn.sub .body { border-style: dashed; }
-  .turn .cut { color: var(--warn); font-size: 0.72rem; display: block; margin-top: .3rem; }
+  .turn .cut { color: var(--warn); font-size: var(--t-xs); display: block; margin-top: .3rem; }
 
   /* Tool calls are the bulk of the bytes and almost never what is being read,
      so they collapse to one line and open on tap. */
@@ -426,7 +446,7 @@
      text at all, measured across 122 real ones — rendering each as its own card
      means scrolling past three and a half cards of machinery per card of words. */
   #chat details.steps > summary {
-    cursor: pointer; list-style: none; color: var(--dim); font-size: 0.74rem;
+    cursor: pointer; list-style: none; color: var(--dim); font-size: var(--t-xs);
     padding: 0.35rem 0.6rem; border: 1px dashed var(--line); border-radius: 8px;
     margin-bottom: 0.75rem; background: var(--elev);
   }
@@ -436,7 +456,7 @@
     padding-left: 0.55rem; margin-bottom: 0.75rem; }
   .turn details.tool { margin-top: 0.35rem; }
   .turn details.tool > summary {
-    cursor: pointer; list-style: none; color: var(--dim); font-size: 0.75rem;
+    cursor: pointer; list-style: none; color: var(--dim); font-size: var(--t-xs);
     padding: 0.3rem 0.5rem; border: 1px solid var(--line); border-radius: 7px;
     background: var(--bg2, transparent);
   }
@@ -445,7 +465,7 @@
   .turn details.tool.res > summary { color: var(--dim); font-style: italic; }
   .turn details.tool[open] > summary { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
   .turn details.tool pre {
-    margin: 0; padding: 0.45rem 0.55rem; font-size: 0.74rem; line-height: 1.4;
+    margin: 0; padding: 0.45rem 0.55rem; font-size: var(--t-xs); line-height: 1.4;
     border: 1px solid var(--line); border-top: none;
     border-radius: 0 0 7px 7px; background: var(--elev);
     overflow-x: auto; white-space: pre; max-height: 16rem;
@@ -459,7 +479,7 @@
   .col { border: 1px solid var(--line); border-radius: 9px; background: var(--elev);
     display: flex; flex-direction: column; min-width: 0; }
   .col > h3 {
-    margin: 0; padding: 0.5rem 0.7rem; font-size: 0.74rem; letter-spacing: .05em;
+    margin: 0; padding: 0.5rem 0.7rem; font-size: var(--t-xs); letter-spacing: .05em;
     text-transform: uppercase; color: var(--dim); border-bottom: 1px solid var(--line);
     display: flex; gap: .45rem; align-items: baseline;
   }
@@ -469,22 +489,56 @@
   .card { border: 1px solid var(--line); border-radius: 7px; padding: 0.45rem 0.55rem;
     background: var(--bg); cursor: pointer; }
   .card:hover { border-color: var(--accent2); }
-  .card .cp { font-weight: 600; font-size: 0.82rem; display: flex; gap: .4rem;
+  .card .cp { font-weight: 600; font-size: var(--t-md); display: flex; gap: .4rem;
     align-items: baseline; justify-content: space-between; }
-  .card .cp .age { color: var(--dim); font-weight: 400; font-size: 0.72rem; flex: none; }
-  .card .cnow { color: var(--dim); font-size: 0.76rem; margin-top: .2rem; line-height: 1.4;
+  .card .cp .age { color: var(--dim); font-weight: 400; font-size: var(--t-xs); flex: none; }
+  .card .cnow { color: var(--dim); font-size: var(--t-sm); margin-top: .2rem; line-height: 1.4;
     /* Two lines. A card is a glance; the whole Now is a click away. */
     display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-  .card .cwhy { font-size: 0.78rem; margin-top: .25rem; line-height: 1.4; }
-  .card .pill { font-size: 0.66rem; padding: .05rem .35rem; border-radius: 4px;
+  .card .cwhy { font-size: var(--t-sm); margin-top: .25rem; line-height: 1.4; }
+  .card .pill { font-size: var(--t-2xs); padding: .05rem .35rem; border-radius: 4px;
     border: 1px solid var(--line); color: var(--dim); font-weight: 600; flex: none; }
   .card .pill.blocked { color: var(--warn); border-color: var(--warn); }
   .card .pill.done { color: var(--ok, #58d68d); border-color: var(--ok, #58d68d); }
   .card.dim { opacity: .72; }
   .col.needs { border-color: rgba(255,107,107,.45); }
   .col.needs > h3 { color: var(--danger); }
-  .bnote { color: var(--dim); font-size: 0.78rem; padding: 0.6rem 0.7rem 0; }
+  .bnote { color: var(--dim); font-size: var(--t-sm); padding: 0.6rem 0.7rem 0; }
   @media (max-width: 640px) {
+    /* ---- the phone pass ----
+       Every surface in this file was built at 1400px, where a 24px row is
+       comfortable with a mouse and unhittable with a thumb. These are the rules
+       that only matter below 640, kept together rather than scattered so the
+       next person can see the whole phone story at once. */
+
+    /* Anything you TAP gets a finger-sized target. Padding rather than height,
+       so a row with two lines of text still grows instead of clipping. */
+    .frow, .card, .chip, .vtab, #files .crumbs a,
+    #chat details.steps > summary, .turn details.tool > summary {
+      min-height: var(--tap);
+      display: flex; align-items: center; gap: var(--s2);
+      padding-top: var(--s2); padding-bottom: var(--s2);
+    }
+    /* A card holds stacked lines, so it centres badly — it needs the target
+       without the centring. */
+    .card { display: block; padding: var(--s3); }
+    #chat details.steps > summary,
+    .turn details.tool > summary { display: flex; }
+
+    /* Table rows are the other tap target, and the one people hit most: a row
+       IS the control that selects a pane. */
+    tbody tr td { padding-top: var(--s2); padding-bottom: var(--s2); }
+
+    /* The header competes with itself at 390px — a title, a build stamp, a
+       count and a button on one line. The stamp is the part nobody taps. */
+    header { flex-wrap: wrap; gap: var(--s2); }
+    header .sub { display: none; }
+
+    /* Body text goes UP on a phone, not down. The instinct is to shrink to fit
+       more in; the measured problem was never density, it was reading. */
+    .turn .body { font-size: var(--t-md); line-height: 1.5; }
+    #files pre, .turn details.tool pre { font-size: var(--t-sm); }
+
     .cols { grid-template-columns: 1fr; }
     .col .cards { max-height: none; }
   }
@@ -493,23 +547,23 @@
   /* ---- files: a project's tree, read only ---- */
   #files { padding: 0.5rem 0.6rem 0.9rem; max-height: 62vh; overflow: auto; }
   #files[hidden] { display: none; }
-  #files .crumbs { font-size: 0.78rem; color: var(--dim); margin-bottom: 0.5rem;
+  #files .crumbs { font-size: var(--t-sm); color: var(--dim); margin-bottom: 0.5rem;
     word-break: break-all; }
   #files .crumbs a { color: var(--accent2); cursor: pointer; text-decoration: none; }
   #files .crumbs a:hover { text-decoration: underline; }
   #files .frow {
     display: flex; gap: .5rem; align-items: baseline; padding: 0.34rem 0.45rem;
-    border-radius: 6px; cursor: pointer; font-size: 0.84rem;
+    border-radius: 6px; cursor: pointer; font-size: var(--t-md);
   }
   #files .frow:hover { background: var(--elev); }
   #files .frow .fn { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
-  #files .frow .fs { color: var(--dim); font-size: 0.72rem; flex: none; }
+  #files .frow .fs { color: var(--dim); font-size: var(--t-xs); flex: none; }
   #files .frow.d .fn { color: var(--accent2); font-weight: 600; }
   #files pre { margin: 0; padding: 0.5rem 0.6rem; background: var(--elev);
-    border: 1px solid var(--line); border-radius: 7px; font-size: 0.78rem;
+    border: 1px solid var(--line); border-radius: 7px; font-size: var(--t-sm);
     line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
   #files .cnote { color: var(--dim); text-align: center; padding: 1.2rem 0.5rem;
-    font-size: 0.82rem; }
+    font-size: var(--t-md); }
   #files .cnote.bad { color: var(--danger); }
   @media (max-width: 640px) {
     #files { max-height: 74vh; }
@@ -519,8 +573,8 @@
   /* ---- session detail ---- */
   #session { padding: 0.85rem 0.9rem; max-height: 62vh; overflow: auto; }
   #session[hidden] { display: none; }
-  #session .stitle { font-size: 0.95rem; font-weight: 700; color: var(--accent2); }
-  #session .scwd { color: var(--dim); font-size: 0.76rem; margin: 0.15rem 0 0.8rem; word-break: break-all; }
+  #session .stitle { font-size: var(--t-lg); font-weight: 700; color: var(--accent2); }
+  #session .scwd { color: var(--dim); font-size: var(--t-sm); margin: 0.15rem 0 0.8rem; word-break: break-all; }
   #session .snote { color: var(--dim); text-align: center; padding: 1.4rem 0.5rem; }
   #session .snote.bad { color: var(--danger); }
 
@@ -534,16 +588,16 @@
     background: linear-gradient(180deg, rgba(255,255,255,.02), transparent);
   }
   .tile .k {
-    color: var(--faint); font-size: 0.6rem; letter-spacing: .11em;
+    color: var(--faint); font-size: var(--t-2xs); letter-spacing: .11em;
     text-transform: uppercase; display: block; margin-bottom: 0.15rem;
   }
-  .tile .v { font-size: 1.05rem; font-weight: 700; }
-  .tile .v small { font-size: 0.68rem; font-weight: 400; color: var(--dim); margin-left: 0.25rem; }
+  .tile .v { font-size: var(--t-lg); font-weight: 700; }
+  .tile .v small { font-size: var(--t-xs); font-weight: 400; color: var(--dim); margin-left: 0.25rem; }
 
   /* key/value facts */
   .facts { display: grid; grid-template-columns: auto 1fr; gap: 0.28rem 0.8rem; margin-bottom: 0.85rem; }
   .facts dt {
-    color: var(--faint); font-size: 0.66rem; text-transform: uppercase;
+    color: var(--faint); font-size: var(--t-2xs); text-transform: uppercase;
     letter-spacing: .09em; padding-top: 0.12rem;
   }
   .facts dd { margin: 0; word-break: break-all; }
@@ -552,23 +606,23 @@
   .stools { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-bottom: 0.85rem; }
   .stool {
     border: 1px solid var(--line2); border-radius: 999px; padding: 0.15rem 0.6rem;
-    font-size: 0.72rem; color: var(--fg); background: var(--elev);
+    font-size: var(--t-xs); color: var(--fg); background: var(--elev);
   }
   .stool b { color: var(--accent2); font-weight: 700; margin-left: 0.3rem; }
 
   .sprompt {
     border-left: 2px solid var(--line2); padding: 0.1rem 0 0.1rem 0.7rem;
-    color: var(--dim); font-size: 0.8rem; white-space: pre-wrap; word-break: break-word;
+    color: var(--dim); font-size: var(--t-sm); white-space: pre-wrap; word-break: break-word;
   }
   .sprompt .k {
-    display: block; color: var(--faint); font-size: 0.6rem;
+    display: block; color: var(--faint); font-size: var(--t-2xs);
     letter-spacing: .11em; text-transform: uppercase; margin-bottom: 0.2rem;
   }
 
   /* ---- quick-command chips ---- */
   button.chip {
     background: var(--elev); color: var(--fg); border: 1px solid var(--line2);
-    border-radius: 999px; padding: 0.4rem 0.85rem; font-weight: 500; font-size: 0.82rem;
+    border-radius: 999px; padding: 0.4rem 0.85rem; font-weight: 500; font-size: var(--t-md);
   }
   button.chip:not(:disabled):hover { border-color: var(--accent); color: var(--accent2); background: var(--accent-glow); filter: none; }
   button.chip.primary {
@@ -582,7 +636,7 @@
     /* Give the conversation the screen: on a phone this IS the page, and a
        62vh box inside a scrolling page means two scroll containers fighting. */
     #chat { max-height: 74vh; padding: 0.5rem 0.4rem 0.8rem; }
-    .turn .body { font-size: 0.9rem; }
+    .turn .body { font-size: var(--t-md); }
     .turn details.tool > summary { padding: 0.45rem 0.55rem; }
 
     body { padding: 0.6rem 0.6rem 1.2rem; }
@@ -596,7 +650,7 @@
     #compose { bottom: 0; padding: 0.6rem; gap: 0.5rem; border-radius: 8px; }
     /* bigger tap targets on touch */
     button, .chip, input[type=text], select { min-height: 42px; }
-    button.chip { font-size: 0.9rem; padding: 0.5rem 1rem; }
+    button.chip { font-size: var(--t-md); padding: 0.5rem 1rem; }
     #target { min-height: 42px; display: inline-flex; align-items: center; }
     #text, #slash, #openpath { flex: 1 1 100%; }
     #send, #run, #open { flex: 1 1 auto; }
@@ -1264,15 +1318,20 @@ function cardHTML(c) {
   </div>`;
 }
 
-function colHTML(title, cards, cls) {
+function colHTML(title, cards, cls, empty) {
   // A column with nothing in it still renders, with its zero stated. Hiding it
   // would make "nothing needs you" indistinguishable from "this view is not
   // showing that", which is the distinction the whole page is built on.
+  //
+  // And the empty text is PER COLUMN. "nothing here" is the same words for four
+  // different facts — nobody is blocked on you, no project is running, nothing
+  // is waiting on a peer, nothing closed this week — and only one of those is
+  // good news. Saying which is the same discipline as the rest of the page.
   return `<section class="col ${cls || ""}">
     <h3>${title} <span class="n">${cards.length}</span></h3>
     <div class="cards">${cards.length
       ? cards.map(cardHTML).join("")
-      : `<div class="bnote">nothing here</div>`}</div>
+      : `<div class="bnote">${esc(empty || "nothing here")}</div>`}</div>
   </section>`;
 }
 
@@ -1355,10 +1414,10 @@ function renderBoard(nodes, nowSec) {
   }
 
   return `<div class="cols">
-    ${colHTML("Needs you", needs, "needs")}
-    ${colHTML("In flight", doing)}
-    ${colHTML("Waiting on others", waiting)}
-    ${colHTML("Closed, 7 days", done)}
+    ${colHTML("Needs you", needs, "needs", "nothing is waiting on you")}
+    ${colHTML("In flight", doing, "", "no project reports work in progress")}
+    ${colHTML("Waiting on others", waiting, "", "nothing is blocked on a peer")}
+    ${colHTML("Closed, 7 days", done, "", "nothing recorded closed — note that tracking starts when the coordinator does")}
   </div>
   ${silent.length ? `<div class="bnote">⚠ ${silent.length} project${silent.length === 1 ? "" : "s"} `
     + `not on this board — no MISSION.md, which is <i>has not said</i> rather than idle: `

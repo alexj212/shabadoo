@@ -2687,6 +2687,36 @@ which is right for naming a session and wrong here: it invented a layer. A
 project is a directory that SAYS it is one, so the marker is checked rather than
 assumed. That case never appears in a fixture built from real projects.
 
+### The phone pass
+
+Every surface here was built at 1400px in a single day, and each was verified
+for correctness rather than for being looked at. This is the pass they never got,
+done phone-first on the operator's own comparison — the failures that mattered
+today were all invisible on a desktop and obvious at 390px.
+
+**Twenty-three distinct font sizes** existed between 0.6 and 1.5rem, because each
+surface was built in a different hour and picked a number that looked right on
+its own. Six tokens now, and a new value has to argue against them. Spacing got
+the same treatment.
+
+**`--tap: 44px` is the single biggest phone fix and it is invisible on a
+desktop.** Every row, card, chip and tab was built where 24px is comfortable with
+a mouse and unhittable with a thumb. Applied as padding rather than height, so a
+two-line row grows instead of clipping.
+
+**Body text goes UP on a phone, not down.** The instinct is to shrink to fit more
+in; the measured problem was never density, it was reading.
+
+**Four empty columns must say four different things.** "nothing here" was the
+same words for *nobody is blocked on you*, *no project reports work*, *nothing is
+waiting on a peer* and *nothing closed this week* — and only one of those is good
+news. It is the same discipline as the rest of the page, applied to the state
+that is easiest to leave generic because it is the one you see least.
+
+Pinned headlessly: the four-column render, and a check that three quiet columns
+produce three different sentences. That check goes red on the generic text, which
+is how the generic text was found.
+
 ## Future phases (not yet built)
 
 **`docs/build-plan.md` is the plan — phase 10b and 11, in order, with the reason for
