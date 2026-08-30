@@ -31,6 +31,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 )
@@ -92,11 +93,83 @@ func signSelf(path string) string {
 	// than a private domain: a bundle identifier is visible in System Settings
 	// and in any signature anyone inspects, and the publish guard refused the
 	// first choice for precisely that reason.
+	//
+	// AND THE ENTITLEMENTS ARE NOT OPTIONAL ONCE `--options runtime` IS SET.
+	//
+	// Hardened runtime is what makes macOS REQUIRE an entitlement before it will
+	// even ask for a TCC-gated device. Without one the log reads "Prompting
+	// policy for hardened runtime; service: kTCCServiceMicrophone requires
+	// entitlement com.apple.security.device.audio-input but it is missing", and
+	// then "Policy disallows prompt … access denied".
+	//
+	// That is the sharp end and it is worse than a denial: macOS does not refuse
+	// after asking, it refuses to ASK. No dialog appears, nothing shows up to
+	// toggle in System Settings, and every API on the path still returns
+	// success while delivering silence. Reported by the meeting recorder, whose
+	// helper measured 96,256 samples with one distinct value — all zero — where
+	// a working run the night before had captured a mean of -42.6 dB.
+	//
+	// Anything shabadoo launches inherits this as the RESPONSIBLE process, so a
+	// missing entitlement here removes microphone capture from every tool on the
+	// machine, not just from this one. The reporter proved that by signing their
+	// own helper three ways — with the entitlement, without hardened runtime,
+	// and as shipped — and getting the identical dead result from all three: the
+	// accessing process's signature is not the lever, the responsible process's
+	// is.
+	ent, cleanup, err := entitlementsFile()
+	if err != nil {
+		return "not signed: could not write entitlements: " + err.Error()
+	}
+	defer cleanup()
+
 	cmd := exec.Command("codesign", "--force", "--sign", id,
-		"--identifier", "com.github.alexj212.shabadoo", "--options", "runtime", path)
+		"--identifier", "com.github.alexj212.shabadoo",
+		"--options", "runtime", "--entitlements", ent, path)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Sprintf("not signed: codesign failed (%v): %s",
 			err, strings.TrimSpace(string(out)))
 	}
-	return "signed as com.github.alexj212.shabadoo with " + id
+	return "signed as com.github.alexj212.shabadoo with " + id +
+		" (audio-input and camera entitlements included)"
+}
+
+// entitlementsFile writes the plist codesign needs and returns a cleanup.
+//
+// Only the device entitlements, and only the two that a tool launched from here
+// plausibly needs. An entitlement is a claim about what this program may do, so
+// the list is short on purpose: adding one that is never used widens what a
+// compromised binary could reach, for nothing.
+//
+// The camera is included alongside the microphone deliberately. It costs the
+// same nothing today, and the failure it prevents is the one that just
+// happened — a capability that cannot even ASK for consent, discovered only
+// because somebody happened to be measuring samples rather than return codes.
+func entitlementsFile() (string, func(), error) {
+	const plist = `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>com.apple.security.device.audio-input</key>
+	<true/>
+	<key>com.apple.security.device.camera</key>
+	<true/>
+</dict>
+</plist>
+`
+	f, err := os.CreateTemp("", "shabadoo-entitlements-*.plist")
+	if err != nil {
+		return "", func() {}, err
+	}
+	name := f.Name()
+	cleanup := func() { os.Remove(name) }
+	if _, err := f.WriteString(plist); err != nil {
+		f.Close()
+		cleanup()
+		return "", func() {}, err
+	}
+	if err := f.Close(); err != nil {
+		cleanup()
+		return "", func() {}, err
+	}
+	return name, cleanup, nil
 }

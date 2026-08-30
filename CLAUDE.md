@@ -408,6 +408,51 @@ web page where the caller expects JSON.
 `serve` is drive-only: there is no audit log, because there is no database. A
 fallback that refused to work without one would defeat its own purpose.
 
+## Hardened runtime without an entitlement removes a capability silently
+
+Signing was adopted so TCC grants survive an upgrade. On the microphone path it
+did the opposite, and the failure is worse than a denial.
+
+`--options runtime` is what makes macOS **require** an entitlement before it will
+even ask for a gated device. Without one the system log reads *"Prompting policy
+for hardened runtime; service: kTCCServiceMicrophone requires entitlement
+com.apple.security.device.audio-input but it is missing"*, then *"Policy
+disallows prompt … access denied"*. **macOS does not refuse after asking — it
+refuses to ASK.** No dialog appears, nothing shows up to toggle, and every API on
+the path returns success while delivering silence.
+
+**Anything shabadoo launches inherits this as the responsible process**, so the
+gap removed microphone capture from every tool on that machine rather than from
+this one. The reporter established that by signing their own helper three ways —
+with the entitlement, without hardened runtime, and as shipped — and measuring
+the identical dead result from all three: 96,256 samples, one distinct value, all
+zero. **The accessing process's signature is not the lever; the responsible
+process's is.**
+
+Fixed by signing with `--entitlements` carrying `audio-input` and `camera`. The
+camera costs nothing today and prevents the same failure arriving the same way.
+
+**Two corrections to the report worth keeping, because both were mine to make:**
+
+- It was filed as a v0.4.65 regression. Hardened runtime arrived **with signing
+  itself**, in the commit first contained by **v0.4.40** — twenty-five releases
+  earlier. The reporter said plainly they had not established which version broke
+  it, which is what made the correction possible rather than an argument.
+- v0.4.40 was tagged at 15:01 and a **working** recording was measured at 22:52
+  the same evening, eight hours later. So hardened runtime alone does not explain
+  it, and the log line says why: *"Failed to match EXISTING code requirement"*.
+  A grant already existed; the signature changed underneath it; re-consent became
+  necessary; and the entitlement gap made re-consent impossible. **The fix for
+  the first problem created the conditions for the second**, which is why it
+  presented as a regression from a release that only exposed it.
+
+**UNVERIFIED on darwin at the time of writing.** This machine cannot run
+`codesign`, and the responsible process is the *running* binary — so proving it
+needs a rebuild, a re-sign and a restart of the session tree on a Mac. It is
+written down as unverified rather than assumed, for the same reason
+`AbandonProcessGroup` was: the last time a darwin fix was reasoned about from
+here rather than run, it was inert.
+
 ## Versions
 
 Builds stamp `main.version` from `git describe --tags --always --dirty`
