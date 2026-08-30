@@ -433,3 +433,27 @@ changed. Each passes any single-sided example.
 ---
 
 ---
+
+
+---
+
+## An error code can be a behaviour, not a fault
+
+`OSStatus 268435460` (`0x10000004`) came back from a microphone open and looked
+like a device failure. Nobody on the fleet could name it, and two sessions
+declined to guess — correctly, since it is not even a four-character code, so
+naming it would have meant inventing which numeric space it belonged to.
+
+It was settled by **producing it deliberately**. A capture was started and left
+alone: it blocked for 3m25s, provably waiting — process elapsed time confirmed —
+with the system logging `allow prompt: Allow` the whole time, and then returned
+that code. So it is what an **unanswered consent wait** returns, not a fault. The
+device was fine. A human had not clicked.
+
+**Pinning a constant by observation beats decoding it**, and it is the same move
+as verifying an effect rather than a call: the question is not *what does this
+number mean* but *what do I have to do to produce it*. That is answerable on the
+machine in front of you, in minutes, without a reference.
+
+The cost of the alternative was live: three plausible mechanisms were offered on
+this fleet in one afternoon and all three were wrong.
