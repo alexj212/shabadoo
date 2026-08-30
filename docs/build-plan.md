@@ -115,18 +115,12 @@ days. Written up in `CLAUDE.md`. Two things worth carrying forward:
 - **Verify a page headlessly.** A syntax check passes a call to a helper that
   does not exist; only running the branch catches it.
 
-## Phase 10b — browsing a project's files
+## Phase 10b — browsing a project's files — **shipped**
 
-Asked for to read doc libraries — the `docs/` trees several projects now carry,
-reachable today only by being on the machine. It rides Phase 9's read surface, so
-it is cheap once that exists and pointless to design separately.
-
-**Root it at project directories the node already reports**, rather than at the
-filesystem. A file browser over an agent's node is otherwise arbitrary file read
-on that machine, bounded by whatever the handler decides; a project root is
-already a first-class concept here, and rooting the browser at one turns an
-unbounded capability into an enumerable one. That is the recommendation and it is
-also the cheaper build.
+`GET /api/files`, rooted at the projects a node already reports. Written up in
+`CLAUDE.md` and specified in `docs/mobile-client.md`. One thing to carry forward:
+**confine by resolving, never by inspecting the string** — `..` and a symlink out
+of the project are the same check, and only one of them is caught by a filter.
 
 ## Phase 11 — the ethos as a managed thing
 

@@ -489,6 +489,33 @@
     .col .cards { max-height: none; }
   }
 
+
+  /* ---- files: a project's tree, read only ---- */
+  #files { padding: 0.5rem 0.6rem 0.9rem; max-height: 62vh; overflow: auto; }
+  #files[hidden] { display: none; }
+  #files .crumbs { font-size: 0.78rem; color: var(--dim); margin-bottom: 0.5rem;
+    word-break: break-all; }
+  #files .crumbs a { color: var(--accent2); cursor: pointer; text-decoration: none; }
+  #files .crumbs a:hover { text-decoration: underline; }
+  #files .frow {
+    display: flex; gap: .5rem; align-items: baseline; padding: 0.34rem 0.45rem;
+    border-radius: 6px; cursor: pointer; font-size: 0.84rem;
+  }
+  #files .frow:hover { background: var(--elev); }
+  #files .frow .fn { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+  #files .frow .fs { color: var(--dim); font-size: 0.72rem; flex: none; }
+  #files .frow.d .fn { color: var(--accent2); font-weight: 600; }
+  #files pre { margin: 0; padding: 0.5rem 0.6rem; background: var(--elev);
+    border: 1px solid var(--line); border-radius: 7px; font-size: 0.78rem;
+    line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
+  #files .cnote { color: var(--dim); text-align: center; padding: 1.2rem 0.5rem;
+    font-size: 0.82rem; }
+  #files .cnote.bad { color: var(--danger); }
+  @media (max-width: 640px) {
+    #files { max-height: 74vh; }
+    #files .frow { padding: 0.5rem 0.45rem; }
+  }
+
   /* ---- session detail ---- */
   #session { padding: 0.85rem 0.9rem; max-height: 62vh; overflow: auto; }
   #session[hidden] { display: none; }
@@ -645,6 +672,7 @@
     <span class="dots"><i></i><i></i><i></i></span>
     <button class="vtab on" id="tab-pane" data-tab="pane">Pane</button>
     <button class="vtab" id="tab-chat" data-tab="chat">Chat</button>
+    <button class="vtab" id="tab-files" data-tab="files">Files</button>
     <button class="vtab" id="tab-session" data-tab="session">Session</button>
     <span class="vname" id="vname">—</span>
     <span class="spacer"></span>
@@ -661,6 +689,7 @@
   </div>
   <pre id="buffer"></pre>
   <div id="chat" hidden></div>
+  <div id="files" hidden></div>
   <div id="session" hidden></div>
 </div>
 
@@ -760,6 +789,8 @@ const sessionEl = document.getElementById("session");
 const chatEl = document.getElementById("chat");
 const tabPane = document.getElementById("tab-pane");
 const tabChat = document.getElementById("tab-chat");
+const filesEl = document.getElementById("files");
+const tabFiles = document.getElementById("tab-files");
 const tabSession = document.getElementById("tab-session");
 const vlineswrap = document.getElementById("vlineswrap");
 // Quick-command chips only. The dialog-answer buttons share the .chip look
@@ -1456,6 +1487,100 @@ function applyDeepLink() {
   setTab("chat");
 }
 
+// ---- files: a project's tree, read only ----
+//
+// Rooted at the project the selected pane belongs to, never at the filesystem.
+// The confinement is the AGENT's — it resolves every path against the roots it
+// already reports — so this is a viewer, not a second implementation of the
+// rule. Two copies of a security check drift, and the one that matters is the
+// one next to the filesystem.
+let filesPath = "";
+let filesKey = "";
+
+// The project a pane belongs to, read from the last frame. `selected` carries
+// the pane's cwd, which is not the same thing: a session scoped into a subfolder
+// has a project name of its own, and that name is what the API is keyed on.
+function selectedProject() {
+  if (!selected || !lastData) return "";
+  for (const n of lastData.nodes || []) {
+    if (!n.online || (selected.node && n.node !== selected.node)) continue;
+    for (const w of n.sessions || []) {
+      if (w.tmux_session === selected.session && w.index === selected.window) {
+        return w.project || "";
+      }
+    }
+  }
+  return "";
+}
+
+async function refreshFiles() {
+  const project = selectedProject();
+  if (!project) {
+    filesEl.innerHTML = `<div class="cnote">select a pane inside a project</div>`;
+    return;
+  }
+  const key = (selected.node || "") + "\u0000" + project;
+  if (key !== filesKey) { filesKey = key; filesPath = ""; }
+  try {
+    const q = new URLSearchParams({ node: selected.node || "", project, path: filesPath });
+    const r = await fetch("/api/files?" + q.toString());
+    if (!r.ok) throw new Error((await r.text()).trim());
+    const d = await r.json();
+    filesEl.innerHTML = crumbsHTML(project, d.path) + bodyHTML(d);
+  } catch (err) {
+    filesEl.innerHTML = crumbsHTML(project, filesPath)
+      + `<div class="cnote bad">${esc(String(err.message || err))}</div>`;
+  }
+}
+
+function crumbsHTML(project, path) {
+  const parts = (path || "").split("/").filter(Boolean);
+  let acc = "";
+  const links = [`<a data-go="">${esc(project)}</a>`];
+  for (const p of parts) {
+    acc = acc ? acc + "/" + p : p;
+    links.push(`<a data-go="${esc(acc)}">${esc(p)}</a>`);
+  }
+  return `<div class="crumbs">${links.join(" / ")}</div>`;
+}
+
+function bodyHTML(d) {
+  if (!d.dir) {
+    if (d.binary) {
+      // Reported, not rendered. Saying "binary" beats an empty pane, which
+      // reads as an error nobody can act on.
+      return `<div class="cnote">binary file — ${esc(String(d.size))} bytes, not shown</div>`;
+    }
+    return `<pre>${esc(d.text || "")}</pre>` + (d.truncated
+      ? `<div class="cnote">showing the first 256 KB of ${esc(String(d.size))} bytes</div>` : "");
+  }
+  const up = d.path ? `<div class="frow d" data-go="${esc(d.path.split("/").slice(0, -1).join("/"))}">
+      <span class="fn">../</span></div>` : "";
+  const rows = (d.entries || []).map(e => `
+    <div class="frow${e.dir ? " d" : ""}" data-go="${esc(d.path ? d.path + "/" + e.name : e.name)}">
+      <span class="fn">${esc(e.name)}${e.dir ? "/" : ""}</span>
+      <span class="fs">${e.dir ? "" : esc(fileSize(e.size))}</span></div>`).join("");
+  // Stated, never silently short: a listing that dropped members and says so is
+  // a different answer from a complete one.
+  const more = d.elided
+    ? `<div class="cnote">${d.elided} more not shown — this directory is over the cap</div>` : "";
+  return up + rows + more + (!rows && !up ? `<div class="cnote">empty directory</div>` : "");
+}
+
+function fileSize(n) {
+  if (!n) return "";
+  if (n < 1024) return n + " B";
+  if (n < 1024 * 1024) return Math.round(n / 1024) + " KB";
+  return (n / 1048576).toFixed(1) + " MB";
+}
+
+filesEl.addEventListener("click", (e) => {
+  const el = e.target.closest("[data-go]");
+  if (!el) return;
+  filesPath = el.dataset.go;
+  refreshFiles();
+});
+
 // ---- board toggle ----
 //
 // A view swap rather than a second page: the poll, the selection and the
@@ -2136,13 +2261,49 @@ async function loadOlder() {
 
 // ---- viewer: two tabs over the same selected pane ----
 
+// selectedIsBlocked answers from the last frame rather than by asking, because
+// this is consulted on every tab switch and a round trip per keystroke-adjacent
+// decision would be felt.
+function selectedIsBlocked() {
+  if (!selected || !lastData) return false;
+  for (const n of lastData.nodes || []) {
+    if (!n.online || (selected.node && n.node !== selected.node)) continue;
+    for (const w of n.sessions || []) {
+      if (w.tmux_session === selected.session && w.index === selected.window) {
+        return w.input_state === "dialog";
+      }
+    }
+  }
+  return false;
+}
+
 function setTab(name) {
+  // THE CONVERSATION CANNOT SHOW A DIALOG, and that is structural rather than
+  // lag. A transcript records COMPLETED messages; a session sitting at a
+  // permission prompt is mid-turn, and the prompt is client UI state that has
+  // not been written anywhere yet. Measured by the iOS client on a live
+  // session: the pane tail held the composer and the status line, while the
+  // transcript tail was two empty events sixteen seconds behind.
+  //
+  // It is also why `asking` is scraped from the pane rather than read out of
+  // the transcript store.
+  //
+  // So a blocked pane never lands on Chat. The answer keys are three taps from
+  // here, and putting them under a view that structurally cannot render the
+  // question being answered is answering blind — the one failure this whole
+  // page is arranged to prevent.
+  if (name === "chat" && selectedIsBlocked()) {
+    name = "pane";
+    flash("this pane is at a prompt — showing the pane, which is the only view that has the question", "bad");
+  }
   vtab = name;
   tabPane.classList.toggle("on", name === "pane");
   tabChat.classList.toggle("on", name === "chat");
+  tabFiles.classList.toggle("on", name === "files");
   tabSession.classList.toggle("on", name === "session");
   buffer.hidden = name !== "pane";
   chatEl.hidden = name !== "chat";
+  filesEl.hidden = name !== "files";
   sessionEl.hidden = name !== "session";
   vlineswrap.hidden = name !== "pane"; // scrollback depth is a pane-only knob
   if (name === "chat") resetChat();
@@ -2152,6 +2313,7 @@ function setTab(name) {
 function refreshViewer(forceBottom) {
   if (vtab === "pane") return refreshBuffer(forceBottom);
   if (vtab === "chat") return refreshChat();
+  if (vtab === "files") return refreshFiles();
   return refreshSession();
 }
 
@@ -2174,6 +2336,7 @@ vclose.addEventListener("click", closeViewer);
 vlines.addEventListener("change", () => refreshBuffer(true));
 tabPane.addEventListener("click", () => setTab("pane"));
 tabChat.addEventListener("click", () => setTab("chat"));
+tabFiles.addEventListener("click", () => setTab("files"));
 tabSession.addEventListener("click", () => setTab("session"));
 
 // ---- audit ----

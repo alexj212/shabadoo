@@ -50,6 +50,10 @@ type opArgs struct {
 	// At fetches one record unclamped — the escape hatch for a reader with no
 	// terminal to fall back to.
 	At int64 `json:"at,omitempty"`
+
+	// Project names which root a file request is confined to. A path alone
+	// would be a filesystem read; a path INSIDE a named project is enumerable.
+	Project string `json:"project,omitempty"`
 }
 
 // pane is the addressed pane, or -1 for "whichever is active".
@@ -152,6 +156,12 @@ func handleOp(ctx context.Context, op string, payload json.RawMessage) (any, err
 			return nil, fmt.Errorf("claude_session: path required")
 		}
 		return claudelog.Summarize(a.Path)
+
+	case "files":
+		// Reading a project's files, confined to the project roots this node
+		// already reports. The confinement lives in files.go and is the whole
+		// design; this is the seam that reaches it.
+		return browse(ctx, a.Project, a.Path)
 
 	case "claude_events":
 		// The turns themselves, for a client that wants to READ a conversation

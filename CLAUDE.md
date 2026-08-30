@@ -2549,6 +2549,54 @@ helper that does not exist, and it only appears when the branch runs. The check
 drives `renderBoard` against a payload carrying every case and asserts each one
 lands; it goes red when peer-owned rows are dropped.
 
+### Phase 10b — reading a project's files
+
+Asked for to read the `docs/` libraries several projects carry, reachable
+otherwise only by being on the host. `GET /api/files` lists a directory or reads
+a file, one shape for both — a client walking a tree does not know which it is
+about to get, and making it guess produces a wrong guess.
+
+**The confinement is the whole design.** A file browser over an agent is
+otherwise arbitrary file read on somebody's machine, bounded by whatever a
+handler happens to check. It is rooted at **the projects the node already
+reports**: a project root is a first-class concept here, which turns an unbounded
+capability into an enumerable one. An unknown project is refused *with the list
+this node serves*, so a caller can correct itself without a second round trip.
+
+**Paths are confined by RESOLVING them, never by inspecting the string.** `..`
+and a symlink pointing out of the project are the same check, because rejecting a
+literal `".."` is a filter somebody gets past while `EvalSymlinks` is a fact. The
+symlink case is pinned separately — it is a different mechanism, not a variation
+— and its fixture asserts the link is genuinely readable first, so a refusal
+proves the check worked rather than the file being absent.
+
+**"Not there" and "not allowed" return the same error**, deliberately:
+distinguishing them would confirm the existence of files outside the root.
+
+Bounds, each stated on the wire: 500 entries with `elided` counting the rest, 256
+KB of text with `truncated`, and **binary reported rather than sent** — a client
+cannot render it and the bytes would count against the 8 MB ceiling for nothing.
+
+The confinement is the agent's alone. The coordinator passes the request through
+without re-checking, because two copies of a security rule drift and the one that
+matters is the one next to the filesystem.
+
+### A conversation cannot show a dialog
+
+Found by the iOS client while making the conversation the default view, and it is
+structural rather than lag. **A transcript records COMPLETED messages**; a session
+sitting at a permission prompt is mid-turn, and the prompt is client UI state that
+has not been written anywhere yet. Measured on a live session: the pane tail held
+the composer and the status line while the transcript tail was two empty events
+sixteen seconds behind. It is why `asking` is scraped from the pane rather than
+read out of the transcript store.
+
+So **a blocked pane never lands on the Chat tab** — it is switched to Pane and
+told why. Putting the answer keys under a view that structurally cannot render
+the question is answering blind, which is the one failure this page is arranged
+everywhere else to prevent. Polling does not close the gap, because the gap is
+not latency.
+
 ## Future phases (not yet built)
 
 **`docs/build-plan.md` is the plan — phase 10b and 11, in order, with the reason for
@@ -2562,7 +2610,7 @@ The short version, because a pointer nobody follows is a pointer nobody reads:
 | ~~**8 — papercuts**~~ | **shipped** — see below |
 | ~~**9 — reading a conversation on a phone**~~ | **shipped** — see above |
 | ~~**10 — the board**~~ | **shipped** — see above |
-| **10b — browsing a project's files** | rides Phase 9's read surface, rooted at project directories rather than the filesystem |
+| ~~**10b — browsing a project's files**~~ | **shipped** — see above |
 | **11 — the ethos as a managed thing** | ~~name the drifted payload files~~ **shipped**; then rule layering, then proposals upward. Speculative past that |
 
 Three questions are recorded as genuinely undecided in `docs/direction.md` —

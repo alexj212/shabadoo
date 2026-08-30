@@ -785,6 +785,18 @@ treatment; today it would be a field that can only ever say one thing.
 it — a reader who cannot tell a subagent's words from the session's own is being
 shown a conversation that did not happen.
 
+**A CONVERSATION CANNOT SHOW A DIALOG, and that is structural, not lag.** A
+transcript records completed messages; a session sitting at a permission prompt
+is mid-turn, and the prompt is client UI state that has not been written
+anywhere yet. Measured on a live session: the pane tail held the composer and the
+status line while the transcript tail was two empty events sixteen seconds
+behind. It is why `asking` is scraped from the pane rather than read out of the
+transcript store.
+
+**So never put an answer control under this view for a blocked session.** Show
+the pane, which is the only surface that has the question. Polling does not close
+the gap, because the gap is not latency.
+
 **Unreadable lines are dropped, not surfaced as errors.** A live transcript's
 last line is routinely a partial write; a page whose final row said "could not
 parse" would show that every few seconds.
@@ -792,6 +804,48 @@ parse" would show that every few seconds.
 The read-surface warning in *Ground rules* applies here more than anywhere: this
 renders file contents, memory directories and anything ever pasted into a prompt,
 for every session ever run in that folder.
+
+### `GET /api/files` — reading a project's files
+
+```http
+GET {coord}/api/files?node=wsl&project=homelab              # the project root
+GET {coord}/api/files?node=wsl&project=homelab&path=docs    # a directory
+GET {coord}/api/files?node=wsl&project=homelab&path=docs/dns.md   # a file
+```
+
+For reading the `docs/` libraries projects carry, from a device with no shell on
+that machine. **One shape for both cases** — `dir` says which you got — because a
+client walking a tree does not know before it asks, and making it guess produces
+a wrong guess.
+
+```json
+{ "project": "homelab", "root": "/c/projects/homelab", "path": "docs", "dir": true,
+  "entries": [ { "name": "dns.md", "size": 4120, "mod": 1788105000 } ], "elided": 0 }
+```
+
+**It is rooted at the projects the node already reports, and that is the whole
+design.** A file browser over an agent is otherwise arbitrary file read on
+somebody's machine, bounded by whatever a handler happens to check; a project
+root is already a first-class concept here, which turns an unbounded capability
+into an enumerable one. An unknown `project` is refused **with the list this node
+serves**, so a client can correct itself without a second round trip.
+
+**Paths are confined by RESOLVING them, not by inspecting the string.** `..` and
+a symlink pointing out of the project are the same check, because rejecting a
+literal `".."` is a filter somebody gets past while `EvalSymlinks` is a fact.
+"Not there" and "not allowed" return the **same** error, deliberately:
+distinguishing them would confirm the existence of files outside the root.
+
+- **Directories** are sorted directories-first then by name, capped at 500 with
+  `elided` counting the rest. A listing that is short and says so is a different
+  answer from one that is complete.
+- **Files** return at most 256 KB as `text`, with `size` and `truncated`.
+- **Binary is reported, never sent** — `binary: true` with `size` and no `text`.
+  A client cannot render it, and the bytes would count against the 8 MB ceiling
+  this response crosses for nothing.
+
+`serve` answers this endpoint: the files are on the host, and reading them is
+part of driving its panes when the coordinator is gone.
 
 ### Session-to-session mail
 

@@ -76,6 +76,7 @@ func HumanRoutes(mux *http.ServeMux, hub *Hub, store *Store, devices *DeviceStor
 	mux.HandleFunc("GET /api/capture", h.capture)
 	mux.HandleFunc("GET /api/claude/session", h.claudeSession)
 	mux.HandleFunc("GET /api/claude/events", h.claudeEvents)
+	mux.HandleFunc("GET /api/files", h.files)
 	mux.HandleFunc("GET /api/missions/log", h.missionLog)
 	mux.HandleFunc("GET /api/missions/resolved", h.missionResolved)
 	mux.HandleFunc("GET /api/audit", h.audit)
@@ -505,6 +506,31 @@ func (h *humanAPI) claudeSession(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	raw, err := h.hub.Call(r.Context(), tenantOf(r.Context()), q.Get("node"), "claude_session", map[string]any{
 		"path": q.Get("path"),
+	})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(raw)
+}
+
+// files lists a directory or reads a file inside one of a node's projects.
+//
+// The confinement is the agent's, not this handler's: it resolves the path
+// against the project roots it is already reporting and refuses anything that
+// lands outside one. Validating here as well would be a second implementation
+// of the same rule, and the two would drift — the one that matters is the one
+// next to the filesystem.
+func (h *humanAPI) files(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	if q.Get("project") == "" {
+		http.Error(w, "project required", http.StatusBadRequest)
+		return
+	}
+	raw, err := h.hub.Call(r.Context(), tenantOf(r.Context()), q.Get("node"), "files", map[string]any{
+		"project": q.Get("project"),
+		"path":    q.Get("path"),
 	})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)

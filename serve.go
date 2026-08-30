@@ -82,6 +82,7 @@ func (b *bridge) routes() (*http.ServeMux, error) {
 	mux.HandleFunc("GET /api/capture", b.handleCapture)
 	mux.HandleFunc("GET /api/claude/session", b.handleClaudeSession)
 	mux.HandleFunc("GET /api/claude/events", b.handleClaudeEvents)
+	mux.HandleFunc("GET /api/files", b.handleFiles)
 	mux.HandleFunc("GET /api/input-state", b.handleInputState)
 	mux.HandleFunc("GET /api/folders", b.handleFolders)
 
@@ -341,6 +342,24 @@ func (b *bridge) handleFolders(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.Write(raw)
+}
+
+// handleFiles lists a directory or reads a file inside one of this host's
+// projects. Answerable here for the same reason the conversation is: the files
+// are on this machine, and reading them is part of driving its panes when the
+// coordinator is gone.
+func (b *bridge) handleFiles(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	if q.Get("project") == "" {
+		http.Error(w, "project required", http.StatusBadRequest)
+		return
+	}
+	out, err := browse(r.Context(), q.Get("project"), q.Get("path"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	writeJSONResp(w, out)
 }
 
 // handleClaudeEvents serves a page of the conversation itself.
