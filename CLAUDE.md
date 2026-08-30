@@ -1116,8 +1116,42 @@ radius was every session on the host, and none of those checks could see it.
 
 `KillMode=process` stops only the agent. The sessions are deliberately
 longer-lived than the thing that reports on them: an agent is a supervisor, not
-an owner. macOS gets `AbandonProcessGroup`, launchd's counterpart — **written
-down as unverified**, because this machine cannot run it.
+an owner.
+
+**macOS does not have this defect, and the reason is a mechanism rather than a
+flag.** `AbandonProcessGroup` was written into the plist first, as launchd's
+apparent counterpart, and marked unverified because this machine cannot run
+launchd. The Mac then measured it **inert**: paired arms, identical harness,
+tmux killed with the key and without it. tmux daemonises with `setsid()`, so its
+server holds `pgid == its own pid` and `ppid == 1` — it has *already left* the
+job's process group before launchd signals anything. **A cgroup catches a
+`setsid()` child because membership is inherited and cannot be escaped; a
+process group does not.**
+
+So the directive was removed rather than left in. An inert directive carrying a
+comment that claims a protection is worse than an absent one, because the next
+person reading the plist stops looking — and the plist now records what was
+measured instead.
+
+Measured clean on the path that matters: 46 runs of the node job including an
+upgrade self-exit, with a tmux server four days and ~45 restarts old still
+carrying its sessions. `bootout` — what `setup --service` uses — survives; only
+`kickstart -k` kills, and nothing in the upgrade flow uses it. **The cost I
+warned the Mac about was also wrong**: there was no one-time session loss to
+schedule, because the install path is the surviving one.
+
+Not established, and recorded as such: whether a jetsam pressure kill or a logout
+can tear a job's scope down the same way. That is not a claim darwin is immune —
+only that the upgrade path is measured clean.
+
+**This is the third instance of one shape:** a Linux containment primitive with
+no darwin counterpart, reasoned about rather than run. `/proc`-only
+`staleToolPanes` was the first, `ps -o lstart=` the second. The rule that catches
+it is already here — *a change to platform-specific code is verified on a second
+node* — and it caught this one, in the direction that matters: the peer's
+negative control fired (`bootout` survives, `kickstart -k` kills) on the same
+harness, which is what made their survival result usable rather than merely
+reassuring.
 
 **Two verification failures on the way to that one-line fix**, both worth more
 than the fix:

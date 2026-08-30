@@ -702,24 +702,37 @@ func (s *setup) plist(label string, args []string, keepAlive bool, logPath strin
 	</dict>
 	<key>RunAtLoad</key>
 	<true/>
-	<!-- The tmux server this agent starts for the core session is a child of
-	     this job, so tearing the job down takes every Claude session on the
-	     machine with it — and upgrade tears it down BY DESIGN, exiting
-	     non-zero for launchd to bring it back. On the Linux side the same
-	     defect dropped an operator out of their terminal four times in ninety
-	     minutes and killed twenty sessions.
+	<!-- No AbandonProcessGroup here, and its ABSENCE is the finding.
 
-	     AbandonProcessGroup is launchd's counterpart to systemd's
-	     KillMode=process: stop the job, leave what it spawned alone. The
-	     sessions are deliberately longer-lived than the thing reporting on
-	     them.
+	     Linux has this defect: the agent's tmux server lands in the unit's
+	     cgroup, so the default KillMode=control-group kills every Claude
+	     session on the host whenever the agent restarts — and upgrade restarts
+	     it by design. KillMode=process fixes it there.
 
-	     UNVERIFIED ON DARWIN at the time of writing — the systemd half was
-	     proven with a probe that confirms cgroup membership and goes red
-	     without the fix, and this machine cannot run the launchd equivalent.
-	     It is written down as unverified rather than assumed correct. -->
-	<key>AbandonProcessGroup</key>
-	<true/>
+	     Darwin does not, and the reason is a mechanism rather than a flag.
+	     tmux daemonises with setsid(), so its server lands with pgid == its own
+	     pid and ppid == 1: it has ALREADY LEFT the job's process group before
+	     launchd signals anything. A cgroup catches a setsid() child because
+	     membership is inherited and setsid cannot escape it; a process group
+	     does not. The Linux mechanism has no darwin counterpart.
+
+	     AbandonProcessGroup was written here first and MEASURED INERT on a real
+	     Mac: paired arms, identical harness, tmux killed with the key and
+	     without it. It was removed rather than left in, because an inert
+	     directive carrying a comment that claims a protection is worse than an
+	     absent one — the next person reading the plist stops looking.
+
+	     Measured clean on the path that matters: 46 runs of the node job
+	     including an upgrade self-exit (code 70), with a tmux server four days
+	     and ~45 restarts old still carrying its sessions. bootout — what
+	     setup --service uses — SURVIVES; only kickstart -k kills, and
+	     nothing in the upgrade flow uses it. Negative control fired on the same
+	     harness, which is what makes the survival result usable.
+
+	     NOT established: whether a jetsam pressure kill or a logout can tear
+	     the job's scope down the same way. No evidence either way, so this is
+	     not a claim that darwin is immune — only that the upgrade path is
+	     measured clean. -->
 	<key>KeepAlive</key>
 	%s
 	<key>StandardOutPath</key>
