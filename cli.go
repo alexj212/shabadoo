@@ -1579,6 +1579,7 @@ flags:
 		fatalf("no shabadoo binaries found in %s", strings.Join(paths, " "))
 	}
 
+	var posted []cliRelease
 	for _, f := range files {
 		ver, platform, err := binaryStamp(f)
 		if err != nil {
@@ -1595,7 +1596,69 @@ flags:
 		}
 		fmt.Printf("published %s %s  %s  %.1f MB\n",
 			rel.Version, rel.Platform, rel.SHA256[:12], float64(rel.Size)/(1<<20))
+		posted = append(posted, rel)
 	}
+
+	// READ IT BACK. An upload that returned 200 says the request was accepted,
+	// not that a node can fetch the result — and those are separable, twice in
+	// one afternoon on this fleet. Both times a peer discovered it by running
+	// `shabadoo releases` themselves before believing an announcement, and both
+	// times the announcement was mine.
+	//
+	// Their words, and the reason this check is here rather than in their
+	// habits: *"your pipeline can now prove the entitlement is on a binary
+	// nobody can download."* A guard that depends on the recipient being
+	// suspicious is not a guard.
+	//
+	// This asks the same question a node will ask, through the same endpoint,
+	// after the write — which is the only form of "it is published" that means
+	// anything to the machine that has to pull it.
+	if len(posted) > 0 {
+		verifyFetchable(c, posted)
+	}
+}
+
+// verifyFetchable confirms every release just uploaded is listed by the
+// coordinator, and says plainly which are not.
+//
+// Not fatal: the upload may genuinely have landed and a listing may be stale or
+// briefly unavailable, and failing the command would turn a reporting gap into
+// a refusal to publish. But it must never report silence as success — the
+// failure being caught here is precisely one that looked like success.
+func verifyFetchable(c *client, posted []cliRelease) {
+	raw, err := c.do("GET", "/api/releases", nil)
+	if err != nil {
+		fmt.Printf("\n! could not confirm these are fetchable: %v\n"+
+			"  run `shabadoo releases` before telling anybody they can upgrade\n", err)
+		return
+	}
+	var out struct {
+		Releases []cliRelease `json:"releases"`
+	}
+	if json.Unmarshal(raw, &out) != nil {
+		// Older coordinators answer a bare array; a decode failure here is not
+		// evidence the release is missing, and must not be reported as one.
+		fmt.Printf("\n! could not read the release list back; confirm with " +
+			"`shabadoo releases` before announcing\n")
+		return
+	}
+	live := map[string]bool{}
+	for _, r := range out.Releases {
+		live[r.Version+"\x00"+r.Platform] = true
+	}
+	var missing []string
+	for _, r := range posted {
+		if !live[r.Version+"\x00"+r.Platform] {
+			missing = append(missing, r.Version+" "+r.Platform)
+		}
+	}
+	if len(missing) > 0 {
+		fmt.Printf("\n! NOT FETCHABLE despite a successful upload: %s\n"+
+			"  a node asking for these would be told there is nothing newer.\n",
+			strings.Join(missing, ", "))
+		return
+	}
+	fmt.Printf("\nconfirmed fetchable: all %d listed by the coordinator\n", len(posted))
 }
 
 type cliRelease struct {

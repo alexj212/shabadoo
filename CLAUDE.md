@@ -408,6 +408,31 @@ web page where the caller expects JSON.
 `serve` is drive-only: there is no audit log, because there is no database. A
 fallback that refused to work without one would defeat its own purpose.
 
+## Publishing reads itself back
+
+`publish` uploads, gets a 200, and prints `published`. That says the request was
+accepted — **not that a node can fetch the result**, and the two came apart twice
+in one afternoon. Both times a peer found it by running `shabadoo releases`
+before believing an announcement, and both times the announcement was mine.
+
+Their framing is the one that made it a code change rather than a resolution to
+be careful: *"your pipeline can now prove the entitlement is on a binary nobody
+can download."* **A guard that depends on the recipient being suspicious is not a
+guard.**
+
+So `publish` now asks the coordinator, through the same endpoint a node uses,
+whether the thing it just uploaded is listed — after the write. Not fatal, since
+a stale listing is not proof of a missing artifact and refusing to publish over
+one would trade a reporting gap for an outage; but it never reports silence as
+success, because the failure being caught is precisely one that looked like
+success.
+
+**The general form, and it now has three instances in this file:** `codesign`
+exiting 0 does not mean the blob attached; a 200 on an upload does not mean a
+node can pull it; a green agent report does not mean the config applied. **Read
+the effect back through the interface the consumer uses**, not the one the
+producer returns.
+
 ## A self-replacing binary's install logic is always one version behind
 
 `upgrade` has the outgoing process download the new binary, rename it into
