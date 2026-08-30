@@ -206,6 +206,15 @@ session that has registered has not necessarily read a word. When you hand work
 to a session that is not running, the count going to zero is not evidence it
 landed.
 
+**Never write another session's liveness into a durable row.** A peer's existence
+is not durable and a `Waiting on` line is. Two sessions here recorded that a
+project's sessions were *gone*; both were online when those rows were read, one
+actively working, and a real question had been parked on the belief that its
+owner no longer existed — so it stopped being asked of anybody. **A wrong "gone"
+is more expensive than a wrong "maybe"**, because "maybe" invites a check and
+"gone" closes the subject. Name the peer, never their state: `session_list`
+answers liveness now, a row answers it as of whenever somebody last looked.
+
 ### Brief a peer when you can see something they cannot
 
 Not "keep everyone informed" — that is a newsletter, and a newsletter gets

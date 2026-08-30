@@ -235,3 +235,43 @@ whether or not anything else ever consumes it.
 The two are complementary rather than competing: **the status call is what you
 are doing for the next thirty minutes, `MISSION.md` is what this project is
 doing this week.** One expires; the other is committed.
+
+
+---
+
+## Never write another session's liveness into a row
+
+A `Waiting on` row is durable and a peer's existence is not. Writing *"both its
+sessions are gone"* into one records a momentary observation as a standing fact,
+and **nobody re-tests behind a confident absence.**
+
+Measured, on this fleet: two sessions carried rows asserting that a project's
+sessions were gone. Both projects were online at the time the rows were read —
+one of them *actively working* — and one session had parked a real question on
+the belief that its owner no longer existed, so the question stopped being asked
+of anybody.
+
+**A wrong "gone" is more expensive than a wrong "maybe",** because "maybe" invites
+a check and "gone" closes the subject. The same asymmetry as every other
+empty-versus-unknown failure here, in the one place a session writes about
+another session.
+
+So:
+
+- **Name the peer, never their state.** *"waiting on minutes for a track kind"*
+  stays true whether or not that session is up. *"minutes is gone, so this has no
+  owner"* is a claim with a half-life.
+- **Liveness is one call away and always current.** `session_list` answers it now;
+  a row answers it as of whenever somebody last looked. Never cache in prose what
+  a tool will tell you fresh.
+- **If you must record an absence — say when you established it.** *"not running
+  as of 14:20"* is a fact with a shelf life attached. *"is gone"* is not.
+- **Offline is not gone.** Mail for an offline session waits and is delivered when
+  it returns; its delivery row IS the wait. A project that is merely not running
+  still owns its work, and a stopped session can be started.
+
+This is deliberately a convention and not a mechanism. Detecting the claim would
+mean parsing prose for assertions about liveness — a heuristic over another
+program's output, which is the category this codebase already knows fails
+silently and confidently. The tool answers the question; the discipline is to ask
+it rather than to remember.
