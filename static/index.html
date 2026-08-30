@@ -257,6 +257,15 @@
      them for attention. */
   .missions td.mage { color: var(--dim); font-size: .74rem; text-align: right;
     white-space: nowrap; padding-left: .6rem; }
+  /* A task carries a requester and an id; a mission row is a project's note to
+     itself. Marked because they are answered differently — one is reported back
+     to whoever asked, the other is resolved by editing a file. */
+  .missions td.item .tflag {
+    display: inline-block; margin-right: .4rem; padding: 0 .32rem;
+    border-radius: 3px; font-size: .68rem; letter-spacing: .03em;
+    background: rgba(120,170,255,.14); color: #9dc0ff;
+  }
+  .missions td.item .by { color: var(--dim); font-size: .72rem; margin-left: .45rem; }
   .missions td.item .cut { color: var(--warn); font-size: .72rem; margin-left: .35rem; }
 
   /* The waiting queue. Rendered only when something is in it: a panel that is
@@ -754,6 +763,27 @@ function renderMissions(nodes, nowSec) {
 
   const groups = new Map(); // owner -> [{project, item, status}]
   const quiet = [], dropped = [];
+  // Blocked tasks join the SAME owner grouping. That is the merge: the fleet
+  // panel is organised by who is blocked, and a task's assignee is an owner like
+  // any other — concatenating a second list below would leave the reader doing
+  // the grouping again, by hand, which is the state this replaces.
+  //
+  // Only `blocked` tasks become rows. `open` and `active` are work in flight,
+  // not work waiting, and putting them here would bury the handful that need
+  // somebody in a list of everything anyone is doing. They are counted instead.
+  let inFlight = 0;
+  for (const t of taskRows) {
+    if (t.state === "done" || t.state === "dropped") continue;
+    if (t.state !== "blocked") { inFlight++; continue; }
+    const owner = (t.session_id || "").toLowerCase();
+    if (!groups.has(owner)) groups.set(owner, []);
+    groups.get(owner).push({
+      project: t.session_id || "—", item: t.brief || "",
+      truncated: !!t.brief_truncated, since: t.updated_at || 0,
+      task: true, by: t.requested_by || "",
+    });
+  }
+
   // A project name is only ambiguous when it is on more than one node, so the
   // node is appended only then — a suffix on every row would be noise, and a
   // suffix on none of them is the bug above.
@@ -815,8 +845,11 @@ function renderMissions(nodes, nowSec) {
           <td class="proj">${esc(r.project)}${
             r.status && r.status !== "active"
               ? ` <span class="st">${esc(r.status)}</span>` : ""}</td>
-          <td class="item">${esc(r.item)}${
-            r.truncated ? `<span class="cut" title="cut to fit">…cut</span>` : ""}</td>
+          <td class="item">${r.task
+            ? `<span class="tflag" title="delegated task">task</span>` : ""}${
+            esc(r.item)}${
+            r.truncated ? `<span class="cut" title="cut to fit">…cut</span>` : ""}${
+            r.by ? `<span class="by">asked by ${esc(r.by)}</span>` : ""}</td>
           <td class="mage">${r.since ? esc(ago(nowSec, r.since)) : ""}</td></tr>`).join("")}</tbody></table>`).join("");
 
   // Both tails are stated. "Nothing waiting" and "has not said" are different
@@ -836,6 +869,9 @@ function renderMissions(nodes, nowSec) {
       `checkouts naming different owners is worse than naming none`
     : `<b class="warnrow">${esc(u.project)} is on two machines with no declared ` +
       `writer</b> — add <code>owner:</code> to its MISSION.md header`);
+  if (inFlight) tails.push(
+    `<b>${inFlight}</b> delegated task${inFlight === 1 ? "" : "s"} in flight ` +
+    `— not blocked, so not listed above`);
   if (dropped.length) tails.push(
     `<b class="warnrow">${dropped.reduce((a, d) => a + d.n, 0)} waiting ` +
     `${dropped.reduce((a, d) => a + d.n, 0) === 1 ? "row is" : "rows are"} not ` +
@@ -970,6 +1006,23 @@ function renderQueue(nodes, now) {
 // better", which every other panel here structurally cannot: they are all
 // snapshots. Cached rather than fetched per render because a render happens on
 // every agent report and this changes on the order of hours.
+// Delegated work, on the same slow timer as the trend.
+//
+// The dashboard rendered NONE of this. Two systems track outstanding work with
+// an owner — MISSION.md `Waiting on` and the tasks table — and only one of them
+// was on the page, so a reader merged them from memory or missed half. Tasks are
+// the half with a REQUESTER: somebody is waiting for an answer, which is a
+// stronger claim on attention than a project's note to itself.
+let taskRows = [];
+async function refreshTasks() {
+  try {
+    const r = await fetch("/api/tasks?limit=200");
+    if (!r.ok) return;                     // 501 in fallback mode: stay silent
+    const d = await r.json();
+    taskRows = d.tasks || d.items || [];
+  } catch (_) { /* a failed poll must not blank rows that were true */ }
+}
+
 let resolvedSummary = null;
 async function refreshResolved() {
   try {
@@ -2018,6 +2071,10 @@ refreshDevices(); // decides whether the panel exists in this mode at all
 // five seconds to redraw the same sentence.
 refreshResolved();
 setInterval(refreshResolved, 10 * 60 * 1000);
+// Tasks move faster than the trend and far slower than a report: a minute is
+// well inside a human's patience and nowhere near the five-second report rate.
+refreshTasks();
+setInterval(refreshTasks, 60 * 1000);
 setInterval(() => { if (auditOpen) refreshAudit(); }, 5000);
 </script>
 </body>

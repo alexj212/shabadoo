@@ -100,6 +100,11 @@ func (b *bridge) routes() (*http.ServeMux, error) {
 	// that a blocker used to be there. An honest 501, not an empty list: zero
 	// closed and cannot-tell are different answers, and the page renders the
 	// trend only when it has one.
+	// Delegated work is a coordinator concept: a task is a promise between two
+	// SESSIONS, recorded centrally so whoever asked is told when it ends. This
+	// mode drives one host's panes and brokers nothing between them.
+	mux.HandleFunc("GET /api/tasks", unsupported(
+		"tasks live in the coordinator's database; `serve` has none"))
 	mux.HandleFunc("GET /api/missions/resolved", unsupported(
 		"resolutions are derived from stored history; `serve` keeps none"))
 	// The dashboard renews its credential when the coordinator tells it one is
