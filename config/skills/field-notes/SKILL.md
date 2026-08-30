@@ -98,6 +98,15 @@ as `ok (cached)`. **Before trusting a check, name the input that would make it
 red. If you cannot, it is decoration.** That one question would have caught five
 of the six.
 
+**A check wired to your own activity cannot see what happens when you are not
+there.** The third variant, and the one nobody looks for. A version-pin checker
+ran `on: push` only — so it could report drift **only while somebody was already
+editing the repository**, which is precisely when drift does not accumulate. It
+went green on one release and was structurally blind to the five after it. Its
+author's words: *"a check wired to my own activity cannot see what happens when I
+am not there."* Ask what has to happen for a check to RUN, not only what makes
+it red.
+
 **A check that has never gone GREEN is as broken as one that has never gone
 red.** The other half of the rule above, and the one nobody thinks to ask: name
 the input that would make it *pass*, and actually run it. A checker that had only

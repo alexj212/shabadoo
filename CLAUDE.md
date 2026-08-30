@@ -1455,21 +1455,31 @@ skill still need this to behave correctly? If not, it is reference.
 
 `mergePayloads` lets `config.local/` win a collision, which is right — that is
 how an operator's real config beats a generic one. But a file present in **both**
-trees whose contents differ is then a *masked edit*: every improvement to the
+trees whose contents differ is a *masked edit*: every improvement to the
 `config/` copy is dead until somebody re-vendors, silently, because both files
 exist and both look maintained.
 
-Found twice in one day. `CLAUDE.md` was the first, and was fixed by making
-`config/` own it outright. The second was the `claude-sessions` skill, where a
-morning of payload edits would have been overridden by a snapshot from May — and
-it was found by `shabadoo rules` on its second run rather than by review.
+Found three times. `CLAUDE.md`, fixed by giving `config/` ownership. The
+`claude-sessions` skill, where a morning of edits would have been overridden by a
+May snapshot. And then `field-notes` an hour after the guard was written, by the
+guard, catching me.
 
-`make vendor-check` now fails on it, with `OVERLAY_OWNS` naming the files the
-overlay is *meant* to override — an allowlist rather than a warning, because a
-guard that mostly cries wolf gets ignored, and because "which of these two wins"
-is a decision somebody should write down once. Today that list is
-`settings.json`: the payload ships a generic one, the overlay carries this
-operator's real hooks, and they differ by design forever.
+**So `make vendor` now DROPS from the overlay anything `config/` already ships.**
+The check alone was not enough — it turned `make vendor` into something that
+failed its own verification whenever the payload was ahead, which is a guard that
+blocks the fix. Removing the duplicate is the actual repair: a copy in both trees
+is not redundancy, it is a masking hazard, and the overlay shrank from ~50
+duplicated files to **12**.
+
+Those twelve are the point: they are exactly the estate-specific skills — a DNS
+zone tool, a homelab host check, a bus timetable — and nothing else. That also
+answers a question raised the same day about estate skills having no home. They
+do; it is `config.local/`, and it is now legible because that is *all* it holds.
+
+`OVERLAY_OWNS` names the files the overlay is *meant* to override — an allowlist
+rather than a warning, because a guard that mostly cries wolf gets ignored.
+Today: `settings.json`, where the payload ships a generic one and the overlay
+carries real hooks.
 
 ## Vendoring the embedded payload (`config/` + `config.local/`)
 

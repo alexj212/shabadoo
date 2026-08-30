@@ -197,6 +197,18 @@ vendor:
 	    echo "  $(LOCAL_DIR)/$$d/"; \
 	  else echo "  SKIP $$d/ (absent)"; fi; \
 	done
+	: "Anything config/ already ships is dropped from the overlay rather than" ; \
+	: "duplicated into it. A copy in both trees is not redundancy — the overlay" ; \
+	: "WINS at install, so it masks every later edit to the config/ copy, and it" ; \
+	: "does so silently because both files exist and both look maintained. That" ; \
+	: "cost a morning of skill edits once and CLAUDE.md before it." ; \
+	for f in $$(cd config && find . -type f | sed 's|^\./||'); do \
+	  case " $(OVERLAY_OWNS) " in *" $$f "*) continue ;; esac; \
+	  if [ -f "$(LOCAL_DIR)/$$f" ]; then \
+	    rm -f "$(LOCAL_DIR)/$$f"; echo "  DROP $$f (config/ owns it)"; \
+	  fi; \
+	done; \
+	find $(LOCAL_DIR) -type d -empty -delete 2>/dev/null || true
 	@touch $(LOCAL_DIR)/.gitkeep
 	@$(MAKE) --no-print-directory vendor-check
 	@echo "vendor complete — rebuild to embed: make build"

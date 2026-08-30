@@ -13,6 +13,7 @@ verdict; the board, files and chat readers are live but have had no design pass.
 - me: no scoped broadcast — one fleet fan-out still costs N hand-copied sends · filed, low risk to skip
 - nobody: Phase 11 step 3 — whether a session may file a change to the ethos it obeys · a decision, not a task
 - nobody: spawn-with-inheritance, mentioned three times and designed zero
+- nobody: a skill to open VS Code on a project folder · same shape as `shaba dash`, WSL needs the Windows side · ~15 min
 
 ## Log
 - 2026-08-30 the board's shape and how much conversation a phone shows are both

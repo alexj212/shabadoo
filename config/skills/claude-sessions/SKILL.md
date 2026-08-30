@@ -200,6 +200,12 @@ command is being typed by a person or repeated in a brief.
   useful over ssh or where no opener exists — which is also the form to paste when pointing a human
   at a pane. The name resolves the way `tail` does. On WSL it goes through `wslview`, because
   `xdg-open` is present there and wrong: the browser is on the Windows side.
+- **`shabadoo update`** replaces this binary with the newest GitHub release — checksum-verified, and
+  the staged build is RUN and required to report the expected version before the swap. `--check` asks
+  without changing anything. Distinct from `shabadoo upgrade`, which is an operator pushing a build
+  they published to their own fleet through a coordinator; `update` needs no coordinator at all,
+  which is what somebody handed a copy of this tool actually has. **A service keeps running the old
+  binary until it restarts.**
 - **`shabadoo rules`** shows which guidance is actually in effect here and from where: the payload's
   `CLAUDE.md`, this machine's `CLAUDE.local.md`, the project's own, and the nearest `MISSION.md` —
   with each one's size, date, and who writes it. It also names any payload file that has DRIFTED

@@ -73,6 +73,8 @@ func main() {
 		runSessions(args[1:])
 	case "who":
 		runWho(args[1:])
+	case "update", "self-update":
+		runUpdate(args[1:])
 	case "rules", "ethos":
 		runRules(args[1:])
 	case "dash", "dashboard":
