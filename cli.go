@@ -508,11 +508,63 @@ type cliNode struct {
 	// PayloadKnown separates "config is current" from "could not check" — a
 	// node that cannot look must not render as one that looked and found
 	// nothing.
-	PayloadKnown   bool         `json:"payload_known"`
-	PayloadPending int          `json:"payload_pending"`
-	PayloadDrift   []string     `json:"payload_drift"`
-	Version        string       `json:"version"`
-	Sessions       []cliSession `json:"sessions"`
+	PayloadKnown   bool     `json:"payload_known"`
+	PayloadPending int      `json:"payload_pending"`
+	PayloadDrift   []string `json:"payload_drift"`
+	Version        string   `json:"version"`
+	// Capabilities is what this host can do — a curated toolchain vocabulary,
+	// detected. Reported since the day capabilities shipped and rendered by
+	// NOTHING until now, which is the third measured-and-discarded value found
+	// in one day, after `acked_at` and the resolved rows.
+	Capabilities []string     `json:"capabilities"`
+	CapsKnown    bool         `json:"capabilities_known"`
+	Sessions     []cliSession `json:"sessions"`
+}
+
+// distinctCaps is what THIS node has that the others do not.
+//
+// The difference, never the list. Each node reports a dozen or more
+// capabilities and most are shared — `git`, `docker`, `java` — so printing them
+// all is noise that buries the one line that answers the question actually
+// being asked: **the same project runs on two hosts; which one do I want.**
+// mac having `apple-toolchain` and wsl having `erlang` IS that answer.
+//
+// A node that could not establish its capabilities contributes nothing rather
+// than an empty set, because "reports none" and "could not look" must not read
+// alike — the same rule `capabilities_known` exists to enforce one layer down.
+func distinctCaps(n cliNode, all []cliNode) []string {
+	if !n.CapsKnown {
+		return nil
+	}
+	elsewhere := map[string]bool{}
+	for _, other := range all {
+		if other.Node == n.Node {
+			continue
+		}
+		// A peer that could not establish its own capabilities makes the
+		// SUBTRACTION unreliable, not just its own row. Skipping it here would
+		// treat every capability it has as absent, so a tool both hosts hold
+		// would be reported as distinguishing this one — unknown rendered as
+		// absent, in the function written to keep them apart. Caught by a test
+		// asserting exactly that, minutes after the code was written.
+		//
+		// So the whole comparison is abandoned rather than answered wrongly.
+		// "Which host should I pick" deserves no answer over a bad one.
+		if !other.CapsKnown {
+			return nil
+		}
+		for _, c := range other.Capabilities {
+			elsewhere[c] = true
+		}
+	}
+	var out []string
+	for _, c := range n.Capabilities {
+		if !elsewhere[c] {
+			out = append(out, c)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 // nameAndFlags pulls a leading positional NAME out of an argument list and

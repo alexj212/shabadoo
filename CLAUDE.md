@@ -2749,6 +2749,37 @@ Pinned headlessly: the four-column render, and a check that three quiet columns
 produce three different sentences. That check goes red on the generic text, which
 is how the generic text was found.
 
+### The same project on two hosts is not a duplicate
+
+`minutes` runs on both nodes because the hosts can do different things — one
+drives Windows audio over interop, the other holds the Apple toolchain. The
+design already handles the collision risk: both declare `owner: minutes-mac`, so
+one session writes the `MISSION.md` and the fleet view has nothing to flag.
+
+What it did **not** handle was telling them apart. `shaba who` printed the two
+identically — same description, same mission text — so the listing could not
+answer the question somebody actually has: *which of these do I want.*
+
+**Capabilities were detected, reported on every agent report, and rendered by
+nothing.** Zero references in the dashboard, the CLI or `who`. That is the third
+measured-and-discarded value found in a day, after `acked_at` and the resolved
+rows, and it is the same shape each time: the number reaches the API and stops.
+
+So `who` shows **the difference, never the list** — what this host has that the
+others do not. Every node reports a dozen shared entries (`git`, `docker`,
+`java`) and printing them all buries the line that discriminates. `mac:
+apple-toolchain audio.capture ios.build swift` against `wsl: ansible erlang
+ollama` *is* the answer. Shown **only on a project that exists on more than one
+node**, because everywhere else it is a fact about the host that has nothing to
+do with choosing between two of them.
+
+**And a difference against a node whose capabilities are unknown is not a
+difference.** Skipping such a peer treats everything it has as absent, so a tool
+both hosts hold gets reported as distinguishing one of them — unknown rendered as
+absent, inside the function written to keep them apart. The whole comparison is
+abandoned instead: *which host should I pick* deserves no answer over a wrong
+one. Caught by a test minutes after the code was written, and pinned.
+
 ## Future phases (not yet built)
 
 **`docs/build-plan.md` is the plan — phase 10b and 11, in order, with the reason for

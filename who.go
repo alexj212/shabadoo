@@ -44,6 +44,27 @@ whether to hand it work, so a blank is worth filling.
 		fatalf("%v", err)
 	}
 
+	// A project on more than one node is not a duplicate — it is the same
+	// project where the hosts differ in what they can DO. `minutes` lives on
+	// both because one can drive Windows audio over interop and the other holds
+	// the Apple toolchain. Until now `who` printed the two identically, with the
+	// same description and the same mission text, so the listing could not
+	// answer the question somebody actually has: which of these do I want.
+	onNodes := map[string]int{}
+	for _, n := range nodes {
+		for _, s := range n.Sessions {
+			name := s.Project
+			if name == "" {
+				name = s.Alias
+			}
+			onNodes[name]++
+		}
+	}
+	caps := map[string][]string{}
+	for _, n := range nodes {
+		caps[n.Node] = distinctCaps(n, nodes)
+	}
+
 	total, described := 0, 0
 	for _, n := range nodes {
 		for _, s := range n.Sessions {
@@ -76,6 +97,21 @@ whether to hand it work, so a blank is worth filling.
 			if s.Note != "" {
 				fmt.Printf("%-28s %-5s   doing: %s\n", "", "", truncate(s.Note, 80))
 			}
+			// Shown only where it DISCRIMINATES: on a project that exists on
+			// more than one node. Everywhere else it is a fact about the host
+			// that has nothing to do with choosing between two of them, and
+			// printing it on every row is how the rows that matter stop being
+			// read.
+			if onNodes[name] > 1 {
+				if c := caps[n.Node]; len(c) > 0 {
+					fmt.Printf("%-28s %-5s   this host, not the other%s: %s\n",
+						"", "", plural(len(nodes)-1), truncate(strings.Join(c, " "), 70))
+				} else if !n.CapsKnown {
+					// Said, because absent and unestablished are different
+					// answers and this is exactly where somebody is choosing.
+					fmt.Printf("%-28s %-5s   this host's capabilities could not be established\n", "", "")
+				}
+			}
 		}
 	}
 	if total == 0 {
@@ -84,8 +120,8 @@ whether to hand it work, so a blank is worth filling.
 	}
 	fmt.Printf("\n%d of %d have a description.", described, total)
 	if described < total {
-		fmt.Printf(" Add a description: line to that project's CLAUDE.md\n"+
-			"frontmatter — it is the routing card, and it is trigger text (when should\n"+
+		fmt.Printf(" Add a description: line to that project's CLAUDE.md\n" +
+			"frontmatter — it is the routing card, and it is trigger text (when should\n" +
 			"this be reached for) rather than a summary.")
 	}
 	fmt.Println()
