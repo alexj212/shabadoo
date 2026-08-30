@@ -2396,6 +2396,31 @@ ignore the one time it means something.
 host, and reading what a session said is part of driving its panes when the
 coordinator is gone.
 
+**The clamp was not the problem; the machinery was.** Measured by the iOS client
+across 122 real turns on three projects: **95 of them — 77% — carry no text at
+all**, zero turns were truncated, and the p90 text length is 112 characters. So
+the bound this endpoint was designed around barely fires, while the common case
+— a tool call and its result, each rendered as its own card with a speaker, a
+timestamp and a background — means scrolling past three and a half cards of
+machinery for every card containing words.
+
+That is invisible at 1400px, because the machinery is cheap when you have the
+room, and it is the difference between usable and hostile at 390px. A run of
+consecutive text-free turns now collapses into one strip that opens on tap: 60
+turns render as 20 rows on a busy project, and a project whose turns are all text
+renders **unchanged**, which is the property worth having.
+
+**A strip's identity keys on the FIRST event of its run**, and this only bites
+with a live poll: keyed on the last, every poll appending another tool-only turn
+renames the row and an open strip snaps shut under the reader. In an
+append-based client the same defect wears different clothes — a run split across
+two polls becomes two strips — so the trailing run is kept and re-rendered with
+the batch that extends it. Bounded to the tail, which is not the whole-list
+rewrite that would destroy scroll position.
+
+A LONE text-free turn is not collapsed. It is a tool call somebody may well be
+looking for, and hiding it behind a strip saves nothing.
+
 The client renders a third viewer tab beside Pane and Session — bottom-anchored,
 newest last, tool calls collapsed to one line and expanded on tap, and it only
 auto-scrolls when the reader was already at the bottom. A reader who scrolled up

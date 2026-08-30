@@ -422,6 +422,18 @@
 
   /* Tool calls are the bulk of the bytes and almost never what is being read,
      so they collapse to one line and open on tap. */
+  /* A run of tool-only turns: one strip, opened on tap. 77% of turns carry no
+     text at all, measured across 122 real ones — rendering each as its own card
+     means scrolling past three and a half cards of machinery per card of words. */
+  #chat details.steps > summary {
+    cursor: pointer; list-style: none; color: var(--dim); font-size: 0.74rem;
+    padding: 0.35rem 0.6rem; border: 1px dashed var(--line); border-radius: 8px;
+    margin-bottom: 0.75rem; background: var(--elev);
+  }
+  #chat details.steps > summary::-webkit-details-marker { display: none; }
+  #chat details.steps[open] > summary { margin-bottom: 0.4rem; }
+  #chat details.steps .stepbody { border-left: 2px solid var(--line);
+    padding-left: 0.55rem; margin-bottom: 0.75rem; }
   .turn details.tool { margin-top: 0.35rem; }
   .turn details.tool > summary {
     cursor: pointer; list-style: none; color: var(--dim); font-size: 0.75rem;
@@ -1918,6 +1930,15 @@ let chatPrev = 0;      // page backward from here
 let chatMore = false;  // is there anything before the top of what is rendered
 let chatKey = "";      // which pane is rendered; changing it resets everything
 let chatBusy = false;
+// The trailing run of text-free turns, kept so an APPEND can extend the strip
+// that already represents it rather than starting a second one beside it.
+//
+// The iOS client hit the same thing from the other side and named the general
+// rule: a strip's identity must key on the FIRST event of its run. Keyed on the
+// last, every poll that appends another tool-only turn renames the row — and an
+// open strip snaps shut under the reader every few seconds. It only bites with a
+// live poll and a stateful list, which is why a static render never shows it.
+let chatTail = [];
 
 function chatPaneKey() {
   return selected ? `${selected.node}\u0000${selected.path}` : "";
@@ -1935,12 +1956,69 @@ function resetChat() {
   chatCursor = chatPrev = 0;
   chatMore = false;
   chatKey = chatPaneKey();
+  chatTail = [];
   chatEl.innerHTML = `<div class="cnote">loading…</div>`;
 }
 
 function chatURL(params) {
   const q = new URLSearchParams({ node: selected.node, path: selected.path, ...params });
   return "/api/claude/events?" + q.toString();
+}
+
+// Consecutive turns carrying no TEXT collapse into one strip.
+//
+// Measured by the iOS client across 122 real turns: 95 of them — 77% — have no
+// text at all. They are tool calls and their results, and rendering each as its
+// own card with a speaker, a timestamp and a background means scrolling past
+// three and a half cards of machinery for every card containing words. On a
+// 390px screen that is the difference between usable and hostile, and it is
+// invisible at 1400px because the machinery is cheap when you have the room.
+//
+// The clamp is NOT the problem: zero truncated turns in that sample, p90 of 112
+// characters. I had bounded the rare case and rendered the common one badly.
+//
+// Nothing is hidden — the strip opens. And it costs nothing where there is
+// nothing to collapse: a project whose turns are all text renders unchanged.
+function runsHTML(events) {
+  const out = [];
+  let run = [];
+  const flush = () => {
+    if (!run.length) return;
+    // ONE text-free turn is not machinery worth hiding behind a strip; it is a
+    // tool call somebody may well be looking for. Collapse only a genuine run.
+    out.push(run.length === 1 ? turnHTML(run[0]) : stripHTML(run));
+    run = [];
+  };
+  for (const e of events) {
+    if (!e.text) { run.push(e); continue; }
+    flush();
+    out.push(turnHTML(e));
+  }
+  flush();
+  return out.join("");
+}
+
+// trailingRun is the run of text-free turns at the end of a batch — the part a
+// later poll may extend. A batch ending in a text turn has none.
+function trailingRun(events) {
+  const out = [];
+  for (let i = events.length - 1; i >= 0; i--) {
+    if (events[i].text) break;
+    out.unshift(events[i]);
+  }
+  return out;
+}
+
+function stripHTML(run) {
+  const names = [];
+  for (const e of run) for (const t of e.tools || []) {
+    const n = t.kind === "result" ? null : (t.name || "tool");
+    if (n && !names.includes(n)) names.push(n);
+  }
+  const label = names.length ? names.slice(0, 4).join(" · ") : "no output";
+  return `<details class="steps"><summary>${run.length} steps · ${esc(label)}${
+    names.length > 4 ? " …" : ""}</summary>
+    <div class="stepbody">${run.map(turnHTML).join("")}</div></details>`;
 }
 
 function turnHTML(e) {
@@ -1987,7 +2065,8 @@ async function refreshChat() {
         chatEl.innerHTML = `<div class="cnote">no conversation recorded for this folder yet</div>`;
         return;
       }
-      chatEl.innerHTML = olderButtonHTML() + page.events.map(turnHTML).join("");
+      chatEl.innerHTML = olderButtonHTML() + runsHTML(page.events);
+      chatTail = trailingRun(page.events);
       wireOlder();
       chatEl.scrollTop = chatEl.scrollHeight;
       return;
@@ -2000,7 +2079,13 @@ async function refreshChat() {
     chatCursor = page.cursor;
     if (!page.events.length) return;
     const stick = chatAtBottom();
-    chatEl.insertAdjacentHTML("beforeend", page.events.map(turnHTML).join(""));
+    // Re-render the trailing run together with what just arrived, so a run
+    // split across two polls is one strip rather than two. Bounded to the tail —
+    // this is not the whole-list rewrite that would destroy scroll position.
+    if (chatTail.length && chatEl.lastElementChild) chatEl.lastElementChild.remove();
+    const batch = chatTail.concat(page.events);
+    chatEl.insertAdjacentHTML("beforeend", runsHTML(batch));
+    chatTail = trailingRun(batch);
     if (stick) chatEl.scrollTop = chatEl.scrollHeight;
   } catch (err) {
     if (!chatEl.querySelector(".turn")) {
@@ -2039,7 +2124,7 @@ async function loadOlder() {
     // the viewport, so the offset has to move by exactly that growth or the
     // page jumps and the reader loses their place.
     const before = chatEl.scrollHeight, top = chatEl.scrollTop;
-    btn.outerHTML = olderButtonHTML() + page.events.map(turnHTML).join("");
+    btn.outerHTML = olderButtonHTML() + runsHTML(page.events);
     wireOlder();
     chatEl.scrollTop = top + (chatEl.scrollHeight - before);
   } catch (err) {
