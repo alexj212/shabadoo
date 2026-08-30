@@ -89,52 +89,19 @@ waiting until the coordinator has registered the session. Written up in
 it is what separates a fix from a longer sleep: **open a folder, address it by
 name immediately, and require the send to land.**
 
-## Phase 9 — reading a conversation, on a phone
+## Phase 9 — reading a conversation, on a phone — **shipped**
 
-**Promoted ahead of the board, because it is the one thing the mobile client
-cannot do at all.** The dashboard can drive every pane from a phone and can
-barely show you what any of them said: `/api/capture` returns whatever is still
-in tmux scrollback as flat text, wrapped for a terminal, with tool output at the
-same weight as the answer. On a 390px screen that is unreadable, and it is what a
-person actually reaches for when a notification says a session is blocked.
+`GET /api/claude/events`, backward-seeking and byte-cursored, plus a Chat tab in
+the dashboard. Written up in `CLAUDE.md` and specified in `docs/mobile-client.md`.
 
-The reader underneath already exists and already returns a byte cursor.
-`claudelog` parses the transcripts, caches incrementally — an unchanged one costs
-a stat — and `GET /api/claude/session` serves the summary. What is missing is the
-turns.
+Two things worth carrying forward rather than re-deriving:
 
-**`GET /api/claude/events`** — cursor-paginated user/assistant turns, tool calls
-collapsed by default. Four constraints are already known and each one shapes the
-API rather than the CSS:
-
-- **`proxyGet` buffers a peer response through `io.ReadAll` with an 8 MB cap.**
-  So the endpoint must paginate hard and truncate individual tool results *on the
-  wire*, not in the client. A single pasted file can exceed the cap on its own.
-- **Poll must APPEND using the cursor**, never rewrite `innerHTML`. Rewriting
-  destroys scroll position every few seconds, which on a phone means the page
-  fights the reader — the failure is not subtle and it is not fixable in CSS.
-- **Newest-last, anchored to the bottom**, like every chat a person has used. The
-  summary header already exists and belongs above it, collapsed.
-- **Tool calls collapse to one line and expand on tap.** They are the bulk of the
-  bytes and almost never the thing being read. Collapsed-by-default is also what
-  keeps a page within the transfer budget on a phone connection.
-
-**Read `github.com/osteele/claude-chat-viewer` before designing the rendering.**
-It solves the same problem from the same transcript format, and the parts worth
-taking are its message-shape handling, not its stack.
-
-**What must not be lost in making it pretty:** this widens the read surface
-knowingly. The transcript store holds file contents, memory directories, and
-anything ever pasted into a prompt, for every session ever run in that folder,
-indefinitely. Rendering it well makes that content easier to read — which is the
-point, and also the risk. It is acceptable on the current tailnet-only,
-device-token basis, and it is the strongest argument for `pair --scope read`
-meaning something narrower before this reaches a phone that leaves the house.
-
-**Verify on the phone, not on the workstation.** A conversation reader that looks
-right at 1400px and is unusable at 390px is the normal outcome of building it
-here, and the developing machine cannot produce the failing condition — the same
-rule this project already applies to platform-specific code.
+- **The reader must count readable TURNS, not lines.** A transcript is mostly
+  records nobody sees; the first version returned zero events for `limit=4`
+  against a live file because its last four lines were noise.
+- **Verify on the phone.** A reader that looks right at 1400px and is unusable at
+  390px is the normal outcome of building it on the workstation, and the
+  developing machine cannot produce the failing condition.
 
 ## Phase 10 — the board: inbox, todo, blockers, done
 

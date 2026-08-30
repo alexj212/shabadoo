@@ -382,6 +382,62 @@
     background: rgba(91,157,255,.12); filter: none;
   }
 
+
+  /* ---- chat: the conversation, read on a phone ----
+     Built at 390px first. A reader that looks right at 1400px and is unusable
+     on a phone is the normal outcome of building it on the workstation, and
+     the phone is the device the notifications arrive on. */
+  #chat { padding: 0.6rem 0.55rem 0.9rem; max-height: 62vh; overflow-y: auto;
+    overflow-x: hidden; overscroll-behavior: contain; }
+  #chat[hidden] { display: none; }
+  #chat .older {
+    display: block; width: 100%; margin: 0 0 0.7rem; padding: 0.5rem;
+    background: var(--elev); color: var(--dim); border: 1px solid var(--line);
+    border-radius: 8px; font: inherit; font-size: 0.78rem; cursor: pointer;
+  }
+  #chat .older:disabled { opacity: .5; cursor: default; }
+  #chat .cnote { color: var(--dim); text-align: center; padding: 1.4rem 0.5rem;
+    font-size: 0.82rem; }
+  #chat .cnote.bad { color: var(--danger); }
+
+  .turn { margin: 0 0 0.75rem; max-width: 100%; }
+  .turn .who {
+    font-size: 0.66rem; letter-spacing: .07em; text-transform: uppercase;
+    color: var(--dim); margin-bottom: 0.2rem; display: flex; gap: .45rem;
+    align-items: baseline;
+  }
+  .turn .body {
+    border-radius: 10px; padding: 0.5rem 0.65rem; border: 1px solid var(--line);
+    white-space: pre-wrap;
+    /* break-word, not break-all: a long path must wrap rather than push the
+       page sideways, but ordinary prose must still break on spaces. */
+    overflow-wrap: anywhere; word-break: normal;
+    font-size: 0.86rem; line-height: 1.45;
+  }
+  .turn.user .body { background: rgba(91,157,255,.10); border-color: rgba(91,157,255,.30); }
+  .turn.assistant .body { background: var(--elev); }
+  .turn.sub .who { color: var(--accent2); }
+  .turn.sub .body { border-style: dashed; }
+  .turn .cut { color: var(--warn); font-size: 0.72rem; display: block; margin-top: .3rem; }
+
+  /* Tool calls are the bulk of the bytes and almost never what is being read,
+     so they collapse to one line and open on tap. */
+  .turn details.tool { margin-top: 0.35rem; }
+  .turn details.tool > summary {
+    cursor: pointer; list-style: none; color: var(--dim); font-size: 0.75rem;
+    padding: 0.3rem 0.5rem; border: 1px solid var(--line); border-radius: 7px;
+    background: var(--bg2, transparent);
+  }
+  .turn details.tool > summary::-webkit-details-marker { display: none; }
+  .turn details.tool > summary b { color: var(--fg); font-weight: 600; }
+  .turn details.tool[open] > summary { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+  .turn details.tool pre {
+    margin: 0; padding: 0.45rem 0.55rem; font-size: 0.74rem; line-height: 1.4;
+    border: 1px solid var(--line); border-top: none;
+    border-radius: 0 0 7px 7px; background: var(--elev);
+    overflow-x: auto; white-space: pre; max-height: 16rem;
+  }
+
   /* ---- session detail ---- */
   #session { padding: 0.85rem 0.9rem; max-height: 62vh; overflow: auto; }
   #session[hidden] { display: none; }
@@ -445,6 +501,12 @@
 
   /* ---- mobile / touch ---- */
   @media (max-width: 640px) {
+    /* Give the conversation the screen: on a phone this IS the page, and a
+       62vh box inside a scrolling page means two scroll containers fighting. */
+    #chat { max-height: 74vh; padding: 0.5rem 0.4rem 0.8rem; }
+    .turn .body { font-size: 0.9rem; }
+    .turn details.tool > summary { padding: 0.45rem 0.55rem; }
+
     body { padding: 0.6rem 0.6rem 1.2rem; }
     header { flex-wrap: wrap; padding: 0.55rem 0.7rem; gap: 0.5rem; }
     h1 .sub { display: none; }
@@ -525,6 +587,7 @@
   <div class="vhead">
     <span class="dots"><i></i><i></i><i></i></span>
     <button class="vtab on" id="tab-pane" data-tab="pane">Pane</button>
+    <button class="vtab" id="tab-chat" data-tab="chat">Chat</button>
     <button class="vtab" id="tab-session" data-tab="session">Session</button>
     <span class="vname" id="vname">—</span>
     <span class="spacer"></span>
@@ -540,6 +603,7 @@
     <button class="x" id="vclose" title="close">✕</button>
   </div>
   <pre id="buffer"></pre>
+  <div id="chat" hidden></div>
   <div id="session" hidden></div>
 </div>
 
@@ -634,7 +698,9 @@ const vstatus = document.getElementById("vstatus");
 const vclose = document.getElementById("vclose");
 const buffer = document.getElementById("buffer");
 const sessionEl = document.getElementById("session");
+const chatEl = document.getElementById("chat");
 const tabPane = document.getElementById("tab-pane");
+const tabChat = document.getElementById("tab-chat");
 const tabSession = document.getElementById("tab-session");
 const vlineswrap = document.getElementById("vlineswrap");
 // Quick-command chips only. The dialog-answer buttons share the .chip look
@@ -1570,20 +1636,163 @@ async function refreshSession() {
   }
 }
 
+// ---- chat: the conversation, appended not rewritten ----
+//
+// The one rule that shapes everything here: POLLING APPENDS, using the cursor
+// the server returned. Rewriting innerHTML every two seconds destroys scroll
+// position, which on a phone means the page fights the reader — not a subtle
+// failure, and not fixable in CSS.
+//
+// Newest last and anchored to the bottom, like every chat anybody has used.
+let chatCursor = 0;    // poll forward from here
+let chatPrev = 0;      // page backward from here
+let chatMore = false;  // is there anything before the top of what is rendered
+let chatKey = "";      // which pane is rendered; changing it resets everything
+let chatBusy = false;
+
+function chatPaneKey() {
+  return selected ? `${selected.node}\u0000${selected.path}` : "";
+}
+
+// Near the bottom, within a finger's slop. A reader who has scrolled up to read
+// something is not dragged back down by an arriving turn; one sitting at the
+// bottom follows the conversation. Getting this wrong in either direction is
+// the difference between a live view and an unusable one.
+function chatAtBottom() {
+  return chatEl.scrollHeight - chatEl.scrollTop - chatEl.clientHeight < 60;
+}
+
+function resetChat() {
+  chatCursor = chatPrev = 0;
+  chatMore = false;
+  chatKey = chatPaneKey();
+  chatEl.innerHTML = `<div class="cnote">loading…</div>`;
+}
+
+function chatURL(params) {
+  const q = new URLSearchParams({ node: selected.node, path: selected.path, ...params });
+  return "/api/claude/events?" + q.toString();
+}
+
+function turnHTML(e) {
+  const cls = e.sidechain ? `${e.type} sub` : e.type;
+  const who = e.sidechain ? `${e.type} · subagent` : e.type;
+  const when = e.time ? new Date(e.time * 1000).toLocaleTimeString([], {
+    hour: "2-digit", minute: "2-digit" }) : "";
+  let body = "";
+  if (e.text) {
+    body = `<div class="body">${esc(e.text)}${
+      e.truncated ? `<span class="cut">cut to fit — ${e.len} characters in full</span>` : ""}</div>`;
+  }
+  // Collapsed by default and expanded on tap. Also what keeps the page inside a
+  // phone's transfer budget: these are most of the bytes.
+  const tools = (e.tools || []).map(t => `
+    <details class="tool"><summary><b>${esc(t.name)}</b>${
+      t.input ? " · " + esc(t.input.slice(0, 70)) : ""}</summary>
+      <pre>${esc(t.input || "")}${t.truncated ? "\n… cut to fit" : ""}</pre></details>`).join("");
+  return `<div class="turn ${cls}">
+    <div class="who"><span>${esc(who)}</span><span>${esc(when)}</span></div>
+    ${body}${tools}</div>`;
+}
+
+async function refreshChat() {
+  if (!selected) { chatEl.innerHTML = `<div class="cnote">select a pane</div>`; return; }
+  if (chatKey !== chatPaneKey()) resetChat();
+  if (chatBusy) return;
+  chatBusy = true;
+  try {
+    if (!chatCursor) {
+      // First paint: the tail. No cursor yet, so the server decides where the
+      // end is — the client must not guess an offset into a file it has not read.
+      const r = await fetch(chatURL({ limit: 40 }));
+      if (!r.ok) throw new Error(await r.text());
+      const page = await r.json();
+      chatCursor = page.cursor; chatPrev = page.prev; chatMore = page.more;
+      if (!page.events.length) {
+        chatEl.innerHTML = `<div class="cnote">no conversation recorded for this folder yet</div>`;
+        return;
+      }
+      chatEl.innerHTML = olderButtonHTML() + page.events.map(turnHTML).join("");
+      wireOlder();
+      chatEl.scrollTop = chatEl.scrollHeight;
+      return;
+    }
+    // Poll: only what has been written since. An empty page is the normal case
+    // and must cost nothing — no re-render, no scroll change.
+    const r = await fetch(chatURL({ after: chatCursor, limit: 40 }));
+    if (!r.ok) return;
+    const page = await r.json();
+    chatCursor = page.cursor;
+    if (!page.events.length) return;
+    const stick = chatAtBottom();
+    chatEl.insertAdjacentHTML("beforeend", page.events.map(turnHTML).join(""));
+    if (stick) chatEl.scrollTop = chatEl.scrollHeight;
+  } catch (err) {
+    if (!chatEl.querySelector(".turn")) {
+      chatEl.innerHTML = `<div class="cnote bad">${esc(String(err.message || err))}</div>`;
+    }
+  } finally {
+    chatBusy = false;
+  }
+}
+
+function olderButtonHTML() {
+  // "There is more above" and "this is the beginning" are different answers,
+  // and a reader scrolling up has to be able to stop. The server distinguishes
+  // them with `more`; rendering both as an enabled button would not.
+  return chatMore
+    ? `<button class="older" id="chat-older">load earlier turns</button>`
+    : `<button class="older" disabled>beginning of this conversation</button>`;
+}
+
+function wireOlder() {
+  const b = document.getElementById("chat-older");
+  if (b) b.addEventListener("click", loadOlder);
+}
+
+async function loadOlder() {
+  const btn = document.getElementById("chat-older");
+  if (!btn || chatBusy) return;
+  chatBusy = true;
+  btn.disabled = true; btn.textContent = "loading…";
+  try {
+    const r = await fetch(chatURL({ before: chatPrev, limit: 40 }));
+    if (!r.ok) throw new Error(await r.text());
+    const page = await r.json();
+    chatPrev = page.prev; chatMore = page.more;
+    // Preserve the reading position: prepending grows the scroll height above
+    // the viewport, so the offset has to move by exactly that growth or the
+    // page jumps and the reader loses their place.
+    const before = chatEl.scrollHeight, top = chatEl.scrollTop;
+    btn.outerHTML = olderButtonHTML() + page.events.map(turnHTML).join("");
+    wireOlder();
+    chatEl.scrollTop = top + (chatEl.scrollHeight - before);
+  } catch (err) {
+    btn.disabled = false; btn.textContent = "load earlier turns — " + String(err.message || err);
+  } finally {
+    chatBusy = false;
+  }
+}
+
 // ---- viewer: two tabs over the same selected pane ----
 
 function setTab(name) {
   vtab = name;
   tabPane.classList.toggle("on", name === "pane");
+  tabChat.classList.toggle("on", name === "chat");
   tabSession.classList.toggle("on", name === "session");
   buffer.hidden = name !== "pane";
+  chatEl.hidden = name !== "chat";
   sessionEl.hidden = name !== "session";
   vlineswrap.hidden = name !== "pane"; // scrollback depth is a pane-only knob
+  if (name === "chat") resetChat();
   if (!viewer.hidden) refreshViewer(true);
 }
 
 function refreshViewer(forceBottom) {
-  return vtab === "pane" ? refreshBuffer(forceBottom) : refreshSession();
+  if (vtab === "pane") return refreshBuffer(forceBottom);
+  if (vtab === "chat") return refreshChat();
+  return refreshSession();
 }
 
 function openViewer() {
@@ -1604,6 +1813,7 @@ transcriptBtn.addEventListener("click", () => viewer.hidden ? openViewer() : clo
 vclose.addEventListener("click", closeViewer);
 vlines.addEventListener("change", () => refreshBuffer(true));
 tabPane.addEventListener("click", () => setTab("pane"));
+tabChat.addEventListener("click", () => setTab("chat"));
 tabSession.addEventListener("click", () => setTab("session"));
 
 // ---- audit ----

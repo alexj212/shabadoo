@@ -681,6 +681,70 @@ Model, turn counts, token totals, tools used, last prompt. This reads Claude's
 own transcript, not the terminal, so it is the real answer to "what is this
 session up to" — but see the warning about its read surface in *Ground rules*.
 
+### `GET /api/claude/events` — the conversation itself
+
+```http
+GET {coord}/api/claude/events?node=wsl&path=/c/projects/homelab&limit=40
+GET {coord}/api/claude/events?node=wsl&path=…&after=113103838   # poll forward
+GET {coord}/api/claude/events?node=wsl&path=…&before=113084512  # page back
+```
+
+The turns, where `/api/claude/session` gives totals. **This is the endpoint a
+phone renders a conversation from**, and it is designed around four constraints
+that are not negotiable client-side:
+
+```json
+{ "events": [
+    { "type": "assistant", "role": "assistant", "time": 1787749014,
+      "text": "…", "truncated": true, "len": 5120, "model": "claude-opus-5",
+      "sidechain": false, "offset": 113095743,
+      "tools": [ { "name": "Bash", "input": "{\"command\":\"…\"}", "truncated": true } ] } ],
+  "cursor": 113103838, "prev": 113084512, "more": true, "size": 113103838 }
+```
+
+**Paging is by BYTE OFFSET, not by message index.** Transcripts on this fleet
+reach 136 MB and are append-only; an index would have to be counted from the
+start of the file on every request. `offset` is the byte position just past that
+record, and it is per-event rather than per-page so a client that renders half a
+page still holds a correct watermark.
+
+- **No `after` and no `before` tails the end** — the last `limit` readable turns.
+  A client must not guess an offset into a file it has not read.
+- **`after=<cursor>` polls forward.** Use the `cursor` from the previous
+  response. This returns only what has been appended, and an empty `events` is
+  the normal case: **append it, never re-render.** Rewriting the list on a timer
+  destroys scroll position, which on a phone means the page fights the reader.
+- **`before=<prev>` pages back.** `more` says whether anything precedes what you
+  were given; `prev` alone cannot say, because an offset of 0 is also a real
+  position. When `more` is false you are at the beginning — stop asking.
+- **A shrinking file resets to a tail.** If `after` exceeds the current size the
+  transcript was rotated or replaced, and reading from a stale offset would
+  splice two conversations together.
+
+**Truncation happens on the wire.** Message text is clamped to 4000 runes, a
+tool call's input to 600, a tool result to 1200 — with `truncated` and `len` so a
+client can tell a short message from a cut one. This is not a display choice: the
+response crosses the coordinator's `proxyGet`, which buffers a peer's answer
+through `io.ReadAll` with an **8 MB ceiling**, and a single pasted file in one
+turn can exceed that alone.
+
+**Tool calls are collapsed and belong under the turn that made them.** A
+`tool_result` arrives as a `ToolCall` named `result`. They are most of a
+transcript's bytes and almost never what is being read; render one line and
+expand on demand.
+
+`sidechain` marks a subagent's message. Render it differently rather than hiding
+it — a reader who cannot tell a subagent's words from the session's own is being
+shown a conversation that did not happen.
+
+**Unreadable lines are dropped, not surfaced as errors.** A live transcript's
+last line is routinely a partial write; a page whose final row said "could not
+parse" would show that every few seconds.
+
+The read-surface warning in *Ground rules* applies here more than anywhere: this
+renders file contents, memory directories and anything ever pasted into a prompt,
+for every session ever run in that folder.
+
 ### Session-to-session mail
 
 | Endpoint | Use |
@@ -988,7 +1052,7 @@ Ask before designing against any of it:
 | Wanted | State |
 |---|---|
 | **APNs push delivery** | **half built.** A device can register a token (`PUT /api/devices/self/push`) and the coordinator stores it — but there is **no APNs sender**, because that needs a team id, key id and `.p8` from a developer account that does not exist yet. Notifications reach a phone today via the coordinator's Apprise relay (Telegram/Pushover), not via APNs. Give me a bundle id and the sender is a drop-in |
-| A rendered conversation view | **not built.** `/api/capture` scrapes the terminal; `/api/claude/session` gives totals, not turns. Rendering the messages themselves is the next phase |
+| Editing a `MISSION.md` from the app | **not built, and deliberately.** Those files are hand-written and reviewed in a diff; writing one back from a parsed model would delete every reason written beside every row |
 | Session history / resume | **not built** |
 | Transcript search | **not built**, and deliberately dropped — say so if you want it |
 | OpenAPI spec | does not exist. This document and `CLAUDE.md`'s tables are the contract |

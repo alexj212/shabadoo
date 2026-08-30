@@ -81,6 +81,7 @@ func (b *bridge) routes() (*http.ServeMux, error) {
 	mux.HandleFunc("GET /api/sessions", b.handleSessions)
 	mux.HandleFunc("GET /api/capture", b.handleCapture)
 	mux.HandleFunc("GET /api/claude/session", b.handleClaudeSession)
+	mux.HandleFunc("GET /api/claude/events", b.handleClaudeEvents)
 	mux.HandleFunc("GET /api/input-state", b.handleInputState)
 	mux.HandleFunc("GET /api/folders", b.handleFolders)
 
@@ -340,6 +341,41 @@ func (b *bridge) handleFolders(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.Write(raw)
+}
+
+// handleClaudeEvents serves a page of the conversation itself.
+//
+// This mode CAN answer it — the transcripts are on this host — unlike the
+// endpoints routed to 501 above, which need the coordinator's database. The
+// fallback exists to drive this machine's panes when the coordinator is gone,
+// and reading what a session said is part of that.
+func (b *bridge) handleClaudeEvents(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	if q.Get("path") == "" {
+		http.Error(w, "path required", http.StatusBadRequest)
+		return
+	}
+	num := func(k string) int64 {
+		n, _ := strconv.ParseInt(q.Get(k), 10, 64)
+		return n
+	}
+	file, err := claudelog.Resolve(q.Get("path"))
+	if err != nil {
+		if errors.Is(err, claudelog.ErrNotFound) {
+			http.Error(w, "no claude session for "+q.Get("path"), http.StatusNotFound)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	page, err := claudelog.Events(file, claudelog.EventOpts{
+		After: num("after"), Before: num("before"), Limit: int(num("limit")),
+	})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	writeJSONResp(w, page)
 }
 
 // handleClaudeSession summarizes the Claude session running in a window: the

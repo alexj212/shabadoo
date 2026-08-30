@@ -38,6 +38,15 @@ type opArgs struct {
 	Path    string   `json:"path,omitempty"`
 	Lines   int      `json:"lines,omitempty"`
 	Color   bool     `json:"color,omitempty"`
+
+	// Transcript paging. After polls forward from a byte offset, Before pages
+	// backward from one, and neither tails the end. Byte offsets rather than
+	// message indices because a transcript is append-only and enormous — an
+	// index would have to be counted from the start of a 136 MB file on every
+	// request, which is the cost this reader exists to avoid.
+	After  int64 `json:"after,omitempty"`
+	Before int64 `json:"before,omitempty"`
+	Limit  int   `json:"limit,omitempty"`
 }
 
 // pane is the addressed pane, or -1 for "whichever is active".
@@ -140,6 +149,23 @@ func handleOp(ctx context.Context, op string, payload json.RawMessage) (any, err
 			return nil, fmt.Errorf("claude_session: path required")
 		}
 		return claudelog.Summarize(a.Path)
+
+	case "claude_events":
+		// The turns themselves, for a client that wants to READ a conversation
+		// rather than count it. Paginated hard and truncated ON THE WIRE: this
+		// answer crosses the coordinator's proxyGet, which buffers a peer
+		// response through io.ReadAll with an 8 MB ceiling, and one pasted file
+		// in a single turn can exceed that alone.
+		if a.Path == "" {
+			return nil, fmt.Errorf("claude_events: path required")
+		}
+		file, err := claudelog.Resolve(a.Path)
+		if err != nil {
+			return nil, err
+		}
+		return claudelog.Events(file, claudelog.EventOpts{
+			After: a.After, Before: a.Before, Limit: a.Limit,
+		})
 
 	case "deliver":
 		// A nudge: wake a session so its inbox-drain hook fires on the next

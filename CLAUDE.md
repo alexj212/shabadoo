@@ -2224,10 +2224,63 @@ missing marker must not read as "that node has no boot folders".
 human at a pane had to be told the address *by* that human, which is the wrong
 direction for the one fact this program is certain of.
 
+### Phase 9 — reading a conversation, on a phone
+
+The dashboard could drive every pane and barely show what any of them said.
+`/api/capture` returns whatever is still in tmux scrollback as flat text wrapped
+for a terminal, with tool output at the same weight as the answer — unreadable at
+390px, and it is what somebody reaches for when a notification says a session is
+blocked.
+
+**`GET /api/claude/events` pages by BYTE OFFSET, and it reads backwards.**
+Transcripts on this fleet reach **136 MB**; a tail implemented as "scan the file
+and keep the last N" would read all of it on every poll, for every session
+somebody has open. Seeking to the end and walking back in 256 KB chunks costs the
+size of what is returned. An index would have the same problem as the scan — it
+would have to be counted from the start of the file every time.
+
+**Counting readable TURNS rather than lines is the whole difficulty**, and it is
+invisible from a fixture of pure messages. A transcript is mostly records nobody
+sees — tool plumbing, meta injections, snapshots — so a loop that stops after N
+lines returns nothing at all: against a live 113 MB transcript the first version
+returned **zero events for `limit=4`**, because the last four lines were noise.
+Pinned as the distinction: a file whose messages are buried under noise must
+return the same turns as one without it.
+
+Four properties the API carries rather than leaving to the client:
+
+- **`after=<cursor>` returns only what was appended**, so a client APPENDS.
+  Re-rendering on a timer destroys scroll position, which on a phone means the
+  page fights the reader — not subtle, and not fixable in CSS.
+- **`more` separates "there is more above" from "this is the beginning."** An
+  offset of 0 is also a real position, so `prev` alone cannot carry it, and a
+  reader scrolling up has to be able to stop.
+- **Truncation is on the wire** — 4000 runes of text, 600 of a tool input, 1200
+  of a tool result, each with `truncated` and `len` so a short message is
+  distinguishable from a cut one. Not a display choice: the response crosses
+  `proxyGet`, which buffers a peer's answer through `io.ReadAll` with an **8 MB
+  ceiling**, and one pasted file in a single turn can exceed that alone.
+- **A shrunken file resets to a tail.** A cursor past the end means the
+  transcript was rotated, and reading from it would splice two conversations.
+
+**Unreadable lines are dropped, never rendered as an error row.** A live
+transcript's last line is routinely a partial write, and a page whose final entry
+said "could not parse" would show that every few seconds — training the reader to
+ignore the one time it means something.
+
+`serve` answers this endpoint rather than 501-ing: the transcripts are on the
+host, and reading what a session said is part of driving its panes when the
+coordinator is gone.
+
+The client renders a third viewer tab beside Pane and Session — bottom-anchored,
+newest last, tool calls collapsed to one line and expanded on tap, and it only
+auto-scrolls when the reader was already at the bottom. A reader who scrolled up
+to read something is not dragged back down by an arriving turn.
+
 ## Future phases (not yet built)
 
-**`docs/build-plan.md` is the plan — phases 9-11, in order, with the reason for
-the order.** Phases 0-8 are shipped and deployed; the plan no longer describes
+**`docs/build-plan.md` is the plan — phases 10-11, in order, with the reason for
+the order.** Phases 0-9 are shipped and deployed; the plan no longer describes
 them as work.
 
 The short version, because a pointer nobody follows is a pointer nobody reads:
@@ -2235,7 +2288,7 @@ The short version, because a pointer nobody follows is a pointer nobody reads:
 | | |
 |---|---|
 | ~~**8 — papercuts**~~ | **shipped** — see below |
-| **9 — reading a conversation on a phone** | `GET /api/claude/events`, cursor-paginated turns, tool calls collapsed. The one thing the mobile client cannot do at all: it drives every pane and can barely show what any of them said |
+| ~~**9 — reading a conversation on a phone**~~ | **shipped** — see above |
 | **10 — the board** | inbox, todo, blockers, done. Assembly over data already served four ways; the shape is an open decision, read-only first |
 | **10b — browsing a project's files** | rides Phase 9's read surface, rooted at project directories rather than the filesystem |
 | **11 — the ethos as a managed thing** | name the drifted payload files rather than counting them; then rule layering; then proposals upward. Speculative past the first step |

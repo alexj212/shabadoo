@@ -75,6 +75,7 @@ func HumanRoutes(mux *http.ServeMux, hub *Hub, store *Store, devices *DeviceStor
 	mux.HandleFunc("GET /api/events", h.events)
 	mux.HandleFunc("GET /api/capture", h.capture)
 	mux.HandleFunc("GET /api/claude/session", h.claudeSession)
+	mux.HandleFunc("GET /api/claude/events", h.claudeEvents)
 	mux.HandleFunc("GET /api/missions/log", h.missionLog)
 	mux.HandleFunc("GET /api/missions/resolved", h.missionResolved)
 	mux.HandleFunc("GET /api/audit", h.audit)
@@ -501,6 +502,39 @@ func (h *humanAPI) claudeSession(w http.ResponseWriter, r *http.Request) {
 	raw, err := h.hub.Call(r.Context(), tenantOf(r.Context()), q.Get("node"), "claude_session", map[string]any{
 		"path": q.Get("path"),
 	})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(raw)
+}
+
+// claudeEvents serves a page of a session's conversation.
+//
+// Read-only and behind the same identity middleware as everything else on this
+// plane, but it widens the read surface knowingly: the transcript store holds
+// file contents, memory directories and anything ever pasted into a prompt, for
+// every session ever run in that folder, indefinitely. `/api/capture` is bounded
+// by what is still in tmux scrollback; this is not.
+//
+// Paging parameters are passed through rather than validated here — the agent
+// owns the bounds, because it is the one that knows the file. Validating in two
+// places is how the two disagree.
+func (h *humanAPI) claudeEvents(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	args := map[string]any{"path": q.Get("path")}
+	for _, k := range []string{"after", "before", "limit"} {
+		if v := q.Get(k); v != "" {
+			n, err := strconv.ParseInt(v, 10, 64)
+			if err != nil {
+				http.Error(w, k+" must be a number", http.StatusBadRequest)
+				return
+			}
+			args[k] = n
+		}
+	}
+	raw, err := h.hub.Call(r.Context(), tenantOf(r.Context()), q.Get("node"), "claude_events", args)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
