@@ -103,29 +103,17 @@ Two things worth carrying forward rather than re-deriving:
   390px is the normal outcome of building it on the workstation, and the
   developing machine cannot produce the failing condition.
 
-## Phase 10 — the board: inbox, todo, blockers, done
+## Phase 10 — the board — **shipped**
 
-The largest thing asked for, and mostly **assembly rather than new mechanism** —
-every input already exists and is already served:
+Four read-only columns: Needs you, In flight, Waiting on others, Closed in 7
+days. Written up in `CLAUDE.md`. Two things worth carrying forward:
 
-| Column | Source | State |
-|---|---|---|
-| inbox, including past | `GET /api/messages` (24h + per-session thread) | built |
-| todo / open | `mission_waiting` on every session | built |
-| blockers | the same rows, owner `you`, plus blocked tasks | built |
-| done | `GET /api/missions/resolved` + tasks in `done`/`dropped` | built |
-
-So this is a **rendering decision, not a data one**, which is why it is worth
-doing before anything that adds a new store. The shape is an open question — see
-the decision below — and it should be settled before the first column is drawn,
-because a board and a set of grouped tables want different data on the wire.
-
-**The one real risk** is that a board invites moving cards, and moving a card is a
-write into somebody's `MISSION.md`. That is a file a human edits and reviews in a
-diff; a UI that rewrites it from a parsed model would delete every reason written
-beside every row — the failure `shabadoo config` and `boot add` already refuse to
-commit. **Read-only first.** Whether a card can ever be dragged is a separate
-decision, taken after the read view has been used.
+- **Read-only was the right call and is load-bearing**, not caution. A card maps
+  to a line in a hand-written `MISSION.md`; a write path would have to preserve
+  the prose beside every row, and that is a separate piece of work rather than a
+  bolt-on.
+- **Verify a page headlessly.** A syntax check passes a call to a helper that
+  does not exist; only running the branch catches it.
 
 ## Phase 10b — browsing a project's files
 

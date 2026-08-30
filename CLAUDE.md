@@ -2451,10 +2451,48 @@ CLI resolves a pane — exact, then substring — and applies it after the first
 render that actually contains rows, since matching an empty table would silently
 do nothing.
 
+### Phase 10 — the board: status at a glance, read only
+
+Four columns, and the grouping is the whole design: **Needs you** first because
+it is the only one that changes what somebody does next, then what each project
+says it is *doing*, then what is waiting on somebody else, then what closed in
+the last seven days.
+
+**Read-only, and the button says so.** A board invites moving cards, and a card
+here maps to a line in a hand-written `MISSION.md` — writing that back from a
+parsed model would delete every reason written beside every row, which is what
+`shabadoo config` and `boot add` already refuse to do. Selecting a card opens the
+pane instead. That is deliberately the only action: answering a prompt from a
+card would be answering a question nobody had read, the same line drawn for the
+queue and for voice.
+
+**It assembles rather than measures.** Every input was already served four other
+ways — `mission_waiting`, `input_state`, `/api/tasks`, `/api/missions/resolved` —
+which is why it was worth building before anything that adds a store. The one
+thing it needed was the resolved *rows* rather than the count: "what got
+finished" is the column that makes a status view read as progress rather than as
+a list of debts, and it was being measured and thrown away.
+
+A column with nothing in it still renders with its zero stated. Hiding it would
+make *nothing needs you* indistinguishable from *this view is not showing that*.
+
+**A name collision had been silently eating a measured number.** Two `dur()`
+functions, and a function declaration hoists — so the later one won for the whole
+file, and `dur(median_stood)` was calling `dur(median, undefined)` and returning
+`—`. The fleet panel's "typically X outstanding" had **never once shown a
+figure**. Found while wiring the board, not by review: it renders as an em dash,
+which is exactly what a real absence looks like.
+
+Verified headlessly rather than by opening it, because a page that PARSES is not
+a page that renders — the failure that survives a syntax check is a call to a
+helper that does not exist, and it only appears when the branch runs. The check
+drives `renderBoard` against a payload carrying every case and asserts each one
+lands; it goes red when peer-owned rows are dropped.
+
 ## Future phases (not yet built)
 
-**`docs/build-plan.md` is the plan — phases 10-11, in order, with the reason for
-the order.** Phases 0-9 are shipped and deployed; the plan no longer describes
+**`docs/build-plan.md` is the plan — phase 10b and 11, in order, with the reason for
+the order.** Phases 0-10 are shipped and deployed; the plan no longer describes
 them as work.
 
 The short version, because a pointer nobody follows is a pointer nobody reads:
@@ -2463,7 +2501,7 @@ The short version, because a pointer nobody follows is a pointer nobody reads:
 |---|---|
 | ~~**8 — papercuts**~~ | **shipped** — see below |
 | ~~**9 — reading a conversation on a phone**~~ | **shipped** — see above |
-| **10 — the board** | inbox, todo, blockers, done. Assembly over data already served four ways; the shape is an open decision, read-only first |
+| ~~**10 — the board**~~ | **shipped** — see above |
 | **10b — browsing a project's files** | rides Phase 9's read surface, rooted at project directories rather than the filesystem |
 | **11 — the ethos as a managed thing** | name the drifted payload files rather than counting them; then rule layering; then proposals upward. Speculative past the first step |
 

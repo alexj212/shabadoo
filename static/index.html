@@ -439,6 +439,44 @@
     overflow-x: auto; white-space: pre; max-height: 16rem;
   }
 
+
+  /* ---- the board: status at a glance, read only ---- */
+  #board { padding: 0.6rem 0.7rem 1rem; }
+  #board[hidden] { display: none; }
+  .cols { display: grid; gap: 0.7rem; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); }
+  .col { border: 1px solid var(--line); border-radius: 9px; background: var(--elev);
+    display: flex; flex-direction: column; min-width: 0; }
+  .col > h3 {
+    margin: 0; padding: 0.5rem 0.7rem; font-size: 0.74rem; letter-spacing: .05em;
+    text-transform: uppercase; color: var(--dim); border-bottom: 1px solid var(--line);
+    display: flex; gap: .45rem; align-items: baseline;
+  }
+  .col > h3 .n { color: var(--fg); font-weight: 700; }
+  .col .cards { padding: 0.45rem; display: flex; flex-direction: column; gap: 0.45rem;
+    max-height: 62vh; overflow-y: auto; }
+  .card { border: 1px solid var(--line); border-radius: 7px; padding: 0.45rem 0.55rem;
+    background: var(--bg); cursor: pointer; }
+  .card:hover { border-color: var(--accent2); }
+  .card .cp { font-weight: 600; font-size: 0.82rem; display: flex; gap: .4rem;
+    align-items: baseline; justify-content: space-between; }
+  .card .cp .age { color: var(--dim); font-weight: 400; font-size: 0.72rem; flex: none; }
+  .card .cnow { color: var(--dim); font-size: 0.76rem; margin-top: .2rem; line-height: 1.4;
+    /* Two lines. A card is a glance; the whole Now is a click away. */
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .card .cwhy { font-size: 0.78rem; margin-top: .25rem; line-height: 1.4; }
+  .card .pill { font-size: 0.66rem; padding: .05rem .35rem; border-radius: 4px;
+    border: 1px solid var(--line); color: var(--dim); font-weight: 600; flex: none; }
+  .card .pill.blocked { color: var(--warn); border-color: var(--warn); }
+  .card .pill.done { color: var(--ok, #58d68d); border-color: var(--ok, #58d68d); }
+  .card.dim { opacity: .72; }
+  .col.needs { border-color: rgba(255,107,107,.45); }
+  .col.needs > h3 { color: var(--danger); }
+  .bnote { color: var(--dim); font-size: 0.78rem; padding: 0.6rem 0.7rem 0; }
+  @media (max-width: 640px) {
+    .cols { grid-template-columns: 1fr; }
+    .col .cards { max-height: none; }
+  }
+
   /* ---- session detail ---- */
   #session { padding: 0.85rem 0.9rem; max-height: 62vh; overflow: auto; }
   #session[hidden] { display: none; }
@@ -532,7 +570,13 @@
   <h1>shabadoo <span class="sub">control</span></h1>
   <span id="meta">loading…</span>
   <span class="spacer"></span>
+  <!-- Read-only, and the button says so. A board invites moving cards, and a
+       card here maps to a line in somebody's hand-written MISSION.md — writing
+       that back from a parsed model would delete every reason written beside
+       every row. -->
+  <button class="vtab" id="tab-board" title="status at a glance — read only">Board</button>
 </header>
+<div id="board" hidden></div>
 <div id="root"></div>
 
 <!-- Audit: hidden until the first successful fetch, because `shabadoo serve`
@@ -674,6 +718,8 @@
 
 <script>
 const root = document.getElementById("root");
+const boardEl = document.getElementById("board");
+const tabBoard = document.getElementById("tab-board");
 const meta = document.getElementById("meta");
 const led = document.getElementById("led");
 const compose = document.getElementById("compose");
@@ -717,7 +763,14 @@ let vtab = "pane";      // which viewer tab is showing: "pane" | "session"
 // dur renders a span of seconds on its own, where ago() renders one against a
 // clock. Kept separate rather than passing now-x into ago: a median is not a
 // point in time, and reading "3d" as "three days ago" would invert its meaning.
-function dur(s) {
+// durSecs renders a LENGTH; `dur(from, to)` further down renders the span
+// between two instants. They had the same name, and since a function
+// declaration hoists, the later one silently won for the whole file — so
+// `dur(median_stood)` was calling `dur(median, undefined)` and returning "—".
+// The fleet panel's "typically X outstanding" had therefore never once shown a
+// number, which is a measured value rendered as nothing: the exact failure the
+// rest of this page is built to avoid, committed by a name collision.
+function durSecs(s) {
   if (!s) return "—";
   if (s < 3600) return Math.max(1, Math.round(s / 60)) + "m";
   if (s < 86400) return Math.round(s / 3600) + "h";
@@ -945,7 +998,7 @@ function renderMissions(nodes, nowSec) {
   if (resolvedSummary && resolvedSummary.count > 0) {
     tails.push(`<b>${resolvedSummary.count}</b> closed in the last ` +
       `${resolvedSummary.window_days} days · typically ` +
-      `<b>${esc(dur(resolvedSummary.median_stood))}</b> outstanding`);
+      `<b>${esc(durSecs(resolvedSummary.median_stood))}</b> outstanding`);
   }
   for (const u of unowned) tails.push(u.split
     ? `<b class="warnrow">${esc(u.project)} disagrees about its writer</b> — two ` +
@@ -1114,13 +1167,152 @@ async function refreshTasks() {
 }
 
 let resolvedSummary = null;
+// The rows, not only the count. The fleet panel needs a figure; the board needs
+// the list — "what got finished" is the column that makes a status view feel
+// like progress rather than a list of debts, and it was measured and thrown away.
+let resolvedRows = [];
 async function refreshResolved() {
   try {
-    const r = await fetch("/api/missions/resolved?days=7&limit=1");
+    const r = await fetch("/api/missions/resolved?days=7&limit=40");
     if (!r.ok) return;                      // 501 in fallback mode: stay silent
     const d = await r.json();
     resolvedSummary = d.summary || null;
+    resolvedRows = d.resolved || [];
   } catch (_) { /* a failed poll must not blank a figure that was true */ }
+}
+
+// ---- the board: status at a glance, read only ----
+//
+// Four columns, and the grouping is the design: NEEDS YOU first because it is
+// the only one that changes what somebody does next, then what each project says
+// it is doing, then what is waiting on somebody else, then what closed.
+//
+// Read-only, deliberately and permanently until decided otherwise. A board
+// invites moving cards; a card here maps to a line in a hand-written MISSION.md,
+// and writing that back from a parsed model would delete every reason written
+// beside every row — the same thing `shabadoo config` and `boot add` refuse to
+// do. Selecting a card opens the pane instead, which is the useful action.
+//
+// It ASSEMBLES rather than measures: every input is already served four other
+// ways. That is why it is worth building before anything that adds a store.
+let boardOn = false;
+
+function cardHTML(c) {
+  const pill = c.status && c.status !== "active"
+    ? `<span class="pill ${esc(c.status)}">${esc(c.status)}</span>` : "";
+  return `<div class="card${c.dim ? " dim" : ""}" data-goto="${esc(c.project)}">
+    <div class="cp"><span>${esc(c.project)}${pill}</span>${
+      c.age ? `<span class="age">${esc(c.age)}</span>` : ""}</div>
+    ${c.now ? `<div class="cnow">${esc(c.now)}</div>` : ""}
+    ${c.why ? `<div class="cwhy">${esc(c.why)}</div>` : ""}
+  </div>`;
+}
+
+function colHTML(title, cards, cls) {
+  // A column with nothing in it still renders, with its zero stated. Hiding it
+  // would make "nothing needs you" indistinguishable from "this view is not
+  // showing that", which is the distinction the whole page is built on.
+  return `<section class="col ${cls || ""}">
+    <h3>${title} <span class="n">${cards.length}</span></h3>
+    <div class="cards">${cards.length
+      ? cards.map(cardHTML).join("")
+      : `<div class="bnote">nothing here</div>`}</div>
+  </section>`;
+}
+
+function renderBoard(nodes, nowSec) {
+  const needs = [], doing = [], waiting = [], done = [];
+  const seen = new Set();
+
+  for (const n of nodes) {
+    if (!n.online) continue;
+    for (const w of n.sessions || []) {
+      const proj = w.project || w.alias;
+      if (!proj) continue;
+
+      // A pane at a prompt is the shortest-fuse item on the page: a machine is
+      // halted until somebody answers, and it belongs above any written blocker.
+      if (w.input_state === "dialog") {
+        needs.push({ project: proj, why: w.asking || "waiting at a prompt — open the pane",
+                     status: "blocked" });
+      }
+      const key = n.node + "\0" + proj;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      if (!w.mission_status && !w.mission_now) continue; // has not said; counted below
+
+      const rows = w.mission_waiting || [];
+      const mine = rows.filter(r => (r.owner || "").toLowerCase() === "you");
+      const theirs = rows.filter(r => {
+        const o = (r.owner || "").toLowerCase();
+        return o && o !== "you" && o !== "nobody";
+      });
+      const oldest = rows.reduce((a, r) => r.since && (!a || r.since < a) ? r.since : a, 0);
+
+      for (const r of mine) {
+        needs.push({ project: proj, why: r.item, status: w.mission_status,
+                     age: r.since ? ago(nowSec, r.since) : "" });
+      }
+      for (const r of theirs) {
+        waiting.push({ project: proj, why: `${r.owner}: ${r.item}`, status: w.mission_status,
+                       age: r.since ? ago(nowSec, r.since) : "" });
+      }
+      if (w.mission_status === "done") {
+        done.push({ project: proj, status: "done", now: w.mission_now, dim: true });
+      } else {
+        doing.push({ project: proj, status: w.mission_status, now: w.mission_now,
+                     age: oldest ? ago(nowSec, oldest) : "" });
+      }
+    }
+  }
+
+  // Delegated tasks: a blocked one is waiting on its assignee, and one in flight
+  // is somebody actively working — different columns, because merging them is
+  // how a handful that need help get buried in a list of everything happening.
+  for (const t of taskRows) {
+    if (t.state === "done" || t.state === "dropped") continue;
+    const who = shortId(t.session_id || "");
+    if (t.state === "blocked") {
+      waiting.push({ project: who, why: `task: ${t.note || t.brief || ""}`, status: "blocked",
+                     age: t.updated_at ? ago(nowSec, t.updated_at) : "" });
+    } else {
+      doing.push({ project: who, now: `task from ${t.requested_by ? shortId(t.requested_by) : "?"}: ${t.brief || ""}` });
+    }
+  }
+
+  // What closed, newest first, with how long each stood. This is the column that
+  // makes a status view read as progress rather than as a list of debts, and the
+  // data was already measured and thrown away.
+  for (const r of resolvedRows.slice(0, 25)) {
+    done.push({ project: r.project, why: r.item, dim: true,
+                age: r.stood ? durSecs(r.stood) : "" });
+  }
+
+  const silent = [];
+  for (const n of nodes) {
+    if (!n.online) continue;
+    for (const w of n.sessions || []) {
+      const proj = w.project || w.alias;
+      if (proj && w.kind === "claude" && !w.mission_status && !w.mission_now
+          && !silent.includes(proj)) silent.push(proj);
+    }
+  }
+
+  return `<div class="cols">
+    ${colHTML("Needs you", needs, "needs")}
+    ${colHTML("In flight", doing)}
+    ${colHTML("Waiting on others", waiting)}
+    ${colHTML("Closed, 7 days", done)}
+  </div>
+  ${silent.length ? `<div class="bnote">⚠ ${silent.length} project${silent.length === 1 ? "" : "s"} `
+    + `not on this board — no MISSION.md, which is <i>has not said</i> rather than idle: `
+    + silent.sort().map(esc).join(" · ")
+    + `<br>each can write one with <code>shabadoo mission init</code></div>` : ""}`;
+}
+
+// shortId trims a session id to something a card can carry.
+function shortId(id) {
+  return String(id || "").replace(/^claude-/, "").replace(/-[0-9a-f]{8}$/, "") || "—";
 }
 
 function render(data) {
@@ -1159,10 +1351,14 @@ function render(data) {
     return;
   }
   compose.hidden = false;
-  root.innerHTML = renderQueue(nodes, now)
-    + renderMissions(nodes, now)
-    + nodes.map(n => renderAgent(n, now, data.version)).join("");
-  applyDeepLink();
+  if (boardOn) {
+    boardEl.innerHTML = renderBoard(nodes, now);
+  } else {
+    root.innerHTML = renderQueue(nodes, now)
+      + renderMissions(nodes, now)
+      + nodes.map(n => renderAgent(n, now, data.version)).join("");
+    applyDeepLink();
+  }
 }
 
 function updateTarget() {
@@ -1247,6 +1443,38 @@ function applyDeepLink() {
   if (viewer.hidden) openViewer();
   setTab("chat");
 }
+
+// ---- board toggle ----
+//
+// A view swap rather than a second page: the poll, the selection and the
+// transcript viewer all keep working, and there is one place where session data
+// arrives rather than two that can disagree about it.
+function setBoard(on) {
+  boardOn = on;
+  boardEl.hidden = !on;
+  root.hidden = on;
+  tabBoard.classList.toggle("on", on);
+  tabBoard.textContent = on ? "Sessions" : "Board";
+  try { localStorage.setItem("shabadoo.board", on ? "1" : ""); } catch (_) {}
+  if (lastData) render(lastData);
+}
+
+tabBoard.addEventListener("click", () => setBoard(!boardOn));
+try { if (localStorage.getItem("shabadoo.board")) setBoard(true); } catch (_) {}
+
+// A card selects its project's pane, which is the useful action on a read-only
+// board — and it is deliberately the ONLY action. Answering a prompt from a card
+// would be answering a question nobody had read.
+boardEl.addEventListener("click", (e) => {
+  const card = e.target.closest(".card[data-goto]");
+  if (!card) return;
+  const want = card.dataset.goto.toLowerCase();
+  setBoard(false);
+  const rows = [...document.querySelectorAll("tr[data-session]")];
+  const hit = rows.find(r => (r.dataset.name || "").toLowerCase().includes(want.split("/").pop()))
+    || rows.find(r => (r.dataset.path || "").toLowerCase().endsWith(want));
+  if (hit) hit.click();
+});
 
 // Click a row → select that pane (and switch tmux to it).
 root.addEventListener("click", async (e) => {
