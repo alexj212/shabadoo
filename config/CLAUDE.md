@@ -411,6 +411,21 @@ machine. **Intermittent is worse than dead: dead is bisectable, intermittent
 passes the check and fails the meeting.** Before trusting a before-and-after,
 ask how many times the "before" was taken.
 
+**And counting is not enough, because a fault can be MODAL rather than random.**
+Told to establish a rate first, the same investigation ran twenty attempts and
+got **20/20**, then twenty more minutes later and got **0/20**. Not a
+probability — a state the device holds across a run and flips between. Twenty
+readings inside one mode are one sample, so *"I repeated it twenty times"* buys
+nothing it did not already have.
+
+The consequence is the useful part: **a comparison between two batches taken
+apart cannot distinguish the variable you changed from a flip that happened
+anyway.** A proposed one-minute test — quit the suspect component, re-run,
+compare — was withdrawn on exactly this: either arm could have returned twenty
+of anything. What answers a modal fault is catching the **transition**, by
+running continuously while changing one thing, not by comparing before and
+after.
+
 **Make the zero value the unknown one.** A companion field only helps if its
 default says *not established*. A string-typed enum defaults to `""`, which
 serialises as a value and reads as a measurement; an integer enum with unknown at
