@@ -17,6 +17,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 )
 
 type blockerTask struct {
@@ -115,6 +116,45 @@ over and blocked, and nodes that have gone. Silence means nothing is stuck.
 		found++
 		fmt.Printf("OFFLINE  %-22s %d session(s) frozen at their last report\n",
 			n.Node, len(n.Sessions))
+	}
+
+	// 5. What people actually WROTE DOWN as waiting on them. The four states
+	// above are mechanical — a pane, a queue, a task row, a socket — and this
+	// command read only those, so a fleet with forty human-owned blockers
+	// standing across fifteen projects answered "nothing is stuck". That is the
+	// failure this codebase keeps finding: a component reporting its partial
+	// view AS the whole, in the confident grammar of a measurement.
+	//
+	// Counted rather than listed. `blockers` is the terse "are we good" check
+	// and `todo` is the table; printing both here would make one of them the
+	// one nobody reads.
+	mine, projects := 0, 0
+	seen := map[string]bool{}
+	for _, n := range nodes {
+		if !n.Online {
+			continue
+		}
+		for _, s := range n.Sessions {
+			key := n.Node + "\x00" + s.Project
+			if s.Project == "" || seen[key] {
+				continue
+			}
+			seen[key] = true
+			for _, w := range s.MissionWaiting {
+				if strings.EqualFold(w.Owner, "you") {
+					mine++
+				}
+			}
+			if len(s.MissionWaiting) > 0 {
+				projects++
+			}
+		}
+	}
+	if mine > 0 {
+		found++
+		fmt.Printf("OPEN     %-22s %d item(s) waiting on you across %d project(s)\n",
+			"(missions)", mine, projects)
+		fmt.Printf("         %-22s shaba todo\n", "")
 	}
 
 	if found == 0 {

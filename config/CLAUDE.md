@@ -644,6 +644,50 @@ to a session mid-task without costing it anything.
 word you will stop using. **`shaba blockers` is the same question asked of the
 whole fleet**, and `shaba who` adds what each project says it is for.
 
+### When work is done and something is still open, ask
+
+A wrap-up reports. It does not ask, and that is the gap: a session finishes what
+it was told to do, prints its tables, and stops — leaving a row that has stood
+for three days sitting in the transcript with nobody deciding anything about it.
+The person reads it, has no question in front of them, and moves on. The row
+stands for a fourth day.
+
+So **when an interaction ends with open items owned by the human, put the choice
+to them explicitly**, in one line, after the tables:
+
+```
+▶ 3 open for you. Continue, or hold — and if hold, which one is blocking?
+```
+
+The two words are not decoration; they are the two real answers and they mean
+different things:
+
+- **Continue** — the open rows are known and are not stopping the next piece of
+  work. Say so and carry on. This is the common answer and it must stay cheap to
+  give, or the prompt becomes a toll on every interaction.
+- **Hold** — one of those rows blocks what comes next. The answer names *which*,
+  and that row is then promoted into the mission's `Waiting on` with the risk and
+  the cost written beside it, so the next session inherits a blocker rather than
+  a memory.
+
+**Three rules keep this from becoming noise**, and the failure it prevents is the
+one this file names everywhere else — a prompt that mostly cries wolf gets
+skimmed, which costs the one that mattered:
+
+- **Ask only about rows owned by the human.** Peer-owned and `nobody` rows need
+  no decision from the person reading; listing them here turns a question into a
+  recital. They are already in the tables above.
+- **Ask once, at the end, never mid-task.** An interaction that stops to ask
+  about its own backlog before it has produced anything has inverted the point.
+- **No open rows, no prompt.** Print nothing. A question with an empty subject
+  teaches the reader that the line is ritual, and then they stop reading it on
+  the day it has three things under it.
+
+**Do not answer it yourself.** Continuing because continuing seemed likely is the
+assumption this exists to stop — the whole value is that the decision is made by
+whoever holds the information, and a session that pre-empts it has converted an
+ask into narration.
+
 ### Why a file rather than a status call
 
 `session_status_set` exists and is set by nearly nobody, and six sessions
@@ -908,6 +952,24 @@ Use one of three markers, and always include the trade-offs:
   to skim past the ones that matter.
 - Reserve **BLOCKER** for genuinely stuck; if you can proceed under a stated assumption, that is
   a **RISK**, and you proceed.
+
+**A row that needs INFORMATION is a decision, not a line item.** This is where the wrap-up and
+these callouts meet, and getting it wrong is how a question sits for a week. A `Waiting on` row
+whose cost is an *action* — "lift the silence", "merge the two branches" — is a task, and a table
+row is the right size for it. A row whose cost is a *judgment* — retention on recordings, whether
+to rotate a key, which of three quotes — is not: rendered as a row it asks the reader to
+reconstruct the options themselves, every time they scan past it, which is precisely the work
+they were hoping you had done.
+
+So **promote it**: raise it as a ❓ DECISION with the options, a genuine pro and con on each, and
+your recommendation. Then the row in the table is the one-line pointer, not the whole ask.
+
+**Recommend even when you are unsure — especially then.** "I don't have enough to say" is a
+non-answer the reader cannot act on; *"I'd do B, and here is the one fact that would change my
+mind"* is actionable and honest about its own confidence. Naming what would flip you is the part
+that makes a weak recommendation safe to give, and it is what turns the next reply into an answer
+rather than another round of questions. A recommendation withheld is analysis the user now has to
+do twice — once to reconstruct your options, once to choose.
 
 ## Security
 

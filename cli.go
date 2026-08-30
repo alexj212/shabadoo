@@ -440,11 +440,24 @@ type cliSession struct {
 	MissionNow     string `json:"mission_now"`
 	MissionBlocked string `json:"mission_blocked"`
 	MissionUpdated string `json:"mission_updated"`
+	// MissionWaiting is the owner-tagged blocker list. `blockers` read four
+	// mechanical states and never this, so a fleet with forty human-owned rows
+	// standing across fifteen projects answered "nothing is stuck".
+	MissionWaiting []cliWait `json:"mission_waiting"`
+	MissionDropped int       `json:"mission_dropped"`
 	Asking     string `json:"asking"`
 	ToolsStale bool   `json:"tools_stale"`
 
 	TmuxSession string `json:"tmux_session"`
 	Index       int    `json:"index"`
+}
+
+// cliWait is one `## Waiting on` row as the coordinator serves it.
+type cliWait struct {
+	Owner     string `json:"owner"`
+	Item      string `json:"item"`
+	Truncated bool   `json:"truncated"`
+	Since     int64  `json:"since"`
 }
 
 // pane is one addressed window: everything a write needs to name it.

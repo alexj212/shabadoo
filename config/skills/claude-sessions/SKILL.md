@@ -186,6 +186,15 @@ command is being typed by a person or repeated in a brief.
   the exit, from closing one to free resources. A boot list of nineteen folders once opened two for
   exactly this reason, and the skips went to a cron log nobody tails. `shabadoo boot list` marks a
   held folder `x`; `boot add` clears it.
+- **`shabadoo todo`** is every open item on the fleet in one table, grouped by who is blocked —
+  the `## Waiting on` rows projects write, plus blocked delegated tasks and panes sitting at a
+  prompt. `--mine` narrows it to rows owned by the human, `--closed` adds what stopped being
+  listed and how long each stood, `--project X` scopes it.
+  **`shaba blockers` is the terse version and was for a long time the WRONG one:** it read four
+  mechanical states — a pane at a dialog, undrained mail, a blocked task, an offline node — and
+  never the rows people write, so a fleet with forty human-owned blockers standing answered
+  "nothing is stuck". It counts them now and points here. An age in this table is bounded by the
+  coordinator's uptime and says so when it is; a row may have stood far longer than it reads.
 - **`shabadoo mission`** prints this project's `MISSION.md` as the fleet reads it — the parse, not
   the file — so "does mine actually report?" is answerable from the folder that owns it rather than
   from a dashboard on another host. It also names the waiting rows the six-row cap discarded, which

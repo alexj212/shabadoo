@@ -207,6 +207,7 @@ shabadoo kill homelab                     # close a window (asks first)
 shabadoo who                              # who is out there and what each is for
 shaba who                                 # `shaba` is a symlink to `shabadoo`, installed by setup
 shaba blockers                            # what is stuck: prompts, unread mail, blocked tasks, offline nodes
+shaba todo [--mine] [--closed]            # every open item, grouped by who is blocked
 shabadoo audit                            # who drove which pane
 shabadoo mail                             # session-to-session messages
 shabadoo devices                          # enrolled clients: scope, days left, push
@@ -597,6 +598,38 @@ The dashboard **names** the projects with no `MISSION.md` rather than counting
 them. A quantity invites a threshold judgment the reader can defer forever;
 naming them does not offer that exit, and "which ones?" was the first thing
 asked of the count that stood there.
+
+### `shaba todo` — every open item, grouped by who is blocked
+
+The dashboard has rendered this for a while and the terminal had no answer to
+it. **`blockers` looked like one and was not.** It reads four *mechanical*
+states — a pane at a dialog, undrained mail, a blocked task, an offline node —
+and never the `## Waiting on` rows people actually write. With **37 human-owned
+rows standing across 14 projects it printed `nothing is stuck`**.
+
+That is this codebase's recurring failure in its own tooling: a component
+reporting its partial view *as* the whole, in the confident grammar of a
+measurement. It was found by being asked for the view, not by review — nothing
+about the output looked wrong.
+
+`todo` is the table; `blockers` stays the terse "are we good" check and now
+counts the rows and points here. Two commands, one of them terse, rather than
+two tables that drift.
+
+Three things it refuses to round off:
+
+- **An age is bounded by the coordinator's uptime, and says so when it is.**
+  After a restart every row is first seen at once, so they all read as minutes
+  old however long they have stood. Unbounded, that is unknown rendered as
+  measured.
+- **Projects with no `MISSION.md` are named and the list wraps rather than
+  truncating.** A list cut off at `ad…` is a count wearing a list's clothes,
+  and naming them is the entire point.
+- **Rows the six-row cap discarded are reported as a total**, pointing at
+  `shabadoo mission` in that project — the only place they are visible.
+
+`nobody` collapses to prose: it needs no action, so it gets no table. Rendering
+everything at equal weight is how the rows that matter stop being noticed.
 
 ### Two guards on messaging
 
