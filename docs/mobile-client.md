@@ -599,6 +599,32 @@ render identically, so an idle screen receives nothing but keepalives.
 Consequence — `now` stops advancing between frames, so **advance relative times
 ("idle 4m") locally** rather than waiting for a frame that is not coming.
 
+### `GET /api/missions/resolved` — what got closed, and how long it stood
+
+```
+GET {coord}/api/missions/resolved?days=7&limit=100
+{ "summary": {"window_days": 7, "count": 12, "median_stood": 14400},
+  "resolved": [{"project":"p","node":"wsl","owner":"you","item":"…",
+                "stood": 14400, "resolved_at": 1788048232}, …] }
+```
+
+**Only rows whose project was still reporting when they vanished appear here.** A
+row also disappears when a node drops, a window closes, or a session is killed,
+and none of those completed anything — counting them would report completions
+that never happened, and a median built from those would look like the fleet
+improving. Enforced at the coordinator; a client need not reproduce it.
+
+**`median_stood`, not a mean.** One blocker left open over a holiday drags a mean
+into uselessness while the typical case is unchanged, and the question this
+answers is how long a thing usually takes.
+
+**`count: 0` and "not measured yet" are different**, and the count alone cannot
+tell you which you have — a coordinator restarted five minutes ago has an empty
+window, not a fruitless one. Render the summary only when `count > 0`.
+
+`stood` is seconds. Durations here are SPANS, not timestamps: passing one to a
+relative-time helper turns "stood for three days" into "three days ago".
+
 ### `GET /api/missions/log` — the merged mission log
 
 ```

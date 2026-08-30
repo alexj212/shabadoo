@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"sort"
 	"time"
 )
 
@@ -135,4 +136,71 @@ func (t *Tenant) waitingAges(ctx context.Context) (map[string]int64, error) {
 		out[project+"\x00"+key] = first
 	}
 	return out, rows.Err()
+}
+
+// Resolved is one blocker that stopped being listed.
+type Resolved struct {
+	Project  string `json:"project"`
+	Node     string `json:"node"`
+	Owner    string `json:"owner,omitempty"`
+	Item     string `json:"item"`
+	Stood    int64  `json:"stood"`       // seconds it was outstanding
+	Resolved int64  `json:"resolved_at"` // unix
+}
+
+// ResolvedSummary answers "is this getting better", which a snapshot cannot.
+type ResolvedSummary struct {
+	Window int   `json:"window_days"`
+	Count  int   `json:"count"`
+	Median int64 `json:"median_stood,omitempty"` // seconds
+}
+
+// RecentlyResolved returns closed blockers, newest first, with how long each
+// stood.
+//
+// Only rows whose project was still reporting when they vanished get here — see
+// reconcileWaiting. That is what makes a duration here mean something: counting
+// rows that disappeared with their node would report completions that never
+// happened, and a median built from those would look like the fleet improving.
+func (t *Tenant) RecentlyResolved(ctx context.Context, since time.Time, limit int) ([]Resolved, ResolvedSummary, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 100
+	}
+	rows, err := t.s.db.QueryContext(ctx, `
+		SELECT project, agent, owner, item, first_seen, resolved_at
+		  FROM mission_resolved
+		 WHERE tenant = ? AND resolved_at >= ?
+		 ORDER BY resolved_at DESC LIMIT ?`, t.id, since.Unix(), limit)
+	if err != nil {
+		return nil, ResolvedSummary{}, err
+	}
+	defer rows.Close()
+	out := []Resolved{}
+	var stood []int64
+	for rows.Next() {
+		var r Resolved
+		var first int64
+		if err := rows.Scan(&r.Project, &r.Node, &r.Owner, &r.Item, &first, &r.Resolved); err != nil {
+			return nil, ResolvedSummary{}, err
+		}
+		r.Stood = r.Resolved - first
+		if r.Stood < 0 {
+			r.Stood = 0
+		}
+		stood = append(stood, r.Stood)
+		out = append(out, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, ResolvedSummary{}, err
+	}
+
+	// MEDIAN, not mean. One blocker left open over a holiday drags a mean into
+	// uselessness while the typical case is unchanged, and the question this
+	// answers is "how long does a thing usually take here".
+	sum := ResolvedSummary{Count: len(out)}
+	if n := len(stood); n > 0 {
+		sort.Slice(stood, func(i, j int) bool { return stood[i] < stood[j] })
+		sum.Median = stood[n/2]
+	}
+	return out, sum, nil
 }

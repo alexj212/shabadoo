@@ -94,6 +94,14 @@ func (b *bridge) routes() (*http.ServeMux, error) {
 		"the audit log lives in the coordinator's database; `serve` has none"))
 	mux.HandleFunc("GET /api/messages", unsupported(
 		"the durable inbox lives in the coordinator's database; `serve` has none"))
+	// Resolutions are DERIVED from the report stream over time — the coordinator
+	// watches rows appear and disappear across reports. This mode reads its own
+	// tmux once per request and has no memory between them, so it cannot know
+	// that a blocker used to be there. An honest 501, not an empty list: zero
+	// closed and cannot-tell are different answers, and the page renders the
+	// trend only when it has one.
+	mux.HandleFunc("GET /api/missions/resolved", unsupported(
+		"resolutions are derived from stored history; `serve` keeps none"))
 	// The dashboard renews its credential when the coordinator tells it one is
 	// getting old. This mode has no credentials at all, so it never sends that
 	// header and the page never asks — but the route exists so the answer is an

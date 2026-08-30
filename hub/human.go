@@ -76,6 +76,7 @@ func HumanRoutes(mux *http.ServeMux, hub *Hub, store *Store, devices *DeviceStor
 	mux.HandleFunc("GET /api/capture", h.capture)
 	mux.HandleFunc("GET /api/claude/session", h.claudeSession)
 	mux.HandleFunc("GET /api/missions/log", h.missionLog)
+	mux.HandleFunc("GET /api/missions/resolved", h.missionResolved)
 	mux.HandleFunc("GET /api/audit", h.audit)
 	mux.HandleFunc("GET /api/messages", h.messages)
 	mux.HandleFunc("GET /api/tasks", h.tasks)

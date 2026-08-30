@@ -154,3 +154,65 @@ func TestSinceReachesListSessions(t *testing.T) {
 			"dimension the dashboard cannot rank by", got, t0.Unix())
 	}
 }
+
+// The summary is a MEDIAN, and the reason shows up only with an outlier: one
+// blocker left open over a holiday drags a mean into uselessness while the
+// typical case is unchanged. Pinned with a distribution rather than one value,
+// because a mean and a median agree on symmetric data and this would pass either
+// way without the outlier.
+func TestResolvedSummaryUsesTheMedian(t *testing.T) {
+	ten := testStore(t)
+	ctx := context.Background()
+	t0 := time.Unix(1_700_000_000, 0)
+
+	// Four rows standing ~1h, one standing 30 days.
+	rows := []MissionWait{
+		{Owner: "you", Item: "a"}, {Owner: "you", Item: "b"},
+		{Owner: "you", Item: "c"}, {Owner: "you", Item: "d"},
+	}
+	if err := ten.ReplaceAgentSessions(ctx, "n1", []Session{sessWith("p", rows...)}, t0); err != nil {
+		t.Fatal(err)
+	}
+	if err := ten.ReplaceAgentSessions(ctx, "n1",
+		[]Session{sessWith("p")}, t0.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	// The outlier, opened long before and closed now.
+	if err := ten.ReplaceAgentSessions(ctx, "n1",
+		[]Session{sessWith("q", MissionWait{Owner: "you", Item: "old"})},
+		t0.Add(-30*24*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if err := ten.ReplaceAgentSessions(ctx, "n1",
+		[]Session{sessWith("q")}, t0.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+
+	items, sum, err := ten.RecentlyResolved(ctx, t0.Add(-60*24*time.Hour), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sum.Count != 5 || len(items) != 5 {
+		t.Fatalf("count = %d / %d items, want 5", sum.Count, len(items))
+	}
+	hour := int64(3600)
+	if sum.Median != hour {
+		t.Errorf("median = %ds, want %ds — a mean here would be about six days "+
+			"and would describe none of the five", sum.Median, hour)
+	}
+	var mean int64
+	for _, it := range items {
+		mean += it.Stood
+	}
+	mean /= int64(len(items))
+	if mean <= sum.Median*2 {
+		t.Fatal("the fixture has no outlier, so this test cannot tell a median " +
+			"from a mean — fix the fixture, not the code")
+	}
+	// Newest first.
+	for i := 1; i < len(items); i++ {
+		if items[i-1].Resolved < items[i].Resolved {
+			t.Error("resolved list is not newest-first")
+		}
+	}
+}

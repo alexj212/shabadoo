@@ -194,3 +194,25 @@ func (h *humanAPI) missionLog(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(page)
 }
+
+// missionResolved serves recently-closed blockers and the median time they
+// stood. It is the only view here that answers a question about TREND rather
+// than about state, which is the difference between a status page and project
+// management.
+func (h *humanAPI) missionResolved(w http.ResponseWriter, r *http.Request) {
+	days := 7
+	if n, err := strconv.Atoi(r.URL.Query().Get("days")); err == nil && n > 0 {
+		days = min(n, 60)
+	}
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	ten := h.store.Tenant(tenantOf(r.Context()))
+	items, sum, err := ten.RecentlyResolved(r.Context(),
+		time.Now().Add(-time.Duration(days)*24*time.Hour), limit)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	sum.Window = days
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{"summary": sum, "resolved": items})
+}

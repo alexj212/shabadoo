@@ -275,6 +275,13 @@
     display: block; color: var(--fg); font-size: 0.82rem;
     margin-top: 0.15rem; white-space: normal;
   }
+  .queue .qsub { color: var(--dim); font-size: .74rem; }
+  .queue tr.mrow td { cursor: default; }
+  .queue .decide {
+    display: inline-block; margin-left: .4rem; padding: 0 .32rem;
+    border-radius: 3px; font-size: .68rem; letter-spacing: .03em;
+    background: rgba(255,255,255,.07); color: var(--dim);
+  }
   .queue .qhint {
     color: var(--dim); font-size: 0.74rem; padding: 0 0.7rem 0.6rem; margin: 0;
   }
@@ -630,6 +637,16 @@ let selected = null; // { node, session, window, name, rawname, path }
 let bufferTimer = null; // poll handle while the transcript viewer is open
 let vtab = "pane";      // which viewer tab is showing: "pane" | "session"
 
+// dur renders a span of seconds on its own, where ago() renders one against a
+// clock. Kept separate rather than passing now-x into ago: a median is not a
+// point in time, and reading "3d" as "three days ago" would invert its meaning.
+function dur(s) {
+  if (!s) return "—";
+  if (s < 3600) return Math.max(1, Math.round(s / 60)) + "m";
+  if (s < 86400) return Math.round(s / 3600) + "h";
+  return Math.round(s / 86400) + "d";
+}
+
 function ago(now, then) {
   if (!then) return "";
   const s = Math.max(0, now - then);
@@ -769,7 +786,11 @@ function renderMissions(nodes, nowSec) {
     unowned.push({ project: name, split: owners.size > 1 });
   }
   // you, unassigned, peers alphabetically, then nobody last.
-  const rank = o => o === "you" ? 0 : o === "" ? 1 : o === "nobody" ? 3 : 2;
+  // `you` is deliberately absent here: those rows moved into "Needs you", which
+  // merges them with the sessions sitting at a prompt. Two panels both titled
+  // for the same person is how a reader learns to check only one of them.
+  groups.delete("you");
+  const rank = o => o === "" ? 1 : o === "nobody" ? 3 : 2;
   const owners = [...groups.keys()].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
 
   // Oldest first within each group. This is what turns a list into a priority:
@@ -801,6 +822,15 @@ function renderMissions(nodes, nowSec) {
   // Both tails are stated. "Nothing waiting" and "has not said" are different
   // answers and neither may be rendered as the other, or as absence.
   const tails = [];
+  // Stated only when there IS a window of data. "0 closed" and "not measured
+  // yet" are different answers, and a coordinator restarted five minutes ago has
+  // the second — rendering it as the first would read as a fleet that shipped
+  // nothing this week.
+  if (resolvedSummary && resolvedSummary.count > 0) {
+    tails.push(`<b>${resolvedSummary.count}</b> closed in the last ` +
+      `${resolvedSummary.window_days} days · typically ` +
+      `<b>${esc(dur(resolvedSummary.median_stood))}</b> outstanding`);
+  }
   for (const u of unowned) tails.push(u.split
     ? `<b class="warnrow">${esc(u.project)} disagrees about its writer</b> — two ` +
       `checkouts naming different owners is worse than naming none`
@@ -819,7 +849,7 @@ function renderMissions(nodes, nowSec) {
   return `
     <section class="session missions">
       <div class="panel-head">
-        <span class="ptitle">Missions</span>
+        <span class="ptitle">The fleet</span>
         <span class="badge">${projects.size}</span>
         <span class="spacer"></span>
       </div>
@@ -860,36 +890,94 @@ function renderQueue(nodes, now) {
   waiting.sort((a, b) => (a.w.activity || 0) - (b.w.activity || 0)
     || (a.w.session_id || "").localeCompare(b.w.session_id || ""));
 
+  // Mission rows owned by `you`, merged in and ranked with the prompts.
+  //
+  // These are two different urgencies and the panel says so rather than hiding
+  // it: a prompt has a MACHINE STOPPED behind it and is answered in seconds,
+  // while a mission row is a decision that has been waiting, often for days. Put
+  // in separate panels they were read separately, which is exactly how a
+  // three-day decision loses to a two-minute dialog. Ranked together by age,
+  // the three-day one is at the top where it belongs.
+  const mine = [];
+  for (const n of nodes) {
+    if (!n.online) continue;
+    const seenProj = new Set();
+    for (const w of n.sessions || []) {
+      const proj = w.project || w.alias;
+      if (!proj || seenProj.has(proj)) continue;
+      seenProj.add(proj);
+      for (const it of w.mission_waiting || []) {
+        if ((it.owner || "").toLowerCase() !== "you") continue;
+        mine.push({ project: proj, node: n.node, item: it.item, since: it.since || 0 });
+      }
+    }
+  }
+  if (!waiting.length && !mine.length) return "";
+
+  // One order over both kinds, oldest first. A row with no age sorts LAST:
+  // unknown is not new, and an unmeasured row must not out-rank measured ones.
+  const rows = [
+    ...waiting.map(({ node, w }) => ({ kind: "prompt", at: w.activity || 0, node, w })),
+    ...mine.map(m => ({ kind: "mission", at: m.since || Infinity, m })),
+  ].sort((a, b) => a.at - b.at);
+
   return `
     <section class="session queue">
       <div class="panel-head">
         <span class="pled"></span>
-        <span class="ptitle">Waiting on you</span>
-        <span class="badge">${waiting.length}</span>
+        <span class="ptitle">Needs you</span>
+        <span class="badge">${rows.length}</span>
         <span class="spacer"></span>
+        <span class="qsub">${waiting.length} at a prompt · ${mine.length} decision${
+          mine.length === 1 ? "" : "s"}</span>
       </div>
       <table>
         <tbody>
-          ${waiting.map(({ node, w }) => `
-            <tr class="${selected && selected.node === node
-                  && selected.sessionId === w.session_id ? "selected" : ""}"
-                data-node="${esc(node)}" data-session="${esc(w.tmux_session)}"
-                data-window="${w.index}" data-name="${esc(w.alias)}"
-                data-rawname="${esc(w.name)}" data-path="${esc(w.cwd)}"
-                data-sessionid="${esc(w.session_id)}" data-queued="1">
-              <td class="name">${esc(w.alias)}
+          ${rows.map(r => r.kind === "prompt" ? `
+            <tr class="${selected && selected.node === r.node
+                  && selected.sessionId === r.w.session_id ? "selected" : ""}"
+                data-node="${esc(r.node)}" data-session="${esc(r.w.tmux_session)}"
+                data-window="${r.w.index}" data-name="${esc(r.w.alias)}"
+                data-rawname="${esc(r.w.name)}" data-path="${esc(r.w.cwd)}"
+                data-sessionid="${esc(r.w.session_id)}" data-queued="1">
+              <td class="name">${esc(r.w.alias)}
                 <span class="prompt">prompt</span>${
-                w.note ? `<span class="note">${esc(w.note)}</span>` : ""}${
-                w.asking ? `<span class="asking">${esc(w.asking)}</span>` : ""}</td>
-              <td class="qwhere">${esc(node)}</td>
-              <td class="idle">${ago(now, w.activity)}</td>
+                r.w.note ? `<span class="note">${esc(r.w.note)}</span>` : ""}${
+                r.w.asking ? `<span class="asking">${esc(r.w.asking)}</span>` : ""}</td>
+              <td class="qwhere">${esc(r.node)}</td>
+              <td class="idle">${ago(now, r.w.activity)}</td>
+            </tr>` : `
+            <tr class="mrow">
+              <td class="name">${esc(r.m.project)}
+                <span class="decide">decision</span>
+                <span class="asking">${esc(r.m.item)}</span></td>
+              <td class="qwhere">${esc(r.m.node)}</td>
+              <td class="idle">${r.m.since ? esc(ago(now, r.m.since)) : ""}</td>
             </tr>`).join("")}
         </tbody>
       </table>
-      <p class="qhint">Tap one to open the pane and answer it — the question is
+      <p class="qhint">Rows marked <b>prompt</b> stop a machine until answered —
+        tap one to open the pane. Rows marked <b>decision</b> are what a project
+        says it is waiting on you for; they are not tappable because there is no
+        pane to answer, and they are resolved by making the call.
+        <br>Tap a prompt to open the pane and answer it — the question is
         shown so you can see what you are agreeing to, but read the pane before
         answering anything consequential.</p>
     </section>`;
+}
+
+// The trend line, refreshed on its own slow timer. It answers "is this getting
+// better", which every other panel here structurally cannot: they are all
+// snapshots. Cached rather than fetched per render because a render happens on
+// every agent report and this changes on the order of hours.
+let resolvedSummary = null;
+async function refreshResolved() {
+  try {
+    const r = await fetch("/api/missions/resolved?days=7&limit=1");
+    if (!r.ok) return;                      // 501 in fallback mode: stay silent
+    const d = await r.json();
+    resolvedSummary = d.summary || null;
+  } catch (_) { /* a failed poll must not blank a figure that was true */ }
 }
 
 function render(data) {
@@ -1925,6 +2013,11 @@ loadFolders("");
 refreshAudit();   // once at load: decides whether the panel exists at all here
 refreshMail();    // same — a mode with no store must not show an empty inbox
 refreshDevices(); // decides whether the panel exists in this mode at all
+// The trend, once at load and every ten minutes. Slow on purpose: it moves on
+// the order of hours, and polling it at the report rate would spend a query per
+// five seconds to redraw the same sentence.
+refreshResolved();
+setInterval(refreshResolved, 10 * 60 * 1000);
 setInterval(() => { if (auditOpen) refreshAudit(); }, 5000);
 </script>
 </body>
