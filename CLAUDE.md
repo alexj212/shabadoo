@@ -515,6 +515,89 @@ spend a machine's resources by writing to it.
 An unknown name still bounces and an ambiguous one is still refused. Waking the
 wrong project also delivers somebody's work to the wrong expert.
 
+### Listing a folder for boot clears its deactivation
+
+Two statements about one folder, and the older was silently beating the newer:
+the boot list says start this, `deactivated` says do not. Nothing rendered the
+contradiction. A boot list of **nineteen folders opened two** — seventeen held,
+each announced on one line in a cron log nobody tails, so from every visible
+surface the list simply did not work.
+
+The trap is entered by doing something ordinary. **Exiting a session to restart
+Claude is indistinguishable, at the exit, from closing one to free resources**,
+and the repair is editing a file nothing points at.
+
+So `boot add` clears it — listing a folder is the same class of explicit,
+present-tense request as `open`, and `open` has always cleared it. `boot list`
+marks a held folder `x` with the remedy, and `boot` states the total rather than
+N lines that read exactly like the opens around them. **A count is what makes it
+legible:** one held folder is a choice somebody made, most of the list held is a
+mistake.
+
+Deactivation is not given an expiry, deliberately. Forgetting an explicit
+decision after a week would be the same failure pointed the other way.
+
+### A session reads the mission nearest it, not its repo's
+
+`projectName` has always scoped a session by its subfolder; the mission was read
+from the project root two lines later. The same pane path, treated two ways in
+adjacent lines.
+
+Reported by a peer with the cost measured, which is what makes it worth keeping:
+**seven sessions under one repo all advertised their parent's card.** Three said
+`status: done` on disk and read as `active` — finished work reading as in-flight
+is the failure `done` exists to prevent — and the parent's single blocker was
+counted seven times while six of the children's own were shown nowhere.
+Over-counting one blocker sevenfold while hiding six is worse than showing
+nothing, because **duplicates read as corroboration**.
+
+Nearest wins, walking up to the root and no further; further is another
+project's file. `missionLogs` keys on the directory that OWNS the file rather
+than the root, which is the same defect from the other end — seven cards
+collapsed into one.
+
+Pinned as a **pair**, at the reporter's request and for the reason this file
+gives everywhere: a fixture asserting "the child reports the child's card"
+passes just as happily when the resolver has gone blind and hands the same card
+to everything. The parent and the child must produce *different* cards.
+
+### A wrapped line is one entry, not two
+
+A `MISSION.md` is written by hand in an editor that wraps. Every continuation
+line was parsed as its own entry — arriving with no owner, so it rendered as an
+unattributed blocker nobody wrote, and spending a slot against the six-row cap.
+
+Found by running `shabadoo mission` against this repo's own file, which reported
+five real blockers, one phantom, and **one real row dropped to make room for the
+second half of the row above it**. The panel both hid a real blocker and said a
+row was hidden — for a row that did not exist. The log halved too: 14 entries
+were 7.
+
+Ids are computed after the joins, not as lines arrive: an id is a hash of the
+entry's text, so keying it to half the entry would move every client's "since I
+last looked" watermark on a reflow that changed nothing.
+
+### `shabadoo mission` — the parse, from the folder that owns the file
+
+Two questions a session actually had about its own `MISSION.md` — *does mine
+parse?* and *how do I start one?* — were answerable only by looking at a web page
+on another host. Both are answered in the folder now.
+
+`mission` prints what the fleet reads, including **the waiting rows the cap
+discarded**, which are visible nowhere else: their author watched the file parse
+and cannot see what is missing.
+
+`mission init` scaffolds one and **states nothing on the project's behalf** — no
+generated `status: active`, no invented `Now`. A generated claim is
+indistinguishable on the dashboard from one somebody made, and a fleet where
+half the statuses came from a template is worse than one where half the projects
+are visibly silent. It removes the friction, not the thinking.
+
+The dashboard **names** the projects with no `MISSION.md` rather than counting
+them. A quantity invites a threshold judgment the reader can defer forever;
+naming them does not offer that exit, and "which ones?" was the first thing
+asked of the count that stood there.
+
 ### Two guards on messaging
 
 **A send rate limit** — 60/hour per sending session, audited as

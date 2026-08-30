@@ -253,6 +253,7 @@
     font-size: .78rem; border-top: 1px solid var(--line); }
   .missions .silent b { color: var(--fg); }
   .missions .silent b.warnrow { color: var(--warn); }
+  .missions .silent .hint { opacity: .75; }
   /* Right-aligned and dim: the age ranks the rows, it does not compete with
      them for attention. */
   .missions td.mage { color: var(--dim); font-size: .74rem; text-align: right;
@@ -740,7 +741,16 @@ function renderMissions(nodes, nowSec) {
   // nothing to say. Found by reading a listing, not by review.
   const projects = new Map(); // "node\0project" -> {project, node, status, waiting}
   const seen = new Map();     // project -> node count, for disambiguating labels
-  let silent = 0;
+  // Named, not counted. A count asks the reader to decide whether it is big
+  // enough, which is a question they can defer forever; naming the projects
+  // does not offer that exit, and it is the only form anybody can act on —
+  // "which ones?" was the first thing asked of the count that stood here.
+  //
+  // Kept apart from `seen` deliberately: a project reporting on one machine and
+  // silent on another has exactly one MISSION.md, so it has no writer to
+  // disagree about and must not be flagged for one.
+  const silentM = new Map(); // "node\0project" -> {project, node}
+  const silentSeen = new Map();
   for (const n of nodes) {
     if (!n.online) continue;
     for (const w of n.sessions || []) {
@@ -748,7 +758,13 @@ function renderMissions(nodes, nowSec) {
       const key = n.node + "\0" + proj;
       if (!proj || projects.has(key)) continue;
       if (!w.mission_status && !w.mission_now && !w.mission_headline) {
-        if (w.kind === "claude") silent++;
+        // Only Claude sessions. A `top` in a window has nothing to say about
+        // what a project is doing, and listing it as not having said would be
+        // a demand nobody can meet.
+        if (w.kind === "claude" && !silentM.has(key)) {
+          silentM.set(key, { project: proj, node: n.node });
+          silentSeen.set(proj, (silentSeen.get(proj) || 0) + 1);
+        }
         continue;
       }
       seen.set(proj, (seen.get(proj) || 0) + 1);
@@ -759,7 +775,7 @@ function renderMissions(nodes, nowSec) {
       });
     }
   }
-  if (!projects.size && !silent) return "";
+  if (!projects.size && !silentM.size) return "";
 
   const groups = new Map(); // owner -> [{project, item, status}]
   const quiet = [], dropped = [];
@@ -878,9 +894,16 @@ function renderMissions(nodes, nowSec) {
     `shown</b> — over the six-row cap in ${dropped.map(d => esc(d.project)).join(", ")}`);
   if (quiet.length) tails.push(
     `<b>${quiet.length}</b> reporting, nothing waiting: ${quiet.map(esc).join(" · ")}`);
-  if (silent) tails.push(
-    `<b>${silent}</b> ${silent === 1 ? "project has" : "projects have"} no ` +
-    `MISSION.md — <i>has not said</i>, which is not the same as idle`);
+  if (silentM.size) {
+    const names = [...silentM.values()].map(m =>
+      silentSeen.get(m.project) > 1 ? `${m.project} @${m.node}` : m.project);
+    names.sort();
+    tails.push(
+      `<b class="warnrow">${silentM.size}</b> ${silentM.size === 1 ? "project has" : "projects have"} no ` +
+      `MISSION.md — <i>has not said</i>, which is not the same as idle: ` +
+      names.map(esc).join(" · ") +
+      `<br><span class="hint">each can write one with <code>shabadoo mission init</code></span>`);
+  }
 
   return `
     <section class="session missions">

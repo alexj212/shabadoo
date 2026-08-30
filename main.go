@@ -128,6 +128,8 @@ func main() {
 			}
 		}
 		runBoot(rest)
+	case "mission":
+		runMission(args[1:])
 	case "config":
 		runConfig(args[1:])
 	case "setup":

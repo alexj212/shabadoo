@@ -180,7 +180,18 @@ command is being typed by a person or repeated in a brief.
   `~/.config/claude-sessions/folders` (`shabadoo boot list|add|remove`). Right for task sessions; add
   the folder only if it should survive a reboot.
 - **A closed session stays closed.** Exiting records intent, so the watchdog will not reopen it.
-  Opening clears that.
+  Opening clears that, and so does `shabadoo boot add <dir>` — listing a folder for boot is an
+  explicit request to run it, and the newer statement wins.
+  **This is the trap to know about:** exiting a session to restart Claude is indistinguishable, at
+  the exit, from closing one to free resources. A boot list of nineteen folders once opened two for
+  exactly this reason, and the skips went to a cron log nobody tails. `shabadoo boot list` marks a
+  held folder `x`; `boot add` clears it.
+- **`shabadoo mission`** prints this project's `MISSION.md` as the fleet reads it — the parse, not
+  the file — so "does mine actually report?" is answerable from the folder that owns it rather than
+  from a dashboard on another host. It also names the waiting rows the six-row cap discarded, which
+  are invisible everywhere else. `shabadoo mission init` scaffolds one; it states nothing on the
+  project's behalf, because a generated `status: active` is indistinguishable on the dashboard from
+  one somebody meant.
 - **Mail needs a coordinator.** Under the standalone fallback (`shabadoo serve`) `/api/messages` is
   501 — no database, no mail plane, so keystrokes are the only route. A single machine can run both
   halves (`setup --service --device-tokens`) and keep everything.
