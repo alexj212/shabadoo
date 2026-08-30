@@ -2189,17 +2189,52 @@ WireGuard-encrypted. The `--caddy` setup step still exists and still works; it
 is simply unused.
 
 
+### Phase 8 — three papercuts, batched
+
+Individually none justified a release; together they were an afternoon, and each
+cost somebody seconds every day.
+
+**`open` waits until the coordinator can see the session.** It used to return as
+soon as the agent had made the window, which is up to five seconds before the
+coordinator knows — so addressing the new session by name immediately after
+failed, and the obvious workaround is a sleep. **Three sessions independently
+wrote the same poll loop**, which is not three people being careless: it is a
+missing primitive, and each hand-rolled version picked a different timeout while
+none distinguished *not yet* from *never*. A timeout here is reported as
+**unknown**, not as failure — the POST succeeded and the window really exists, so
+claiming the open failed would be the worse lie. Verified by the only assertion
+that separates a fix from a longer sleep: open a folder, address it by name
+immediately, require the send to land.
+
+**A `*` marks a session whose folder reopens at boot.** "Will this come back if I
+close it" was answerable only by opening a second file on the right machine, and
+being wrong costs in both directions — closing one you believed was listed loses
+it, closing one you believed was ephemeral leaves the watchdog reopening it every
+ten minutes. `!` still wins the column when both apply: one is a standing fact
+about configuration, the other is a machine halted until a human answers.
+
+Joined **client-side** from `/api/folders` rather than added to the agent's
+report. That report is decoded with `DisallowUnknownFields`, so a new field there
+is a protocol change requiring the coordinator to ship first — a real cost for a
+marker that is one extra GET against data already served. A node whose folder
+list cannot be read contributes nothing rather than an empty set, because a
+missing marker must not read as "that node has no boot folders".
+
+**Every listing prints the dashboard URL.** A session that wanted to point a
+human at a pane had to be told the address *by* that human, which is the wrong
+direction for the one fact this program is certain of.
+
 ## Future phases (not yet built)
 
-**`docs/build-plan.md` is the plan — phases 8-11, in order, with the reason for
-the order.** Phases 0-7 are shipped and deployed; the plan no longer describes
+**`docs/build-plan.md` is the plan — phases 9-11, in order, with the reason for
+the order.** Phases 0-8 are shipped and deployed; the plan no longer describes
 them as work.
 
 The short version, because a pointer nobody follows is a pointer nobody reads:
 
 | | |
 |---|---|
-| **8 — papercuts** | `*` on boot-enabled sessions in listings, the dashboard URL in output, and `open` waiting until the coordinator has registered the session (three sessions independently wrote the same poll loop) |
+| ~~**8 — papercuts**~~ | **shipped** — see below |
 | **9 — reading a conversation on a phone** | `GET /api/claude/events`, cursor-paginated turns, tool calls collapsed. The one thing the mobile client cannot do at all: it drives every pane and can barely show what any of them said |
 | **10 — the board** | inbox, todo, blockers, done. Assembly over data already served four ways; the shape is an open decision, read-only first |
 | **10b — browsing a project's files** | rides Phase 9's read surface, rooted at project directories rather than the filesystem |

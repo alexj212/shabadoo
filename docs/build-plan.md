@@ -81,30 +81,13 @@ phase is marked as such.
 
 ---
 
-## Phase 8 — the papercuts, in one batch
+## Phase 8 — the papercuts, in one batch — **shipped**
 
-Small, unrelated, and each one costs somebody a few seconds every day. Batched
-because individually none justifies a release and collectively they are an
-afternoon.
-
-- **`session list` marks boot-enabled folders.** A `*` for a session whose folder
-  is in the boot list, so "will this come back if I close it" is answerable from
-  the listing rather than from a second file. `boot list` already computes the
-  set; nothing new is needed but the join.
-- **Every listing prints the dashboard URL.** The coordinator address is in
-  `~/.config/shabadoo/coord` and reachable from the phone; a session that wants
-  to point a human at a pane currently has to be told the URL by the human.
-- **`shabadoo open` waits until the session is registered.** Three sessions
-  independently wrote the same poll loop, which is the definition of a missing
-  primitive. `open` returns as soon as tmux has the window, before the
-  coordinator has seen it, so the next call by name fails.
-- **A deactivated folder that is also in the boot list is a contradiction**, and
-  `boot`, `boot list` and `boot add` now say so — done in v0.4.47. Kept here as
-  the reason the batch exists: it cost seventeen sessions that did not restart.
-
-**Verify:** open a folder, immediately address it by name from another session,
-and require the send to land. That is the failure the poll loops were papering
-over, and it is the only assertion that distinguishes a fix from a longer sleep.
+`*` on boot-enabled sessions, the dashboard URL in every listing, and `open`
+waiting until the coordinator has registered the session. Written up in
+`CLAUDE.md`; the one thing worth carrying forward is the verification, because
+it is what separates a fix from a longer sleep: **open a folder, address it by
+name immediately, and require the send to land.**
 
 ## Phase 9 — reading a conversation, on a phone
 

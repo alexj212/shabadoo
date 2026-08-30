@@ -1,22 +1,35 @@
 # The session framework itself — coordinator, per-host agents, and the payload of skills and conventions they install.
 status: active
-updated: 2026-08-29
+updated: 2026-08-30
 
 ## Now
-Making a project's state legible from outside it. `MISSION.md` is the convention
-half, shipped in the payload; the agent reporting it and a dashboard rendering
-one card per project are the next two steps.
+Phase 8 — the papercuts batch: a `*` on boot-enabled sessions in every listing,
+the dashboard URL in output, and `open` waiting until the coordinator has
+registered the session. Phase 9 (reading a conversation on a phone) is next and
+is the one thing the mobile client cannot do at all.
 
 ## Waiting on
-- you: four decisions out of the retro — a mis-addressed send, a leaked key, 224MB
-  of recordings, two undelivered meetings. All in the wrap-up, none are mine to make
-- you: dashboard cards (step 3) — format settled, nothing renders it
-- me: `shabadoo open` returns before the coordinator registers the session; two
-  sessions independently wrote the same poll loop
-- me: no scoped broadcast — running the retro cost wsl eight hand-copied sends
-- nobody: spawn-with-inheritance, unsketched
+- you: the board's shape — kanban or grouped tables · a week of layout nobody wanted · one conversation, options in build-plan Phase 10
+- you: how much of a conversation a phone shows · the transcript store holds anything ever pasted · one call, argued in Phase 9
+- you: four decisions out of the retro — a mis-addressed send, a leaked key, 224MB of recordings, two undelivered meetings · all in the wrap-up
+- me: Phase 8 papercuts — `*` on boot rows, dashboard URL, `open` waits for registration · three sessions wrote the same poll loop · an afternoon
+- mac: node offline since the 29th — its two sessions and three open tasks are frozen · one `launchctl` check on that machine
+- nobody: scoped broadcast, and spawn-with-inheritance — mentioned three times, designed zero
 
 ## Log
+- 2026-08-30 the plan had run out: phases 0-7 shipped while build-plan.md still said
+  "awaiting deploy" and direction.md still called three built primitives missing.
+  Rewrote both; phases 8-11 are all things somebody asked for, none invented
+- 2026-08-30 `blockers` read four mechanical states and never the rows people write,
+  so 37 human-owned blockers across 14 projects answered "nothing is stuck". `shaba todo`
+  is the table; blockers counts them now
+- 2026-08-30 seven scoped sessions all advertised their parent's card — mission was read
+  at the project root while the session was named by its subfolder. Reported by recon-wsl
+  with the cost measured, which is what made it obvious it was worse than showing nothing
+- 2026-08-30 a wrapped MISSION.md line parsed as its own entry: an unattributed blocker
+  nobody wrote, spending a slot against the six-row cap. Found by running the parser by hand
+- 2026-08-30 a boot list of nineteen folders opened two — exiting a session to restart it
+  is indistinguishable at the exit from closing it to free resources
 - 2026-08-29 first retro: 8 sessions asked, 14 findings shipped to the payload;
   the round found more by being asked than by being read
 - 2026-08-29 signed the binary on the Mac it lands on: ad-hoc signing meant every

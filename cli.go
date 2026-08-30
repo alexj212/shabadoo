@@ -634,6 +634,17 @@ func runSessions(args []string) {
 
 	waiting := 0
 	stale := 0
+	// Which folders will come back on their own. "Will this session survive a
+	// reboot" was answerable only by opening a second file on the right machine,
+	// and getting it wrong is expensive in both directions: closing one you
+	// believed was listed loses it, and closing one you believed was ephemeral
+	// leaves the watchdog reopening it every ten minutes.
+	//
+	// Joined CLIENT-SIDE from /api/folders rather than added to the agent's
+	// report. The report is decoded with DisallowUnknownFields, so a new field
+	// there is a protocol change requiring the coordinator to ship first — real
+	// cost, for a marker that is one extra GET against data already served.
+	boot := bootFolders(c, nodes)
 	for _, n := range nodes {
 		state := "offline"
 		if n.Online {
@@ -650,6 +661,13 @@ func runSessions(args []string) {
 			n.Node, state, len(n.Sessions), plural(len(n.Sessions)), cfg)
 		for _, s := range n.Sessions {
 			mark := " "
+			// `*` says this folder is in the boot list, `!` says somebody is
+			// waiting. `!` wins the single column when both are true: one is a
+			// standing fact about configuration, the other is a machine halted
+			// until a human answers.
+			if boot[n.Node+"\x00"+resolve(s.CWD)] {
+				mark = "*"
+			}
 			// Only for a node that is actually connected: an offline node's
 			// sessions are its last reported view, so one frozen at a dialog
 			// would be marked as waiting forever with no way to answer it.
@@ -682,6 +700,12 @@ func runSessions(args []string) {
 			}
 		}
 	}
+	fmt.Printf("\n  * reopens at boot    ! waiting on a prompt\n")
+	// The address, printed where somebody is already looking. A session that
+	// wants to point a human at a pane had to be told the URL BY that human,
+	// which is the wrong direction for the one fact this program is certain of.
+	fmt.Printf("  %s\n", c.coord)
+
 	if stale > 0 {
 		// Measured and rendered nowhere is how `acked_at` sat unread in the
 		// deliveries table from the beginning: the number existed, went out over
@@ -711,6 +735,35 @@ func runSessions(args []string) {
 			"    shabadoo keys --window W Enter\n",
 			waiting, plural(waiting))
 	}
+}
+
+// bootFolders is the set of (node, resolved path) that boot will reopen.
+//
+// Resolved through symlinks on both sides, for the reason /api/folders already
+// does it: the boot list holds the path somebody typed while tmux reports a
+// resolved one, so a raw string match shows a listed folder as unlisted — the
+// same defect that invites a duplicate window.
+//
+// A node whose folder list cannot be read contributes NOTHING rather than an
+// empty set for the fleet: a marker missing from one node's rows must not be
+// read as "that node has no boot folders".
+func bootFolders(c *client, nodes []cliNode) map[string]bool {
+	out := map[string]bool{}
+	for _, n := range nodes {
+		if !n.Online {
+			continue // its agent cannot answer; absent, not empty
+		}
+		list, err := fetchFolders(c, n.Node)
+		if err != nil {
+			continue
+		}
+		for _, f := range list {
+			if f.Source == "configured" {
+				out[n.Node+"\x00"+resolve(f.Path)] = true
+			}
+		}
+	}
+	return out
 }
 
 func runFolders(args []string) {
@@ -796,6 +849,7 @@ flags:
 		fatalf("open: %v", err)
 	}
 	fmt.Printf("opened %s%s\n", path, nodeSuffix(target))
+	waitForSession(c, target, path)
 	warnIfNameNowAmbiguous(c, target, path)
 }
 
@@ -1906,5 +1960,57 @@ flags:
 			continue
 		}
 		fmt.Printf("revoked %s\n", m.label)
+	}
+}
+
+
+// waitForSession blocks until the coordinator can see the session that was just
+// started, or says plainly that it cannot.
+//
+// `open` used to return as soon as the AGENT had made the window, which is
+// several seconds before the coordinator knows about it — agents report every
+// five seconds. So the obvious next step, addressing the new session by name,
+// failed with "no session matches", and the obvious workaround was a sleep.
+//
+// Three sessions independently wrote the same poll loop, which is not three
+// people being careless: it is a missing primitive. A caller that has to invent
+// the same wait each time is being handed a race, and each hand-rolled version
+// picked a different timeout and none of them distinguished "not yet" from
+// "never".
+//
+// Bounded, and a timeout is reported as UNKNOWN rather than as failure. The
+// window really was created — the POST succeeded — so claiming the open failed
+// would be worse than saying the coordinator has not caught up.
+func waitForSession(c *client, node, path string) {
+	const (
+		limit = 25 * time.Second
+		tick  = time.Second
+	)
+	want := resolve(path)
+	deadline := time.Now().Add(limit)
+	for {
+		nodes, err := fetchSessions(c)
+		if err == nil {
+			for _, n := range nodes {
+				if n.Node != node {
+					continue
+				}
+				for _, sess := range n.Sessions {
+					if resolve(sess.CWD) == want {
+						fmt.Printf("  registered as %s — addressable by name now\n", sess.Alias)
+						return
+					}
+				}
+			}
+		}
+		if time.Now().After(deadline) {
+			// Never silence. A caller that reads this as success and
+			// immediately sends by name gets the failure this exists to remove,
+			// and would have no idea why.
+			fmt.Printf("  the window was created, but the coordinator has not reported it "+
+				"within %s — addressing it by name may fail until it does\n", limit)
+			return
+		}
+		time.Sleep(tick)
 	}
 }
