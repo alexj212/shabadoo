@@ -395,6 +395,22 @@ a value can be unknown, carry a companion that says whether it was established �
 `capabilities_known`, `payload_known` — and never omit-when-zero a field whose
 absence a reader could mistake for a measured zero.
 
+**A control rules out the hypothesis it was built for, not the neighbourhood
+around it.** A peer proved that a *pending* consent request was not blocking
+later device opens — no request outstanding, still nothing captured — and
+concluded from it that consent was not involved at all. It did not cover the
+*ungranted state itself*, which was untestable at the time, and the stronger
+claim was carried onward by both of us as though it had been measured. Their
+words: *"I generalised a control over a hypothesis it did not cover."*
+
+**And once intermittency is on the table, every earlier reading was a sample
+rather than a state.** The same investigation found a device that captured
+cleanly twice in twenty attempts — so the "working baseline" it had been
+measured against all day was one draw from a distribution, not a fact about the
+machine. **Intermittent is worse than dead: dead is bisectable, intermittent
+passes the check and fails the meeting.** Before trusting a before-and-after,
+ask how many times the "before" was taken.
+
 **Make the zero value the unknown one.** A companion field only helps if its
 default says *not established*. A string-typed enum defaults to `""`, which
 serialises as a value and reads as a measurement; an integer enum with unknown at
