@@ -47,6 +47,9 @@ type opArgs struct {
 	After  int64 `json:"after,omitempty"`
 	Before int64 `json:"before,omitempty"`
 	Limit  int   `json:"limit,omitempty"`
+	// At fetches one record unclamped — the escape hatch for a reader with no
+	// terminal to fall back to.
+	At int64 `json:"at,omitempty"`
 }
 
 // pane is the addressed pane, or -1 for "whichever is active".
@@ -164,7 +167,7 @@ func handleOp(ctx context.Context, op string, payload json.RawMessage) (any, err
 			return nil, err
 		}
 		return claudelog.Events(file, claudelog.EventOpts{
-			After: a.After, Before: a.Before, Limit: a.Limit,
+			After: a.After, Before: a.Before, Limit: a.Limit, At: a.At,
 		})
 
 	case "deliver":

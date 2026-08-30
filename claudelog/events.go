@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -37,6 +38,22 @@ const (
 	chunkSize   = 1 << 18  // 256 KB per backward read
 	maxScanBack = 64 << 20 // give up walking back after 64 MB
 )
+
+// limits bound one decode. Passed rather than read from constants so a single
+// record can be fetched at its full size: on a phone THIS ENDPOINT IS THE
+// RECOURSE — a browser user who hits a clamped message opens the terminal, and
+// a phone user has none. Reported by the iOS client, and it is the difference
+// between "…" being a dead end and being a tap.
+type limits struct{ text, toolIn, toolOut int }
+
+var pageLimits = limits{maxText, maxToolIn, maxToolOut}
+
+// fullLimits is "the whole message", bounded anyway. Unbounded would be wrong
+// in the way that is hardest to see: a single pasted file can be tens of
+// megabytes, and the response still crosses proxyGet's 8 MB ceiling — where the
+// failure is a truncated JSON body rather than an honest clamp. 400k runes is
+// ~100x the page clamp and still says so if it hits.
+var fullLimits = limits{400000, 400000, 400000}
 
 // ToolCall is one tool_use block, collapsed.
 //
@@ -92,6 +109,37 @@ type EventPage struct {
 	// would be indistinguishable from an offset that happens to be zero.
 	More bool  `json:"more"`
 	Size int64 `json:"size"`
+
+	// SessionID names the FILE these offsets belong to.
+	//
+	// An offset is unique within one transcript and meaningless across two: a
+	// rotated file restarts small, so an event in the new one can carry an
+	// offset already on screen from the old one. A browser keyed by array index
+	// never meets this; a SwiftUI list keyed by Identifiable does, and duplicate
+	// ids there are not an error — they are undefined rendering, with the only
+	// symptom a log nobody watches. Reported by the iOS client before writing
+	// any code, which is the cheapest moment it could have been reported.
+	//
+	// Taken from the FILENAME rather than from a record: it is free, and it is
+	// present even on a page whose records happen not to carry the field.
+	SessionID string `json:"session_id,omitempty"`
+
+	// Reset says the cursor was abandoned and this is a fresh tail, because the
+	// file shrank underneath it.
+	//
+	// STATED, never inferred. The server knows at the moment it decides; making
+	// the client re-derive it from cursor and size is this codebase's recurring
+	// failure — a component that knows collapsing two answers into one and
+	// leaving the caller to guess which it got. A client whose inference is
+	// subtly wrong splices two conversations together and renders it with total
+	// confidence.
+	Reset bool `json:"reset,omitempty"`
+
+	// Now is the server's clock, so relative times in a client agree with the
+	// listing that led there rather than drifting with the device's own.
+	// `/api/sessions` already carries one; this is the same field for the same
+	// reason.
+	Now int64 `json:"now"`
 }
 
 // EventOpts selects a page. Exactly one direction applies: After polls forward,
@@ -100,6 +148,13 @@ type EventOpts struct {
 	After  int64 // read forward from this byte offset
 	Before int64 // read backward from this byte offset
 	Limit  int
+
+	// At fetches the single record ending at this offset, unclamped. It is the
+	// escape hatch under truncation: a reader on a phone has no terminal to
+	// fall back to, so "…" has to be a tap rather than a dead end. Bounded to
+	// one record, which is what keeps it from threatening the ceiling a page
+	// would.
+	At int64
 }
 
 // Events returns a page of turns from a transcript file.
@@ -117,7 +172,26 @@ func Events(path string, opts EventOpts) (EventPage, error) {
 		return EventPage{}, err
 	}
 	size := st.Size()
-	page := EventPage{Events: []Event{}, Cursor: size, Size: size}
+	page := EventPage{
+		Events:    []Event{},
+		Cursor:    size,
+		Size:      size,
+		Now:       time.Now().Unix(),
+		SessionID: strings.TrimSuffix(filepath.Base(path), ".jsonl"),
+	}
+
+	if opts.At > 0 {
+		// One record, whole. Read backwards from its end with a limit of one:
+		// the offset a client holds is the position just PAST the record, which
+		// is exactly what `backward` treats as its end.
+		evs, _, err := backward(f, opts.At, 1, fullLimits)
+		if err != nil {
+			return page, err
+		}
+		page.Events = evs
+		page.More = false
+		return page, nil
+	}
 
 	if opts.After > 0 {
 		// Forward: what has been appended since the client last looked. A file
@@ -126,8 +200,9 @@ func Events(path string, opts EventOpts) (EventPage, error) {
 		// treat it as a fresh tail rather than trusting the cursor.
 		if opts.After > size {
 			opts.After = 0
+			page.Reset = true
 		} else {
-			evs, err := forward(f, opts.After, size, opts.Limit)
+			evs, err := forward(f, opts.After, size, opts.Limit, pageLimits)
 			if err != nil {
 				return page, err
 			}
@@ -147,7 +222,7 @@ func Events(path string, opts EventOpts) (EventPage, error) {
 	if opts.Before > 0 && opts.Before < size {
 		end = opts.Before
 	}
-	evs, start, err := backward(f, end, opts.Limit)
+	evs, start, err := backward(f, end, opts.Limit, pageLimits)
 	if err != nil {
 		return page, err
 	}
@@ -164,7 +239,7 @@ func Events(path string, opts EventOpts) (EventPage, error) {
 }
 
 // forward reads records from `from` towards the end, stopping at limit.
-func forward(f *os.File, from, size int64, limit int) ([]Event, error) {
+func forward(f *os.File, from, size int64, limit int, lim limits) ([]Event, error) {
 	if _, err := f.Seek(from, io.SeekStart); err != nil {
 		return nil, err
 	}
@@ -175,7 +250,7 @@ func forward(f *os.File, from, size int64, limit int) ([]Event, error) {
 		line, n, err := readLine(r)
 		pos += int64(n)
 		if len(bytes.TrimSpace(line)) > 0 {
-			if e, ok := decodeEvent(line); ok {
+			if e, ok := decodeEvent(line, lim); ok {
 				e.Offset = pos
 				out = append(out, e)
 			}
@@ -198,7 +273,7 @@ func forward(f *os.File, from, size int64, limit int) ([]Event, error) {
 //
 // Returns the byte offset of the first turn kept, which is what a client pages
 // back from; zero means the start of the file was reached.
-func backward(f *os.File, end int64, limit int) ([]Event, int64, error) {
+func backward(f *os.File, end int64, limit int, lim limits) ([]Event, int64, error) {
 	type parsed struct {
 		bytes int64 // the line plus its newline
 		ev    Event
@@ -240,7 +315,7 @@ func backward(f *os.File, end int64, limit int) ([]Event, int64, error) {
 		for i := len(parts) - 1; i >= 0 && found <= limit; i-- {
 			p := parsed{bytes: int64(len(parts[i])) + 1}
 			if len(bytes.TrimSpace(parts[i])) > 0 {
-				p.ev, p.ok = decodeEvent(parts[i])
+				p.ev, p.ok = decodeEvent(parts[i], lim)
 				if p.ok {
 					found++
 				}
@@ -327,7 +402,7 @@ type eventBlock struct {
 // transcript's last line is routinely a partial write, and a page whose final
 // entry is "could not parse" would show that every few seconds on a live
 // session — training the reader to ignore the one time it means something.
-func decodeEvent(line []byte) (Event, bool) {
+func decodeEvent(line []byte, lim limits) (Event, bool) {
 	var rec eventRecord
 	if json.Unmarshal(line, &rec) != nil {
 		return Event{}, false
@@ -351,7 +426,7 @@ func decodeEvent(line []byte) (Event, bool) {
 	// occur in a single file.
 	var text string
 	if err := json.Unmarshal(rec.Message.Content, &text); err == nil {
-		e.Text, e.Len, e.Truncated = clamp(text, maxText)
+		e.Text, e.Len, e.Truncated = clamp(text, lim.text)
 		return e, e.Text != ""
 	}
 	var blocks []eventBlock
@@ -369,19 +444,19 @@ func decodeEvent(line []byte) (Event, bool) {
 				sb.WriteString(b.Text)
 			}
 		case "tool_use":
-			in, _, cut := clamp(compactJSON(b.Input), maxToolIn)
+			in, _, cut := clamp(compactJSON(b.Input), lim.toolIn)
 			e.Tools = append(e.Tools, ToolCall{Name: b.Name, Input: in, Truncated: cut})
 		case "tool_result":
 			// A result belongs to the call above it and is the single biggest
 			// contributor to transcript size. Kept short and unnamed; a client
 			// that wants the whole thing has the pane.
-			s, _, cut := clamp(blockText(b.Content), maxToolOut)
+			s, _, cut := clamp(blockText(b.Content), lim.toolOut)
 			if s != "" {
 				e.Tools = append(e.Tools, ToolCall{Name: "result", Input: s, Truncated: cut})
 			}
 		}
 	}
-	e.Text, e.Len, e.Truncated = clamp(sb.String(), maxText)
+	e.Text, e.Len, e.Truncated = clamp(sb.String(), lim.text)
 	return e, e.Text != "" || len(e.Tools) > 0
 }
 

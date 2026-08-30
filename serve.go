@@ -369,7 +369,7 @@ func (b *bridge) handleClaudeEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	page, err := claudelog.Events(file, claudelog.EventOpts{
-		After: num("after"), Before: num("before"), Limit: int(num("limit")),
+		After: num("after"), Before: num("before"), Limit: int(num("limit")), At: num("at"),
 	})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)

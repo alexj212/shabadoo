@@ -524,7 +524,7 @@ func (h *humanAPI) claudeSession(w http.ResponseWriter, r *http.Request) {
 func (h *humanAPI) claudeEvents(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	args := map[string]any{"path": q.Get("path")}
-	for _, k := range []string{"after", "before", "limit"} {
+	for _, k := range []string{"after", "before", "limit", "at"} {
 		if v := q.Get(k); v != "" {
 			n, err := strconv.ParseInt(v, 10, 64)
 			if err != nil {

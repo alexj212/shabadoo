@@ -1161,6 +1161,7 @@ function render(data) {
   root.innerHTML = renderQueue(nodes, now)
     + renderMissions(nodes, now)
     + nodes.map(n => renderAgent(n, now, data.version)).join("");
+  applyDeepLink();
 }
 
 function updateTarget() {
@@ -1205,6 +1206,45 @@ async function post(url, body) {
     body: JSON.stringify(body),
   });
   if (!r.ok) throw new Error("HTTP " + r.status + ": " + (await r.text()).trim());
+}
+
+// ---- deep link: #pane=<name> ----
+//
+// `shaba dash <name>` hands a URL whose fragment names a pane, so a session can
+// point a human straight at the thing rather than at the dashboard's front page.
+//
+// A FRAGMENT rather than a query, for the reason `pair` already uses one: it is
+// never sent to the server, so a project name does not land in an access log or
+// a Referer header.
+//
+// Fires once, after the first render that actually contains rows — the rows do
+// not exist at load, and matching against an empty table would silently do
+// nothing, which is indistinguishable from a name that does not exist.
+let deepLinkWanted = (location.hash.match(/^#pane=(.+)$/) || [])[1];
+if (deepLinkWanted) deepLinkWanted = decodeURIComponent(deepLinkWanted);
+
+function applyDeepLink() {
+  if (!deepLinkWanted) return;
+  const want = deepLinkWanted.toLowerCase();
+  const rows = [...document.querySelectorAll("tr[data-session]")];
+  if (!rows.length) return; // nothing rendered yet; try again next tick
+  // Exact on the friendly name first, then substring — the same resolution the
+  // CLI uses, so a name that works in `shaba tail` works here. An ambiguous
+  // match takes the first rather than refusing: this is a convenience, and the
+  // reader can see which row got selected and click another.
+  const hit = rows.find(r => (r.dataset.name || "").toLowerCase() === want)
+    || rows.find(r => (r.dataset.name || "").toLowerCase().includes(want))
+    || rows.find(r => (r.dataset.path || "").toLowerCase().endsWith("/" + want));
+  deepLinkWanted = null; // once, whether or not it matched
+  if (!hit) {
+    flash("no pane matches " + want, "bad");
+    return;
+  }
+  hit.click();
+  // Land on the conversation, not the raw pane: somebody following a link to a
+  // named session wants to read what it said.
+  if (viewer.hidden) openViewer();
+  setTab("chat");
 }
 
 // Click a row → select that pane (and switch tmux to it).

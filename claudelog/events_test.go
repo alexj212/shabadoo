@@ -266,3 +266,106 @@ func TestPartialLastLineIsDroppedNotRendered(t *testing.T) {
 		t.Fatalf("want only the complete turn, got %+v", page.Events)
 	}
 }
+
+// A reset is STATED, not left to be inferred.
+//
+// The server knows at the moment it abandons the cursor; making a client
+// re-derive it from cursor and size is the failure this codebase keeps finding —
+// a component that knows collapsing two answers into one. A client whose
+// inference is subtly wrong splices two conversations together and renders it
+// with total confidence.
+//
+// Pinned as the distinction: a normal poll and a reset poll must not look alike.
+func TestResetIsStatedNotInferred(t *testing.T) {
+	p := writeJSONL(t, turnLine(t, "user", "user", "only turn"))
+	normal, err := Events(p, EventOpts{Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if normal.Reset {
+		t.Fatal("a first read is not a reset")
+	}
+	quiet, err := Events(p, EventOpts{After: normal.Cursor, Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if quiet.Reset {
+		t.Fatal("an ordinary empty poll is not a reset")
+	}
+	rotated, err := Events(p, EventOpts{After: 1 << 30, Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !rotated.Reset {
+		t.Fatal("a cursor past the end of a shrunken file must report reset — " +
+			"otherwise the client cannot tell a tail from new messages")
+	}
+	if len(rotated.Events) != 1 {
+		t.Fatalf("a reset returns a fresh tail, got %d events", len(rotated.Events))
+	}
+}
+
+// Offsets are only unique within one file, so the response names the file.
+// Without it a rotated transcript hands a client offsets it already has on
+// screen — which in a list keyed by identity is not an error, it is undefined
+// rendering.
+func TestPageNamesTheFileItsOffsetsBelongTo(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "9f30-4908-d9fb.jsonl")
+	if err := os.WriteFile(p, []byte(turnLine(t, "user", "user", "hi")+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	page, err := Events(p, EventOpts{Limit: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if page.SessionID != "9f30-4908-d9fb" {
+		t.Fatalf("session id: got %q, want the file's own name", page.SessionID)
+	}
+	if page.Now <= 0 {
+		t.Fatal("now must carry the server's clock, so a client's relative times " +
+			"agree with the listing that led there")
+	}
+}
+
+// `at` returns one record whole. It is the escape hatch under truncation, and on
+// a phone it is the ONLY one — a browser user who hits a clamped message opens
+// the terminal, and a phone user has none.
+//
+// Pinned as a pair: the same record must come back clamped in a page and
+// unclamped by `at`. Asserting only the second passes for a reader that stopped
+// clamping everywhere, which would put the 8 MB ceiling back in play.
+func TestAtReturnsOneRecordWhole(t *testing.T) {
+	long := strings.Repeat("x", maxText+2000)
+	p := writeJSONL(t,
+		turnLine(t, "user", "user", "short one"),
+		turnLine(t, "assistant", "assistant", long),
+	)
+	page, err := Events(p, EventOpts{Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	last := page.Events[len(page.Events)-1]
+	if !last.Truncated {
+		t.Fatal("the page must still clamp")
+	}
+
+	full, err := Events(p, EventOpts{At: last.Offset})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(full.Events) != 1 {
+		t.Fatalf("`at` returns exactly one record, got %d", len(full.Events))
+	}
+	if full.Events[0].Truncated {
+		t.Fatal("`at` must return the record whole")
+	}
+	if utf8.RuneCountInString(full.Events[0].Text) != maxText+2000 {
+		t.Fatalf("full text is %d runes, want %d",
+			utf8.RuneCountInString(full.Events[0].Text), maxText+2000)
+	}
+	if len(full.Events[0].Text) <= len(last.Text) {
+		t.Fatal("the whole record must be longer than the clamped one — " +
+			"if these are equal, either the page stopped clamping or `at` did not work")
+	}
+}

@@ -699,7 +699,8 @@ that are not negotiable client-side:
       "text": "…", "truncated": true, "len": 5120, "model": "claude-opus-5",
       "sidechain": false, "offset": 113095743,
       "tools": [ { "name": "Bash", "input": "{\"command\":\"…\"}", "truncated": true } ] } ],
-  "cursor": 113103838, "prev": 113084512, "more": true, "size": 113103838 }
+  "cursor": 113103838, "prev": 113084512, "more": true, "size": 113103838,
+  "session_id": "93938b30-99c8-441c-96e5-167390c1a17e", "now": 1788101397 }
 ```
 
 **Paging is by BYTE OFFSET, not by message index.** Transcripts on this fleet
@@ -720,6 +721,29 @@ page still holds a correct watermark.
 - **A shrinking file resets to a tail.** If `after` exceeds the current size the
   transcript was rotated or replaced, and reading from a stale offset would
   splice two conversations together.
+
+**Every page names the file its offsets belong to** (`session_id`) and says
+whether the cursor was abandoned (`reset`). An offset is unique within one
+transcript and meaningless across two — a rotated file restarts small — so key a
+list on the **pair**, not on the offset alone. `reset: true` means this is a
+fresh tail and not new messages; clear what you have rather than appending.
+
+**`now`** is the server's clock, so relative times agree with `/api/sessions`
+rather than drifting with the device's.
+
+**`at=<offset>` returns that one record whole**, unclamped, and is the escape
+hatch under truncation: a reader with no terminal to fall back to needs "…" to be
+a tap. One record only, so it cannot threaten the ceiling a page would. It is
+still bounded at 400k runes and still reports `truncated`/`len` if it hits that.
+
+**`type` and `role` are identical in every record measured** — 10,881 message
+records across 25 transcripts. Switch on `type`; treat `role` as informational
+and an unrecognised value as a case rather than an error.
+
+**An empty poll costs a full round trip.** Measured against the live coordinator:
+empty **66 B / ~83 ms**, a 40-turn page **481 B / ~87 ms**. The payload is not the
+cost and there is no conditional-request path — poll at whatever rate the screen
+being visible justifies, not at the rate the bytes suggest.
 
 **Truncation happens on the wire.** Message text is clamped to 4000 runes, a
 tool call's input to 600, a tool result to 1200 — with `truncated` and `len` so a

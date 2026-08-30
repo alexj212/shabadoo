@@ -2277,6 +2277,91 @@ newest last, tool calls collapsed to one line and expanded on tap, and it only
 auto-scrolls when the reader was already at the bottom. A reader who scrolled up
 to read something is not dragged back down by an arriving turn.
 
+### What the iOS client asked for before writing any code
+
+Six gaps, ranked, reported against the shape rather than against a running
+build — which is the cheapest moment any of them could have arrived, and the
+reason the brief said so explicitly. Four were implemented; two were questions
+and are answered here because the answers are measurements.
+
+**An event needs a stable identity, and it is an iOS-specific break.** An offset
+is unique within one transcript and meaningless across two: a rotated file
+restarts small, so an event in the new one can carry an offset already on screen
+from the old. A browser keyed by array index never meets this. A SwiftUI list
+keyed by `Identifiable` does, and duplicate ids there are **not an error** — they
+are undefined rendering, with the only symptom a log nobody watches. The page
+now names the file (`session_id`, taken from the filename: free, and present even
+on a page whose records do not carry it).
+
+**A reset is stated, never inferred.** `reset: true` when a cursor past the end
+of a shrunken file is abandoned. The server knows at the moment it decides;
+making the client re-derive it from `cursor` and `size` is this codebase's
+recurring failure in a new place, and a client whose inference is subtly wrong
+splices two conversations together and renders it with total confidence.
+
+**Truncation needed an escape hatch, because the phone is the last resort.**
+`?at=<offset>` returns that one record whole. A browser user who hits a clamped
+message opens the terminal; a phone user has none — the phone *is* the recourse,
+which is the whole reason that client exists. Bounded to one record, so it cannot
+threaten the ceiling a page would, and still clamped at 400k runes with the truth
+reported: unbounded would fail as a truncated JSON body rather than an honest cut.
+
+**`now` travels with the page**, so relative times in a client agree with the
+listing that led there rather than drifting with the device clock. `/api/sessions`
+already carried one.
+
+Two answered rather than built:
+
+- **`type` and `role` are identical in every record measured** — 10,881 message
+  records across 25 transcripts, `(user,user)` and `(assistant,assistant)`, no
+  disagreement. Twelve record types exist in a transcript; only those two reach a
+  client. Switch on `type`; treat `role` as informational and an unknown value as
+  a case rather than an error.
+- **An empty poll costs a full round trip**, and the payload is not the cost:
+  measured against the live coordinator, an empty poll is **66 bytes / ~83 ms**
+  and a 40-turn page is **481 bytes / ~87 ms**. The node's own work is a seek and
+  a stat; there is no cheaper path that avoids asking the agent, and saying so is
+  better than implying one exists.
+
+**Tailnet-only is an operational fact, not a constraint anything enforces.**
+Raised by the iOS client while answering whether its app ever runs off-tailnet
+(it does not, and never will), and it is the more useful half of that answer.
+Nothing checks it and nothing could: strict ATS demands a valid certificate and
+says nothing about where the host lives, and pairing accepts any `https://` URL.
+A hub put behind a public certificate tomorrow would pair, work, and look
+identical from inside the client — no error, no warning, nothing visible to
+anyone.
+
+So the safety argument for a read surface this wide rests on a property **no
+component can verify and none would notice being withdrawn**. That is not an
+objection to the current arrangement, which is right today. It is a note about
+where the load is carried, written here rather than as "we are on a tailnet"
+because the second version goes stale silently and the first one names what would
+have to change.
+
+### `shaba dash` — the dashboard, in this machine's browser
+
+The address was already known and printed; what was missing was the step between
+reading it and looking at it. `dash [name]` opens it, and with a name opens it
+focused on that pane with the conversation showing.
+
+**It prints the URL first and always**, so it still works over ssh or where no
+opener exists — and that is the form to paste when pointing a human at a pane. A
+failed opener is reported and does not fail the command; the address is already
+on screen.
+
+**WSL is why this is not one line.** The browser lives on the Windows side, and
+`xdg-open` is present there and wrong — it resolves to a Linux handler. `wslview`
+is the front door to Windows' own default-browser registration, with
+`explorer.exe` and PowerShell as fallbacks for an install without wslu.
+
+The pane travels in a **fragment** (`#pane=homelab`), for the reason `pair`
+already uses one: a fragment is never sent to the server, so a project name does
+not land in an access log or a Referer header. The page resolves it the way the
+CLI resolves a pane — exact, then substring — and applies it after the first
+render that actually contains rows, since matching an empty table would silently
+do nothing.
+
 ## Future phases (not yet built)
 
 **`docs/build-plan.md` is the plan — phases 10-11, in order, with the reason for

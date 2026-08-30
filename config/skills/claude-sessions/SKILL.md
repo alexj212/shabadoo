@@ -195,6 +195,11 @@ command is being typed by a person or repeated in a brief.
   never the rows people write, so a fleet with forty human-owned blockers standing answered
   "nothing is stuck". It counts them now and points here. An age in this table is bounded by the
   coordinator's uptime and says so when it is; a row may have stood far longer than it reads.
+- **`shabadoo dash [name]`** opens the dashboard in this machine's browser, and with a name opens it
+  focused on that pane with the conversation showing. It always PRINTS the URL first, so it is still
+  useful over ssh or where no opener exists — which is also the form to paste when pointing a human
+  at a pane. The name resolves the way `tail` does. On WSL it goes through `wslview`, because
+  `xdg-open` is present there and wrong: the browser is on the Windows side.
 - **`shabadoo mission`** prints this project's `MISSION.md` as the fleet reads it — the parse, not
   the file — so "does mine actually report?" is answerable from the folder that owns it rather than
   from a dashboard on another host. It also names the waiting rows the six-row cap discarded, which
