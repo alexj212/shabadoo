@@ -752,10 +752,25 @@ response crosses the coordinator's `proxyGet`, which buffers a peer's answer
 through `io.ReadAll` with an **8 MB ceiling**, and a single pasted file in one
 turn can exceed that alone.
 
-**Tool calls are collapsed and belong under the turn that made them.** A
-`tool_result` arrives as a `ToolCall` named `result`. They are most of a
-transcript's bytes and almost never what is being read; render one line and
-expand on demand.
+**Tool calls are collapsed and belong under the turn that made them.** Each
+entry carries **`kind`** — `"call"` or `"result"` — so nothing has to
+string-match a name to tell output from a tool. A `result` carries no `name`;
+inventing one is what made this ambiguous. They are most of a transcript's bytes
+and almost never what is being read, so render one line and expand on demand.
+Treat an unrecognised `kind` as a case rather than an error.
+
+**`len` and `truncated`, precisely.** `len` is in **runes — Unicode scalars —**
+which is not the same number as a grapheme-cluster count: Swift's `String.count`
+disagreed on about one event in a hundred against a 30 MB transcript, while
+`unicodeScalars.count` matched exactly. Compare against `len` in the same unit or
+"showing 4000 of 5120" is wrong on exactly the messages people look at twice.
+
+`truncated` and `sidechain` are omitted when false, and **absence means false
+rather than unknown** — both are computed for every event, so there is no third
+state to represent. That is deliberately unlike `payload_known` / `tools_known`
+elsewhere in this API, where the value genuinely can be unestablished and a
+companion flag says so. If either ever becomes unknowable it gains that
+treatment; today it would be a field that can only ever say one thing.
 
 `sidechain` marks a subagent's message. Render it differently rather than hiding
 it — a reader who cannot tell a subagent's words from the session's own is being

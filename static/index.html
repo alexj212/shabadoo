@@ -430,6 +430,7 @@
   }
   .turn details.tool > summary::-webkit-details-marker { display: none; }
   .turn details.tool > summary b { color: var(--fg); font-weight: 600; }
+  .turn details.tool.res > summary { color: var(--dim); font-style: italic; }
   .turn details.tool[open] > summary { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
   .turn details.tool pre {
     margin: 0; padding: 0.45rem 0.55rem; font-size: 0.74rem; line-height: 1.4;
@@ -1726,10 +1727,16 @@ function turnHTML(e) {
   }
   // Collapsed by default and expanded on tap. Also what keeps the page inside a
   // phone's transfer budget: these are most of the bytes.
-  const tools = (e.tools || []).map(t => `
-    <details class="tool"><summary><b>${esc(t.name)}</b>${
+  // A result is output, not "a tool called result". The server says which with
+  // `kind`; matching on the name was the trap, and every client would have paid
+  // for it separately.
+  const tools = (e.tools || []).map(t => {
+    const isResult = t.kind === "result";
+    const head = isResult ? "↳ output" : `<b>${esc(t.name || "tool")}</b>`;
+    return `<details class="tool${isResult ? " res" : ""}"><summary>${head}${
       t.input ? " · " + esc(t.input.slice(0, 70)) : ""}</summary>
-      <pre>${esc(t.input || "")}${t.truncated ? "\n… cut to fit" : ""}</pre></details>`).join("");
+      <pre>${esc(t.input || "")}${t.truncated ? "\n… cut to fit" : ""}</pre></details>`;
+  }).join("");
   return `<div class="turn ${cls}">
     <div class="who"><span>${esc(who)}</span><span>${esc(when)}</span></div>
     ${body}${tools}</div>`;

@@ -61,10 +61,30 @@ var fullLimits = limits{400000, 400000, 400000}
 // of a transcript's bytes and almost never what somebody is reading. A client
 // renders one line and expands on demand.
 type ToolCall struct {
-	Name      string `json:"name"`
+	// Kind is "call" or "result", and it is stated rather than left to be
+	// inferred from Name.
+	//
+	// A tool RESULT used to arrive named `result`, alongside genuine tools
+	// called `Bash` and `ToolSearch` — so a client had to string-match on that
+	// name to avoid rendering "a tool called result", which is wrong in a way a
+	// reader can only see through by knowing the wire format. Reported by the
+	// iOS client after seeing it live, with the observation that flagging it
+	// here is cheaper for one server than for every client.
+	//
+	// The name of a real tool is still in Name; a result carries an empty one,
+	// because inventing a name for output is what created the ambiguity.
+	Kind      string `json:"kind"`
+	Name      string `json:"name,omitempty"`
 	Input     string `json:"input,omitempty"`
 	Truncated bool   `json:"truncated,omitempty"`
 }
+
+// Tool kinds. Two, closed, and a client should treat an unrecognised value as a
+// case rather than an error — the same advice given for `type`.
+const (
+	ToolKindCall   = "call"
+	ToolKindResult = "result"
+)
 
 // Event is one turn as a reader sees it.
 type Event struct {
@@ -77,7 +97,14 @@ type Event struct {
 	// cannot tell a short message from a cut one, and a state that is known and
 	// not shown is indistinguishable from that state not existing.
 	Truncated bool `json:"truncated,omitempty"`
-	Len       int  `json:"len,omitempty"` // runes, before clamping
+	// Len is RUNES — Unicode scalars — before clamping, and the unit matters
+	// across languages. Swift's String.count is grapheme clusters, and the two
+	// disagree on an emoji with a skin tone or a variation selector: measured
+	// against a 30 MB transcript, one event in a hundred differed under
+	// String.count and none under unicodeScalars.count. A client comparing
+	// against this to render "showing 4000 of 5120" is then wrong on exactly
+	// the messages people look at twice.
+	Len int `json:"len,omitempty"`
 
 	Tools []ToolCall `json:"tools,omitempty"`
 	Model string     `json:"model,omitempty"`
@@ -445,14 +472,16 @@ func decodeEvent(line []byte, lim limits) (Event, bool) {
 			}
 		case "tool_use":
 			in, _, cut := clamp(compactJSON(b.Input), lim.toolIn)
-			e.Tools = append(e.Tools, ToolCall{Name: b.Name, Input: in, Truncated: cut})
+			e.Tools = append(e.Tools, ToolCall{
+				Kind: ToolKindCall, Name: b.Name, Input: in, Truncated: cut})
 		case "tool_result":
 			// A result belongs to the call above it and is the single biggest
 			// contributor to transcript size. Kept short and unnamed; a client
 			// that wants the whole thing has the pane.
 			s, _, cut := clamp(blockText(b.Content), lim.toolOut)
 			if s != "" {
-				e.Tools = append(e.Tools, ToolCall{Name: "result", Input: s, Truncated: cut})
+				e.Tools = append(e.Tools, ToolCall{
+					Kind: ToolKindResult, Input: s, Truncated: cut})
 			}
 		}
 	}

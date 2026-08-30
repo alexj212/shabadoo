@@ -369,3 +369,46 @@ func TestAtReturnsOneRecordWhole(t *testing.T) {
 			"if these are equal, either the page stopped clamping or `at` did not work")
 	}
 }
+
+// A tool CALL and a tool RESULT must not be distinguishable only by a name.
+//
+// A result used to arrive named `result`, next to genuine tools called `Bash`
+// and `ToolSearch`, so every client had to string-match that name to avoid
+// rendering "a tool called result". Flagging it on the server is cheaper for one
+// server than for every client — reported by the iOS client after seeing it live.
+//
+// Pinned as the distinction: the two must carry different `kind` values, and a
+// result must not present a name that could be mistaken for a tool's.
+func TestToolResultIsFlaggedNotNamed(t *testing.T) {
+	call := `{"type":"assistant","timestamp":"2026-08-30T10:00:00Z","message":{"role":"assistant",` +
+		`"content":[{"type":"tool_use","name":"Bash","input":{"command":"ls"}}]}}`
+	result := `{"type":"user","timestamp":"2026-08-30T10:00:01Z","message":{"role":"user",` +
+		`"content":[{"type":"tool_result","content":"total 0"}]}}`
+	p := writeJSONL(t, call, result)
+
+	page, err := Events(p, EventOpts{Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Events) != 2 {
+		t.Fatalf("want a call turn and a result turn, got %d", len(page.Events))
+	}
+	c, r := page.Events[0].Tools, page.Events[1].Tools
+	if len(c) != 1 || len(r) != 1 {
+		t.Fatalf("want one tool each: %+v / %+v", c, r)
+	}
+	if c[0].Kind == r[0].Kind {
+		t.Fatalf("a call and a result must not carry the same kind: both %q", c[0].Kind)
+	}
+	if c[0].Kind != ToolKindCall || c[0].Name != "Bash" {
+		t.Fatalf("call wrong: %+v", c[0])
+	}
+	if r[0].Kind != ToolKindResult {
+		t.Fatalf("result wrong: %+v", r[0])
+	}
+	// A result carrying a name is what made this ambiguous; inventing one for
+	// output is the defect, not the rendering of it.
+	if r[0].Name != "" {
+		t.Fatalf("a result must not present a tool name, got %q", r[0].Name)
+	}
+}
