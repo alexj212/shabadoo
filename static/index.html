@@ -670,8 +670,8 @@
 <div id="viewer" hidden>
   <div class="vhead">
     <span class="dots"><i></i><i></i><i></i></span>
-    <button class="vtab on" id="tab-pane" data-tab="pane">Pane</button>
-    <button class="vtab" id="tab-chat" data-tab="chat">Chat</button>
+    <button class="vtab" id="tab-pane" data-tab="pane">Pane</button>
+    <button class="vtab on" id="tab-chat" data-tab="chat">Chat</button>
     <button class="vtab" id="tab-files" data-tab="files">Files</button>
     <button class="vtab" id="tab-session" data-tab="session">Session</button>
     <span class="vname" id="vname">—</span>
@@ -801,7 +801,20 @@ const chips = [...document.querySelectorAll(".chip[data-cmd]")];
 // Selected pane persists across the 3s auto-refresh.
 let selected = null; // { node, session, window, name, rawname, path }
 let bufferTimer = null; // poll handle while the transcript viewer is open
-let vtab = "pane";      // which viewer tab is showing: "pane" | "session"
+// Which viewer tab is showing: "pane" | "chat" | "files" | "session".
+//
+// CHAT IS THE DEFAULT, on a comparison rather than a preference: asked to judge
+// the two side by side on a phone, the operator's verdict was that the
+// conversation "reads better than tmux terminal". The iOS client made the same
+// change on the same evidence. The pane is a terminal scrape wrapped for 80
+// columns with tool output at the same weight as the answer; the conversation is
+// the thing somebody actually came to read.
+//
+// Remembered per browser, so choosing Pane once is not overridden every time the
+// viewer opens. A default is a starting point, not an argument.
+let vtab = (() => {
+  try { return localStorage.getItem("shabadoo.vtab") || "chat"; } catch (_) { return "chat"; }
+})();
 
 // dur renders a span of seconds on its own, where ago() renders one against a
 // clock. Kept separate rather than passing now-x into ago: a median is not a
@@ -2277,6 +2290,20 @@ function selectedIsBlocked() {
   return false;
 }
 
+// chooseTab is a person picking a tab: it records the preference and switches.
+// setTab is the mechanism, used by openViewer and by the blocked guard, and it
+// records NOTHING.
+//
+// The distinction is load-bearing. The guard rewrites `chat` to `pane` for a
+// blocked session, which mutates the current tab — and if that path also wrote
+// the preference, meeting one blocked pane would silently and permanently
+// demote the conversation view. A per-pane override must not become a standing
+// choice.
+function chooseTab(name) {
+  try { localStorage.setItem("shabadoo.vtab", name); } catch (_) {}
+  setTab(name);
+}
+
 function setTab(name) {
   // THE CONVERSATION CANNOT SHOW A DIALOG, and that is structural rather than
   // lag. A transcript records COMPLETED messages; a session sitting at a
@@ -2320,6 +2347,11 @@ function refreshViewer(forceBottom) {
 function openViewer() {
   viewer.hidden = false;
   transcriptBtn.textContent = "Hide transcript";
+  // Through setTab rather than straight to refreshViewer, so the blocked-pane
+  // guard runs on OPEN and not only on a tab click. Landing the answer keys
+  // under a view that structurally cannot render the question is the failure
+  // that guard exists for, and opening is the commonest way to arrive.
+  setTab(vtab);
   refreshViewer(true);
   if (bufferTimer) clearInterval(bufferTimer);
   bufferTimer = setInterval(refreshViewer, 2000);
@@ -2334,10 +2366,10 @@ function closeViewer() {
 transcriptBtn.addEventListener("click", () => viewer.hidden ? openViewer() : closeViewer());
 vclose.addEventListener("click", closeViewer);
 vlines.addEventListener("change", () => refreshBuffer(true));
-tabPane.addEventListener("click", () => setTab("pane"));
-tabChat.addEventListener("click", () => setTab("chat"));
-tabFiles.addEventListener("click", () => setTab("files"));
-tabSession.addEventListener("click", () => setTab("session"));
+tabPane.addEventListener("click", () => chooseTab("pane"));
+tabChat.addEventListener("click", () => chooseTab("chat"));
+tabFiles.addEventListener("click", () => chooseTab("files"));
+tabSession.addEventListener("click", () => chooseTab("session"));
 
 // ---- audit ----
 //

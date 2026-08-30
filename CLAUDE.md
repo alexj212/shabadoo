@@ -2623,6 +2623,29 @@ The confinement is the agent's alone. The coordinator passes the request through
 without re-checking, because two copies of a security rule drift and the one that
 matters is the one next to the filesystem.
 
+### The conversation is the default view
+
+On a comparison rather than a preference. Asked to judge the two side by side on
+a phone, the operator's verdict was that the conversation **"reads better than
+tmux terminal"** — and the iOS client made the same change on the same evidence,
+independently. The pane is a terminal scrape wrapped for 80 columns with tool
+output at the same weight as the answer; the conversation is what somebody came
+to read.
+
+The choice is remembered per browser, because a default is a starting point and
+not an argument.
+
+**And the guard must not become the preference.** A blocked pane is forced to the
+Pane tab (see below), which mutates the current tab — so if that path also
+recorded the choice, meeting one blocked session would silently and permanently
+demote the conversation view. `chooseTab` is a person picking; `setTab` is the
+mechanism and records nothing.
+
+That bug is a **two-step sequence** — the guard rewrites the tab, and the *next*
+open re-applies it — so the first version of the test could not see it: injecting
+the fault into the single-call path still passed. Modelling the sequence made it
+red with the exact symptom, `the preference became pane`.
+
 ### A conversation cannot show a dialog
 
 Found by the iOS client while making the conversation the default view, and it is
