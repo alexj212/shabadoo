@@ -3,20 +3,26 @@ status: active
 updated: 2026-08-30
 
 ## Now
-Phase 8 — the papercuts batch: a `*` on boot-enabled sessions in every listing,
-the dashboard URL in output, and `open` waiting until the coordinator has
-registered the session. Phase 9 (reading a conversation on a phone) is next and
-is the one thing the mobile client cannot do at all.
+Web UI pass next — the backend is settled and every phase in the plan is shipped.
+The conversation view is the default on both clients on Alex's side-by-side
+verdict; the board, files and chat readers are live but have had no design pass.
 
 ## Waiting on
-- you: the board's shape — kanban or grouped tables · a week of layout nobody wanted · one conversation, options in build-plan Phase 10
-- you: how much of a conversation a phone shows · the transcript store holds anything ever pasted · one call, argued in Phase 9
-- you: four decisions out of the retro — a mis-addressed send, a leaked key, 224MB of recordings, two undelivered meetings · all in the wrap-up
-- me: Phase 8 papercuts — `*` on boot rows, dashboard URL, `open` waits for registration · three sessions wrote the same poll loop · an afternoon
-- mac: node offline since the 29th — its two sessions and three open tasks are frozen · one `launchctl` check on that machine
-- nobody: scoped broadcast, and spawn-with-inheritance — mentioned three times, designed zero
+- you: four decisions out of the retro — a leaked ElevenLabs key, 5.5GB of home audio, two unrouted Jeff meetings, one mis-addressed send · homelab and wsl carry the detail
+- you: web UI pass scope — which surfaces matter most on a phone · one conversation, I have a recommendation
+- me: no scoped broadcast — one fleet fan-out still costs N hand-copied sends · filed, low risk to skip
+- nobody: Phase 11 step 3 — whether a session may file a change to the ethos it obeys · a decision, not a task
+- nobody: spawn-with-inheritance, mentioned three times and designed zero
 
 ## Log
+- 2026-08-30 the board's shape and how much conversation a phone shows are both
+  ANSWERED — status-viewing and the full reader, the latter now verified on device
+- 2026-08-30 core ethos cut 1039 -> 462 lines; receipts, formats and session
+  mechanics moved to skills, on the rule that only what fires unprompted stays
+- 2026-08-30 an agent restart was killing every session on the host: the tmux
+  server sits in the unit's cgroup and upgrade restarts by design. KillMode=process
+- 2026-08-30 queued mail was acked at session start and never read, behind a clean
+  `pending: 0`. Startup peeks now; only a prompt drains
 - 2026-08-30 the plan had run out: phases 0-7 shipped while build-plan.md still said
   "awaiting deploy" and direction.md still called three built primitives missing.
   Rewrote both; phases 8-11 are all things somebody asked for, none invented
