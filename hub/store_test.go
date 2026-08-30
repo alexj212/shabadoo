@@ -1006,9 +1006,14 @@ func TestMissionWaitingSurvivesTheRoundTrip(t *testing.T) {
 	if got.MissionDropped != 3 {
 		t.Errorf("MissionDropped = %d, want 3", got.MissionDropped)
 	}
+	// Compared field by field rather than as whole structs: `Since` is filled in
+	// by the read path from the age index, so a struct equality here would assert
+	// the absence of a feature this test is not about. What it IS about is that
+	// owner, item and the truncated flag survive.
 	for i, w := range in.MissionWaiting {
-		if got.MissionWaiting[i] != w {
-			t.Errorf("row %d = %+v, want %+v", i, got.MissionWaiting[i], w)
+		g := got.MissionWaiting[i]
+		if g.Owner != w.Owner || g.Item != w.Item || g.Truncated != w.Truncated {
+			t.Errorf("row %d = %+v, want owner/item/truncated of %+v", i, g, w)
 		}
 	}
 	// The two states that must not merge, asserted as a difference rather than

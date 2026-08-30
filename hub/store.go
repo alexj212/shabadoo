@@ -240,6 +240,29 @@ CREATE TABLE IF NOT EXISTS audit (
 );
 CREATE INDEX IF NOT EXISTS audit_at ON audit(at);
 
+CREATE TABLE IF NOT EXISTS mission_waiting_seen (
+  tenant     TEXT NOT NULL,
+  agent      TEXT NOT NULL,
+  project    TEXT NOT NULL,
+  item_key   TEXT NOT NULL,
+  owner      TEXT NOT NULL DEFAULT '',
+  item       TEXT NOT NULL DEFAULT '',
+  first_seen INTEGER NOT NULL,
+  last_seen  INTEGER NOT NULL,
+  PRIMARY KEY (tenant, agent, project, item_key)
+);
+
+CREATE TABLE IF NOT EXISTS mission_resolved (
+  tenant      TEXT NOT NULL,
+  agent       TEXT NOT NULL,
+  project     TEXT NOT NULL,
+  owner       TEXT NOT NULL DEFAULT '',
+  item        TEXT NOT NULL DEFAULT '',
+  first_seen  INTEGER NOT NULL,
+  resolved_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS resolved_at ON mission_resolved(tenant, resolved_at DESC);
+
 CREATE TABLE IF NOT EXISTS retrievals (
   id     INTEGER PRIMARY KEY AUTOINCREMENT,
   tenant TEXT NOT NULL DEFAULT 'default',
@@ -1073,6 +1096,16 @@ type MissionWait struct {
 	Owner     string `json:"owner,omitempty"`
 	Item      string `json:"item"`
 	Truncated bool   `json:"truncated,omitempty"`
+
+	// Since is when the coordinator FIRST saw this row, unix seconds. It is not
+	// in MISSION.md and should not be: asking a session to date each line puts
+	// the burden in the wrong place and it would rot. The coordinator sees every
+	// project's rows every five seconds, so it simply remembers.
+	//
+	// Absent when unknown — a row seen for the first time in the report being
+	// served, or one whose project has not reported since a restart. Absent is
+	// not "new", and a client must not render it as zero age.
+	Since int64 `json:"since,omitempty"`
 }
 
 // encodeWaiting/decodeWaiting round-trip the list through one TEXT column.
@@ -1173,6 +1206,11 @@ func (t *Tenant) ReplaceAgentSessions(ctx context.Context, agent string, session
 			return err
 		}
 	}
+	// Inside the SAME transaction as the session replace, so a reader can never
+	// see a session list and an age index that disagree about which rows exist.
+	if err := t.reconcileWaiting(ctx, tx, agent, sessions, now); err != nil {
+		return err
+	}
 	return tx.Commit()
 }
 
@@ -1214,6 +1252,21 @@ func (t *Tenant) ListSessions(ctx context.Context, now time.Time) ([]Session, er
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
+	}
+
+	// Ages are joined in the READ path rather than stored on the session row,
+	// because the session row is deleted and re-inserted wholesale every five
+	// seconds — a column there would be erased by the next report, which is the
+	// same reason session_status lives in its own table.
+	if ages, err := t.waitingAges(ctx); err == nil {
+		for i := range out {
+			for j := range out[i].MissionWaiting {
+				w := out[i].MissionWaiting[j]
+				if ts, ok := ages[out[i].Project+"\x00"+waitKey(w.Owner, w.Item)]; ok {
+					out[i].MissionWaiting[j].Since = ts
+				}
+			}
+		}
 	}
 
 	pending, err := t.PendingBySession(ctx, now)

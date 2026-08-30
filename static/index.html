@@ -253,6 +253,10 @@
     font-size: .78rem; border-top: 1px solid var(--line); }
   .missions .silent b { color: var(--fg); }
   .missions .silent b.warnrow { color: var(--warn); }
+  /* Right-aligned and dim: the age ranks the rows, it does not compete with
+     them for attention. */
+  .missions td.mage { color: var(--dim); font-size: .74rem; text-align: right;
+    white-space: nowrap; padding-left: .6rem; }
   .missions td.item .cut { color: var(--warn); font-size: .72rem; margin-left: .35rem; }
 
   /* The waiting queue. Rendered only when something is in it: a panel that is
@@ -702,7 +706,7 @@ function renderAgent(n, now, hubVersion) {
 // entry sits with the blocked groups and not with `nobody` — one is a blocker
 // with no assignee, the other is a decision that it needs no one, and rendering
 // them alike is how the first quietly becomes the second.
-function renderMissions(nodes) {
+function renderMissions(nodes, nowSec) {
   // Keyed by NODE AND project, never by project alone. The same project name
   // exists on two machines — `minutes` is checked out on both, with its own
   // MISSION.md and its own blockers on each — so a map keyed by name drops one
@@ -743,7 +747,7 @@ function renderMissions(nodes) {
       const owner = (it.owner || "").toLowerCase();
       if (!groups.has(owner)) groups.set(owner, []);
       groups.get(owner).push({ project: nameOf(m), item: it.item,
-        status: m.status, truncated: !!it.truncated });
+        status: m.status, truncated: !!it.truncated, since: it.since || 0 });
     }
     // A row the cap discarded is a blocker that exists and is not on this page.
     // Saying so is the whole reason the parser counts them: silence here is the
@@ -768,6 +772,15 @@ function renderMissions(nodes) {
   const rank = o => o === "you" ? 0 : o === "" ? 1 : o === "nobody" ? 3 : 2;
   const owners = [...groups.keys()].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
 
+  // Oldest first within each group. This is what turns a list into a priority:
+  // a row standing for three days and one that appeared two minutes ago are not
+  // the same request, and until `since` existed they rendered identically.
+  // Rows with no age sort LAST rather than first — unknown is not new, and
+  // floating an unmeasured row to the top would out-rank measured ones.
+  for (const rows of groups.values()) {
+    rows.sort((a, b) => (a.since || Infinity) - (b.since || Infinity));
+  }
+
   const label = o => o === "you" ? "🔴 Waiting on you"
     : o === "" ? "🔴 Waiting on — nobody named"
     : o === "nobody" ? "⚪ Open, nobody blocked"
@@ -782,7 +795,8 @@ function renderMissions(nodes) {
             r.status && r.status !== "active"
               ? ` <span class="st">${esc(r.status)}</span>` : ""}</td>
           <td class="item">${esc(r.item)}${
-            r.truncated ? `<span class="cut" title="cut to fit">…cut</span>` : ""}</td></tr>`).join("")}</tbody></table>`).join("");
+            r.truncated ? `<span class="cut" title="cut to fit">…cut</span>` : ""}</td>
+          <td class="mage">${r.since ? esc(ago(nowSec, r.since)) : ""}</td></tr>`).join("")}</tbody></table>`).join("");
 
   // Both tails are stated. "Nothing waiting" and "has not said" are different
   // answers and neither may be rendered as the other, or as absence.
@@ -915,7 +929,7 @@ function render(data) {
   }
   compose.hidden = false;
   root.innerHTML = renderQueue(nodes, now)
-    + renderMissions(nodes)
+    + renderMissions(nodes, now)
     + nodes.map(n => renderAgent(n, now, data.version)).join("");
 }
 
