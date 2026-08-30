@@ -408,6 +408,23 @@ web page where the caller expects JSON.
 `serve` is drive-only: there is no audit log, because there is no database. A
 fallback that refused to work without one would defeat its own purpose.
 
+## A self-replacing binary's install logic is always one version behind
+
+`upgrade` has the outgoing process download the new binary, rename it into
+place, and then **sign it with its own code** — the new binary has not executed
+and cannot. So any change to what happens *during* an upgrade takes **two
+upgrades** to take effect: one to deliver the code, one for that code to run.
+
+Measured the expensive way. An entitlement fix shipped in v0.4.72 was applied to
+the v0.4.72 binary by **v0.4.65's** signing step, which contained no entitlements
+at all. A Mac then correctly reported a zero-byte entitlement blob on a build
+whose source plainly contained the fix, and reasonably concluded the argument was
+not reaching `codesign`. The fix had shipped. It had not run.
+
+**Before assuming a change to the upgrade sequence is live, ask which build
+PERFORMED the upgrade rather than which build resulted.** It is the general trap
+for anything in that path, not just signing.
+
 ## Hardened runtime without an entitlement removes a capability silently
 
 Signing was adopted so TCC grants survive an upgrade. On the microphone path it
@@ -445,6 +462,15 @@ camera costs nothing today and prevents the same failure arriving the same way.
   necessary; and the entitlement gap made re-consent impossible. **The fix for
   the first problem created the conditions for the second**, which is why it
   presented as a regression from a release that only exposed it.
+
+**And the signing step now reads the entitlements back off the binary.**
+`codesign` exiting 0 says the command ran, not that the blob attached, and the
+two are separable — measured. The success line was **byte-identical across six
+upgrades**, four of which predate the fix and one of which applied nothing:
+there was no input that would have made it red. That is this project's own named
+failure, *nothing verifies itself*, sitting one layer above the fix rather than
+inside it. The outcome now names which entitlements attached, and an empty blob
+is reported as a failure even though `codesign` succeeded.
 
 **UNVERIFIED on darwin at the time of writing.** This machine cannot run
 `codesign`, and the responsible process is the *running* binary — so proving it

@@ -122,6 +122,22 @@ func (c *Client) upgrade(ctx context.Context, payload json.RawMessage) (any, err
 	}
 	// Sign the NEW binary before restarting into it.
 	//
+	// **THIS RUNS IN THE OUTGOING PROCESS, SO THE SIGNING LOGIC IS ALWAYS ONE
+	// VERSION BEHIND THE BINARY IT SIGNS.** The old build downloads the new
+	// one, renames it into place, and then signs it with ITS OWN code — the new
+	// binary has not executed yet and cannot.
+	//
+	// So any change to what happens during an upgrade takes TWO upgrades to
+	// take effect: one to deliver the code, one for that code to run. Measured
+	// the expensive way — an entitlement fix shipped in v0.4.72 was applied to
+	// the v0.4.72 binary by v0.4.65's signing step, which had no entitlements
+	// in it, and a Mac correctly reported a zero-byte blob on a build whose
+	// source plainly contained the fix. The fix had shipped; it had not run.
+	//
+	// This is the general trap for anything in this path, not just signing.
+	// Before assuming a change to the upgrade sequence is live on a node, ask
+	// which build performed the upgrade rather than which build resulted.
+	//
 	// On macOS a permission grant is recorded against the designated
 	// requirement, which for an ad-hoc binary is a bare hash of the bytes — so
 	// every upgrade silently revokes every grant a human has given. It cannot be

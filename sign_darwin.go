@@ -129,8 +129,71 @@ func signSelf(path string) string {
 		return fmt.Sprintf("not signed: codesign failed (%v): %s",
 			err, strings.TrimSpace(string(out)))
 	}
+
+	// READ THE ENTITLEMENTS BACK OFF THE BINARY. codesign exiting 0 says the
+	// command ran, not that the blob attached — and the two are separable,
+	// which is not a hypothetical: a Mac measured this exact binary at
+	// v0.4.72 with a zero-byte entitlement blob while the signing step
+	// reported success in words byte-identical to every signing before the
+	// entitlements existed at all.
+	//
+	// There was no input that would have made that line red. It said the same
+	// thing when it worked and when it did nothing, which is this project's
+	// own named failure — nothing verifies itself — sitting one layer above
+	// the fix rather than inside it.
+	//
+	// So the outcome NAMES what attached, and an empty blob is reported as a
+	// failure even though codesign succeeded.
+	got := readEntitlements(path)
+	switch {
+	case got == "":
+		return "signed as com.github.alexj212.shabadoo with " + id +
+			" BUT NO ENTITLEMENTS ATTACHED — TCC cannot raise a microphone " +
+			"dialog for anything this binary launches; capture will fail silently"
+	case !strings.Contains(got, "audio-input"):
+		return "signed as com.github.alexj212.shabadoo with " + id +
+			" but the audio-input entitlement is missing from the blob: " + got
+	}
 	return "signed as com.github.alexj212.shabadoo with " + id +
-		" (audio-input and camera entitlements included)"
+		"; entitlements attached: " + got
+}
+
+// readEntitlements returns the entitlement keys actually on the binary, or ""
+// when there are none.
+//
+// The keys rather than the raw plist: the question a reader has is "did the one
+// I need attach", and a wall of XML in a service log answers it less well than
+// a list does.
+func readEntitlements(path string) string {
+	out, err := exec.Command("codesign", "-d", "--entitlements", "-", path).CombinedOutput()
+	if err != nil {
+		return ""
+	}
+	var keys []string
+	for _, line := range strings.Split(string(out), "\n") {
+		i := strings.Index(line, "com.apple.security.")
+		if i < 0 {
+			continue
+		}
+		k := line[i:]
+		if j := strings.IndexAny(k, "<\" \t"); j > 0 {
+			k = k[:j]
+		}
+		k = strings.TrimSuffix(k, "</key>")
+		if k != "" && !contains(keys, k) {
+			keys = append(keys, k)
+		}
+	}
+	return strings.Join(keys, ", ")
+}
+
+func contains(xs []string, want string) bool {
+	for _, x := range xs {
+		if x == want {
+			return true
+		}
+	}
+	return false
 }
 
 // entitlementsFile writes the plist codesign needs and returns a cleanup.
