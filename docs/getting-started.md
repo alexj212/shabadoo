@@ -7,28 +7,43 @@ file.
 
 ---
 
-## The one line
-
-Paste this into Claude Code, in any folder:
+## Paste this into Claude Code
 
 ```
-Install shabadoo for me: read https://raw.githubusercontent.com/alexj212/shabadoo/main/docs/getting-started.md
-and follow the "By hand" section for my platform. Verify the checksum before
-running anything, tell me what it verified, and stop if it does not match.
+Install the shabadoo CLI on this machine.
+
+1. Work out my platform:
+     OS=$(uname -s | tr '[:upper:]' '[:lower:]')      # linux | darwin
+     ARCH=$(uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/')
+2. Download these two, into a directory I choose (ask me, default ~/bin):
+     https://github.com/alexj212/shabadoo/releases/latest/download/shabadoo-$OS-$ARCH
+     https://github.com/alexj212/shabadoo/releases/latest/download/SHA256SUMS
+3. VERIFY the checksum before running anything. Show me the published digest and
+   the one you computed. If they differ, delete the download and STOP — do not
+   continue and do not try another mirror.
+4. chmod +x it, run `shabadoo version`, and show me the output.
+5. Run `shabadoo setup` and summarise what it changed. It is idempotent and backs
+   up anything it replaces, so tell me if it reports anything other than
+   "installed" or "unchanged".
+6. Then tell me how to start a session in this folder.
+
+Show me each command before you run it. Do not pipe anything into a shell.
 ```
 
-**That is deliberately a prompt and not `curl … | sh`.** This project's own rule
-is that nothing fetches from the network during install, and a tool whose first
-instruction is "pipe an unread script into your shell" has broken that rule in
-its opening sentence. A prompt keeps the convenience and gives it back the
-property that matters: **you can see every command before it runs, and something
-that reads has checked the checksum rather than skipping it because the pipe made
-it awkward.**
+**Self-contained on purpose: it fetches no instructions.** A prompt that begins
+*"read this page and follow it"* asks you to trust a document you have not read
+and cannot see change. Everything the model is about to do is in the box above,
+so you can read it in ten seconds and decide before anything runs.
 
-If you would rather not hand this to a model, the same four commands are below
-and they take a minute.
+**And it is a prompt rather than `curl … | sh` for a reason this project has to
+mean.** Its own rule is that nothing fetches from the network during install; a
+tool whose first instruction is "pipe an unread script into your shell" has
+broken that rule in its opening sentence. The convenience is the same. What comes
+back is the part a pipe throws away: **every command visible before it runs, and
+a checksum actually checked rather than skipped because the pipe made it
+awkward.**
 
----
+If you would rather not hand this to a model, the same commands are below.
 
 ## By hand
 
