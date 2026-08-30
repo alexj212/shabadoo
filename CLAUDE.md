@@ -1847,6 +1847,28 @@ shabadoo no longer depends on it.
 
 ## Publishing
 
+**`.publish-deny` is a denylist of KNOWN names, and that is a bounded guarantee.**
+It holds specific hostnames, a private local account, and a handful of client and
+product names. A private project name nobody has added yet passes straight
+through — inherent to a denylist rather than a defect, but it means *"the guard
+passed"* is a weaker statement than it looks. An allowlist of publishable names
+would be unworkable; knowing which one you have is the point.
+
+Raised when a sanitised documentation sample named a real project of the
+operator's. That name happened to be on the safe list, so nothing leaked — but it
+was authorised **from memory**, which is the unverified claim this file warns
+about everywhere else, and no guard would have caught it had the answer been
+different.
+
+**Screenshots defeat every guard here.** All of them scan tracked TEXT. An image
+of a live dashboard carries project names, host labels, a coordinator hostname in
+the address bar and pane content, and not one check fires on a pixel. Shoot
+against a sanitised fixture, or review by eye against the same denylist — and
+never fabricate a UI state that does not exist. A drawn mockup labelled as one is
+honest; a rendered image implying a capability is not.
+
+
+
 This repo is published with **no history**. The 69 commits that preceded it
 carried a vendored personal `~/.claude` — hostnames, addresses, infrastructure
 skills — and scrubbing that from history across every commit that also mentions

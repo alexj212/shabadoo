@@ -119,11 +119,16 @@ shabadoo setup --service --coord https://your-coordinator:8787
 Then pair a client with the code `--bootstrap` printed, and remove that flag —
 it mints a fresh code on every start.
 
-> **Run your own.** Joining somebody else's coordinator is not like joining a
-> chat: authorising an agent hands *your* machine's Claude panes to anyone who
-> can reach *their* dashboard, and those panes typically run
-> `claude --dangerously-skip-permissions`. The reverse is equally true. Two
-> people who want to compare notes should run two coordinators, not share one.
+> **Run your own — this tool is single-operator.** Joining somebody else's
+> coordinator is not like joining a chat. Authorising an agent hands *your*
+> machine's Claude panes to anyone who can reach *their* dashboard, and those
+> panes typically run `claude --dangerously-skip-permissions`. The reverse is
+> equally true: their machines become drivable from your credential.
+>
+> Multi-tenancy is implemented and barely exercised, so treat it as one operator
+> per coordinator. Two people who want to compare notes should run two
+> coordinators, not share one. **Nothing you do is visible to whoever gave you
+> this**, which is the property that makes it safe to hand out.
 
 ---
 
@@ -138,6 +143,27 @@ it mints a fresh code on every start.
   substitute.
 - **Everything is self-hosted.** No cloud service, no account, no telemetry. Your
   prompts, panes and transcripts stay on your machines.
+
+## Other tools, distributed the same way
+
+The coordinator can also install tools that are *not* shabadoo — an orchestrator
+and its native helper, say — across your own machines:
+
+```bash
+shabadoo publish --tool minutes dist/release   # from a machine that can build it
+shabadoo upgrade --tool minutes --all          # install it on your nodes
+```
+
+**Publishing is partial by design.** A release is a *set*, and no host can build
+every platform's — a native audio helper needs MSVC on Windows or `swiftc` on
+macOS. So sets are merged from several machines over time, and a node offered a
+tool with no set for its platform is **skipped and told which**: *"not published
+for your platform"* and *"published and you are behind"* are different answers,
+and a node given the wrong one either installs nothing forever or chases a
+version that cannot exist for it.
+
+This runs against **your** coordinator. It is not a package repository and
+nothing here reaches out to anybody else's.
 
 ## Where to look next
 

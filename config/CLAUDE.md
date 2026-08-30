@@ -226,6 +226,14 @@ None could have been found by the owner:
 
 **Three things make it work, and all three were violated at least once:**
 
+- **Mark a measurement from your own estate as what it is.** A figure you took
+  from your fleet is evidence for a DECISION, not a claim about a product — and
+  the difference is invisible once it has crossed a session boundary. Handed
+  "136 MB transcripts, 77% of turns carry no text, 66 bytes per poll" as backing
+  for a public page, the recipient correctly left every one of them off: *"those
+  are facts about your machines rather than about the product, and a stranger
+  cannot act on them."* The design those numbers justify still holds on somebody
+  else's fleet; the numbers do not.
 - **Send evidence, not a story.** Every brief above carried a measurement. The
   three that misfired carried a plausible mechanism instead — *"probably a cached
   copy"*, *"it drains on its own when it comes up"*, *"applying this costs one
