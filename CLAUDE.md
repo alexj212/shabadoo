@@ -510,7 +510,22 @@ Mail to a closed project no longer bounces. Every startable folder carries the
 session id it *would* have, so the message is stored against it and drains when
 that session starts. **Stored first, core session asked second** — the message is
 safe whatever that session decides, so a slow decision costs latency rather than
-a handoff. The coordinator never starts it directly: otherwise any peer could
+a handoff.
+
+**But stored is not delivered, and delivered is not read.** The drain ACKS, and
+an ack claims a message reached a reader — so nothing may ack on a path that
+cannot confirm it did. The `SessionStart` hook could not: it runs before there is
+a turn to inject into, and on a resumed session its output went nowhere. A queued
+handoff was drained at start, the content never reached the model, and the sender
+saw `pending: 0` — the same value as *delivered and read*. Reported independently
+by two sessions within minutes of each other, one of whom had asserted the
+opposite in writing an hour earlier on the strength of the documentation.
+
+Startup now only SAYS there is mail — `shabadoo inbox --peek`, which reads the
+count and acks nothing — and the first prompt delivers it over the path that
+demonstrably works. Keeping the row undrained is what matters most: `pending`
+stays honest, so the stuck-mail watcher can still see it. Acking early blinded
+every other mechanism at once. The coordinator never starts it directly: otherwise any peer could
 spend a machine's resources by writing to it.
 
 An unknown name still bounces and an ambiguous one is still refused. Waking the

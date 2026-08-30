@@ -492,6 +492,20 @@ so a session needs no credential of its own.
 | `session_send` | direct message to one session; nudges it if its host is connected |
 | `session_broadcast` | to a topic — **nothing subscribes by default**, so this reaches zero unless somebody called `session_subscribe`. Almost every message has exactly one right recipient; prefer `session_send` |
 | `session_inbox_drain` | collect and mark delivered, in one transaction. A hook already drains on each prompt, so an empty result usually means it already arrived — not that nothing was sent |
+
+**Delivered is not read, and `pending: 0` cannot tell you which.** Draining ACKS
+a message, and an ack is a claim it reached a reader — so nothing may ack on a
+path that cannot confirm it did. A startup hook cannot: it runs before there is a
+turn to inject into, and on a resumed session its output goes nowhere. That
+happened here. A queued handoff was drained at session start, the content never
+reached the model, and the sender saw a clean `pending: 0` — the identical value
+for *delivered and read*, *never sent*, and *consumed and lost*. It was caught
+only because somebody looked at the pane instead of the counter.
+
+So startup only SAYS there is mail (`shabadoo inbox --peek`, which does not ack)
+and the first prompt delivers it. **When you hand work to a session that is not
+running, the count going to zero is not evidence it landed** — a session that has
+registered has not necessarily read a word.
 | `session_status_set` | what you are doing right now, in a few words. **It shows up as `note` in `session_list`**, which is where a peer deciding whether to wait for you will look. Set it when starting something long; empty string clears it; it ages out after 30 minutes |
 | `task_create` | hand work over AND track it. Use instead of `session_send` when asking somebody to DO something: an unanswered task is chased, an unanswered message is forgotten |
 | `task_list` / `task_update` | what is outstanding, and reporting where it got to |
@@ -769,7 +783,8 @@ Two mechanical rules underneath that:
   nudged immediately, and it can work *before the session exists* — but only for
   a project the coordinator can already see. One in its node's startable folder
   list (in the boot list, or opened there before) is stored against the id it
-  would have and drains when it starts. **A project it has never seen is refused
+  would have, and **waits there until that session's first PROMPT** — starting a
+session does not deliver it. **A project it has never seen is refused
   at send time and nothing is kept.** Check the reply; a refusal is an error, not
   a queue. Text typed into a pane is swallowed whole by the
   trust dialog a never-run folder opens with, and `send` still reports success.

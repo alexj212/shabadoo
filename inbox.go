@@ -42,6 +42,7 @@ func runInbox(args []string) {
 	sessionID := fset.String("session", "",
 		"this session's id (default: $CLAUDE_SESSION_ID, else derived from the tmux window)")
 	verbose := fset.Bool("verbose", false, "explain why nothing was returned (hooks stay silent without it)")
+	peek := fset.Bool("peek", false, "report waiting mail WITHOUT draining it (for SessionStart)")
 	fset.Usage = func() {
 		fmt.Fprint(os.Stderr, `usage: shabadoo inbox [--session ID] [--verbose]
 
@@ -75,6 +76,11 @@ flags:
 	// prompt being sent. A slow coordinator must not be felt as a slow prompt.
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+
+	if *peek {
+		peekInbox(ctx, session, quit)
+		return
+	}
 
 	raw, err := node.NewLocalClient().Do(ctx, "POST", "/message/drain",
 		map[string]any{"session": session})
@@ -116,4 +122,55 @@ flags:
 		}
 		fmt.Println(strings.TrimRight(m.Body, "\n"))
 	}
+}
+
+
+// peekInbox reports waiting mail without acknowledging it.
+//
+// This exists because DRAINING AT SESSION START LOSES MAIL, measured on this
+// fleet: the SessionStart hook drained a queued handoff, which marked it
+// delivered, and the content did not reach the model on a resumed session. The
+// sender then saw `pending: 0` — the same value as "delivered and read" — and a
+// brief sat unread with nothing anywhere reporting a problem. It was caught
+// only because somebody looked at the pane rather than the counter.
+//
+// The rule underneath: **an ack is a claim that a message reached its reader,
+// so nothing may ack on a path that cannot confirm it did.** A hook whose
+// stdout is injected into a live turn can confirm it; one that runs while a
+// session is still starting up cannot, and the difference is invisible from
+// inside the hook.
+//
+// So startup only SAYS there is mail. The first prompt drains it, over the path
+// that demonstrably works — and until then the delivery row stays undrained, so
+// `pending` remains honest and the coordinator's stuck-mail watcher can still
+// see it. Losing the count was what blinded every other mechanism.
+func peekInbox(ctx context.Context, session string, quit func(string)) {
+	raw, err := node.NewLocalClient().Do(ctx, "GET", "/peers", nil)
+	if err != nil {
+		quit(err.Error())
+	}
+	var out struct {
+		Peers []struct {
+			SessionID string `json:"session_id"`
+			Pending   int    `json:"pending"`
+		} `json:"peers"`
+	}
+	if err := json.Unmarshal(raw, &out); err != nil {
+		quit("could not decode the reply: " + err.Error())
+	}
+	n := 0
+	for _, p := range out.Peers {
+		if p.SessionID == session {
+			n = p.Pending
+			break
+		}
+	}
+	if n == 0 {
+		quit("no pending messages")
+	}
+	// Named as waiting, never as delivered. The whole defect this replaces was
+	// a mechanism reporting a handoff as done when nobody had read it.
+	fmt.Printf("%d message(s) are WAITING for this session and have not been read. "+
+		"They are peer handoffs. Run `shabadoo inbox` now to read them — they are "+
+		"not delivered until you do.\n", n)
 }
