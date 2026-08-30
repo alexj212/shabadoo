@@ -9,250 +9,216 @@ after any one of them leaves a system that works.
 
 ## Where this stands
 
-| Phase | | Status |
+**Phases 0–7 are shipped and deployed** — v0.4.47 on the coordinator and both
+nodes. The plan they described is finished, and the sections that walked through
+each one have been deleted rather than ticked: what runs is documented in
+`CLAUDE.md`, and a plan that still describes shipped work as work is how a reader
+loses track of which half is which.
+
+| Phase | | Shipped |
 |---|---|---|
-| **0** | the window diff | **shipped** — v0.2.0 |
-| **1** | `kind`, and projects that describe themselves | **shipped** — v0.2.0 |
-| **2** | the node's main project and its core session | **shipped** — v0.2.0 |
-| **3** | lifecycle, deferred delivery, the loop guard | **shipped** — v0.3.0 |
-| **4** | tasks, and a reaper | **built** — awaiting deploy |
-| **5** | protocol negotiation | **built** — awaiting deploy |
-| **6** | pane addressing | **built** — awaiting deploy |
-| **7** | token accounting | **built** — awaiting deploy |
+| **0** | the window diff | v0.2.0 |
+| **1** | `kind`, and projects that describe themselves | v0.2.0 |
+| **2** | the node's main project and its core session | v0.2.0 |
+| **3** | lifecycle, deferred delivery, the loop guard | v0.3.0 |
+| **4** | tasks, and a reaper | v0.4.x |
+| **5** | protocol negotiation | v0.4.x |
+| **6** | pane addressing | v0.4.x |
+| **7** | token accounting | v0.4.x |
 
-Every phase is written. 0-3 are running on both nodes and the coordinator, with
-a core session live on each machine; 4-7 are committed and not yet deployed.
-
-Two of the later phases turned out smaller than planned, both because work
-already done was doing more than the plan credited it with. Phase 7 was billed
-as "the caching is the real work" — `claudelog` already caches incrementally, so
-an unchanged transcript costs a stat and a grown one costs only its new lines.
-Measured on eleven live sessions: a cold report 1.57s, a warm one 122ms.
-
-**Three things came out differently from the plan**, and each is written up in
-its phase below rather than quietly corrected:
+**Three things came out differently from the plan**, kept because each records a
+decision that would otherwise be re-made:
 
 - Phase 2 was to hang the core-session restart on the window diff. It asks
-  whether the session is running *now* instead — "always running" is a state,
-  and asking the state also catches an agent that starts while the session is
-  already down, and a relaunch that silently failed.
+  whether the session is running *now* instead — "always running" is a state, and
+  asking the state also catches an agent that starts while the session is already
+  down, and a relaunch that silently failed.
 - Phase 3's loop guard was to be message provenance. There is no mechanical
   causal link between a message received and one later sent, so only the sender
   could supply it — and a guard that depends on the sender to declare itself is
   not a guard. It is a rate limit.
 - Capabilities were to be reported upward by the core session. Once Phase 1 gave
-  the agent a structured frontmatter parser, reading the file directly removed
-  an endpoint, a storage decision and a lifecycle rule.
+  the agent a structured frontmatter parser, reading the file directly removed an
+  endpoint, a storage decision and a lifecycle rule.
 
-**Two defects arrived from the field rather than from tests**, both fixed: an
-empty message was accepted, stored and delivered while looking successful at
-every layer, and a notification tag that matched no destination lost the
-notification rather than falling back.
+### What shipped that this plan never mentioned
 
-## The ordering principle
+Roughly as much again, and listing it matters: the plan is the record of what was
+*intended*, so work that arrived from use rather than from design is invisible
+here otherwise — and it is the better evidence of what this system is actually
+for.
 
-Order is driven by **what it costs to discover something late**, not by
-dependencies alone. Three forces, and they do not always agree:
+| | Why it happened |
+|---|---|
+| `MISSION.md` — a project says what it is *doing* | Sessions were already inventing one, separately, in different shapes |
+| the fleet view, grouped by who is blocked | A list sorted by subject makes every reader scan all of it |
+| blocker ages, and a closed-with-median trend | A snapshot cannot answer "is this getting better" |
+| `shaba todo` / `shabadoo mission` | The terminal had no answer to a question the dashboard had rendered for weeks |
+| tool distribution (`--tool`) | Every other tool on the fleet was installed by hand |
+| node self-install of its own payload | An upgrade left the guidance beside it stale, indefinitely |
+| `--ci-repo`, stuck-mail and blocked-session watchers | Three failures that were silent by construction |
+| the nudge composer guard | The one write nobody consents to at the moment it happens |
 
-- **Ship together or not at all.** A guard that arrives after the thing it
-  guards has already been dangerous in production. Auto-start and loop
-  protection are one change, not two.
-- **Ship before, never retrofit.** Protocol negotiation added *after* the
-  protocol changed means supporting a version that should never have existed.
-- **Foundations first, when they are small.** One piece of work underpins two
-  separate features and takes an afternoon. That goes first regardless of which
-  feature is more interesting.
-
----
-
-## Phase 0 — the window diff
-
-**Small, and two later phases stand on it.** The agent compares its view of the
-windows between reports: a window that was present and is now gone is an event,
-not just an absence.
-
-Two consumers, from one observation:
-
-- a session that vanished is **deactivated** (Phase 3);
-- unless it is the **core session**, which is restarted instead (Phase 2).
-
-The reason to do it first is that both features need it, it needs nothing
-itself, and it changes no wire format.
-
-**The hard part is not the diff.** A tmux server restart or a reboot makes every
-window vanish at once, and that must not deactivate the entire machine. The
-agent has to tell *a lost window* from *a lost tmux* before it writes anything
-down. Get this wrong and a reboot silently disables every session on the host.
-
-**Verify:** close one window, confirm one event. Restart the tmux server,
-confirm none. Both against a fixture session, never a real one — this repository
-has twice been bitten by tests that named a live target.
+**The pattern is worth naming, because it should drive what comes next:** almost
+none of it came from review. It came from *using* the system and from peer
+sessions reporting what they hit — the scoped-mission defect, the empty message,
+the broadcast that reached zero, the `is-active` misreading, the wrapped line.
+The plan below is therefore deliberately short on speculative structure and long
+on things somebody has already asked for.
 
 ---
 
-## Phase 1 — `kind`, and the self-description file
+## The ordering principle, restated
 
-Two small additions that unblock everything else.
+Unchanged, and it still decides the order below: **cost of discovering something
+late**, not dependencies alone. Ship a guard with the thing it guards; ship a
+protocol change before the protocol; do the small foundation first when two
+features stand on it.
 
-**`kind` on a session — `claude` | `worker` | `core`.** Today the session table
-claims every tmux window is a Claude session; `top` in a window reports itself as
-a project. Until a non-Claude tool can register *as itself*, workers cannot be
-first-class, and `ResolveSession` only passes through `claude-`-prefixed ids so
-they cannot even be addressed.
-
-**The self-description.** Frontmatter on the project's existing `CLAUDE.md`,
-read by the agent during the folder enumeration it already performs. No new
-file: `CLAUDE.md` is already what marks a project root, so this makes "is a
-project" and "can be routed to" the same fact. Committed, so a fresh clone is
-routable immediately.
-
-Write it as **trigger text** — when should this be reached for — not as a
-summary, and keep it to one line with an enforced limit. A router holds every
-description at once, and a vague line does not fail loudly: it delivers work to
-the wrong expert.
-
-Both changes are additive fields, so no protocol risk.
-
-**Verify:** a folder with a description and no session appears as routable. A
-non-Claude window reports `kind: worker` and stops claiming to be a project. A
-`CLAUDE.md` with no frontmatter, or malformed frontmatter, leaves the project
-undescribed rather than breaking enumeration — every other folder still reports.
+One addition earned since: **prefer what a person has already asked for twice.**
+Every item in Phases 8–10 was requested or reported, and the one speculative
+phase is marked as such.
 
 ---
 
-## Phase 2 — the node's main project and its core session
+## Phase 8 — the papercuts, in one batch
 
-`<shabadoo-dir>/<host label>/`, named for the host, holding that machine's
-`CLAUDE.md`, memory and capability declaration. The agent derives the path from
-state directory plus host label — no discovery, nothing to configure.
+Small, unrelated, and each one costs somebody a few seconds every day. Batched
+because individually none justifies a release and collectively they are an
+afternoon.
 
-- It runs in a tmux window like anything else, in the boot list, always on.
-- **The agent restarts it** when the Phase 0 diff says it vanished — one report
-  cycle, not the ten-minute watchdog — **with backoff**, or a core session that
-  fails immediately turns its own supervisor into the outage.
-- **`uninstall --purge` must skip it.** Purge removes the state directory and
-  warns about tokens and the audit log; a node's `CLAUDE.md` and memory are
-  neither. Same rule as the env file: not owned on the way in, not deleted on
-  the way out.
-- Window names are `<basename>-<host>`, which renders this project `wsl-wsl`.
-  When a project's name already is the host label, do not say it twice.
+- **`session list` marks boot-enabled folders.** A `*` for a session whose folder
+  is in the boot list, so "will this come back if I close it" is answerable from
+  the listing rather than from a second file. `boot list` already computes the
+  set; nothing new is needed but the join.
+- **Every listing prints the dashboard URL.** The coordinator address is in
+  `~/.config/shabadoo/coord` and reachable from the phone; a session that wants
+  to point a human at a pane currently has to be told the URL by the human.
+- **`shabadoo open` waits until the session is registered.** Three sessions
+  independently wrote the same poll loop, which is the definition of a missing
+  primitive. `open` returns as soon as tmux has the window, before the
+  coordinator has seen it, so the next call by name fails.
+- **A deactivated folder that is also in the boot list is a contradiction**, and
+  `boot`, `boot list` and `boot add` now say so — done in v0.4.47. Kept here as
+  the reason the batch exists: it cost seventeen sessions that did not restart.
 
-**Capabilities** land here too: declared by the core session (the way status is
-declared today), detected by the agent where detectable, detection winning on
-conflict. They persist while the agent is connected rather than ageing out —
-a node does not lose its microphone because a session got busy.
+**Verify:** open a folder, immediately address it by name from another session,
+and require the send to land. That is the failure the poll loops were papering
+over, and it is the only assertion that distinguishes a fix from a longer sleep.
 
-**Verify:** kill the core session; it returns within a report cycle. Break it
-deliberately; confirm backoff rather than a five-second relaunch loop. Run
-`uninstall --purge --dry-run` and confirm the project is reported as kept.
+## Phase 9 — reading a conversation, on a phone
 
----
+**Promoted ahead of the board, because it is the one thing the mobile client
+cannot do at all.** The dashboard can drive every pane from a phone and can
+barely show you what any of them said: `/api/capture` returns whatever is still
+in tmux scrollback as flat text, wrapped for a terminal, with tool output at the
+same weight as the answer. On a 390px screen that is unreadable, and it is what a
+person actually reaches for when a notification says a session is blocked.
 
-## Phase 3 — lifecycle, auto-start, and the loop guard **in one change**
+The reader underneath already exists and already returns a byte cursor.
+`claudelog` parses the transcripts, caches incrementally — an unchanged one costs
+a stat — and `GET /api/claude/session` serves the summary. What is missing is the
+turns.
 
-This is the phase with a hazard in it, and the guard is not a follow-up.
+**`GET /api/claude/events`** — cursor-paginated user/assistant turns, tool calls
+collapsed by default. Four constraints are already known and each one shapes the
+API rather than the CSS:
 
-**What ships:**
+- **`proxyGet` buffers a peer response through `io.ReadAll` with an 8 MB cap.**
+  So the endpoint must paginate hard and truncate individual tool results *on the
+  wire*, not in the client. A single pasted file can exceed the cap on its own.
+- **Poll must APPEND using the cursor**, never rewrite `innerHTML`. Rewriting
+  destroys scroll position every few seconds, which on a phone means the page
+  fights the reader — the failure is not subtle and it is not fixable in CSS.
+- **Newest-last, anchored to the bottom**, like every chat a person has used. The
+  summary header already exists and belongs above it, collapsed.
+- **Tool calls collapse to one line and expand on tap.** They are the bulk of the
+  bytes and almost never the thing being read. Collapsed-by-default is also what
+  keeps a page within the transfer budget on a phone connection.
 
-- Deactivation is recorded and **honoured by every path that opens a window** —
-  `boot`, the watchdog, `open`. A state nobody consults is decorative.
-- `ResolveSession` learns about projects that are known but stopped, so mail to
-  a closed project stops bouncing.
-- Mail for a stopped project routes to that node's **core session**, which
-  starts the target and lets the message deliver.
+**Read `github.com/osteele/claude-chat-viewer` before designing the rendering.**
+It solves the same problem from the same transcript format, and the parts worth
+taking are its message-shape handling, not its stack.
 
-**And in the same commit, because this is where mail starts causing code to
-run:**
+**What must not be lost in making it pretty:** this widens the read surface
+knowingly. The transcript store holds file contents, memory directories, and
+anything ever pasted into a prompt, for every session ever run in that folder,
+indefinitely. Rendering it well makes that content easier to read — which is the
+point, and also the risk. It is acceptable on the current tailnet-only,
+device-token basis, and it is the strongest argument for `pair --scope read`
+meaning something narrower before this reaches a phone that leaves the house.
 
-- **Provenance on the envelope** — a hop chain, refused past a small limit, and
-  **audited on refusal** exactly as `message.bounce` already is. Without it,
-  A→B→A is unbounded, and the prior implementation's recursion guard was deleted
-  as dead code when agents began dialling out. The hazard did not go away; it
-  changed shape.
-- **A per-node start budget**, so auto-start cannot spawn without limit.
+**Verify on the phone, not on the workstation.** A conversation reader that looks
+right at 1400px and is unusable at 390px is the normal outcome of building it
+here, and the developing machine cannot produce the failing condition — the same
+rule this project already applies to platform-specific code.
 
-Until this phase, mail is passive. After it, an inbound message can launch a
-session running with permissions disabled. That is the single largest change in
-blast radius in the whole plan, and it deserves to be the most carefully tested.
+## Phase 10 — the board: inbox, todo, blockers, done
 
-**Verify:** a message addressed in a cycle stops and is audited. A stopped
-project receives mail and wakes. A deactivated session survives a watchdog run.
-The budget refuses rather than starts, and says so.
+The largest thing asked for, and mostly **assembly rather than new mechanism** —
+every input already exists and is already served:
 
----
+| Column | Source | State |
+|---|---|---|
+| inbox, including past | `GET /api/messages` (24h + per-session thread) | built |
+| todo / open | `mission_waiting` on every session | built |
+| blockers | the same rows, owner `you`, plus blocked tasks | built |
+| done | `GET /api/missions/resolved` + tasks in `done`/`dropped` | built |
 
-## Phase 4 — tasks, and a reaper
+So this is a **rendering decision, not a data one**, which is why it is worth
+doing before anything that adds a new store. The shape is an open question — see
+the decision below — and it should be settled before the first column is drawn,
+because a board and a set of grouped tables want different data on the wire.
 
-Wire the `tasks` table that has been in the schema from the beginning with
-nothing reading or writing it: accepted, in progress, blocked, done.
+**The one real risk** is that a board invites moving cards, and moving a card is a
+write into somebody's `MISSION.md`. That is a file a human edits and reviews in a
+diff; a UI that rewrites it from a parsed model would delete every reason written
+beside every row — the failure `shabadoo config` and `boot add` already refuse to
+commit. **Read-only first.** Whether a card can ever be dragged is a separate
+decision, taken after the read view has been used.
 
-**Ship the staleness watcher with it**, or the table is a write-only log and
-"what did I delegate that never came back" stays unanswerable. `hub/blocked.go`
-is the exact shape to reuse — edge-triggered, a grace period, one reminder an
-hour, per-key state, pinned by tests because every mistake in edge detection
-looks the same from one report.
+## Phase 10b — browsing a project's files
 
-**Verify:** a task left in progress notifies once, then hourly, and stops when
-it moves. Its tests should be the blocked-watcher tests with the nouns changed.
+Asked for to read doc libraries — the `docs/` trees several projects now carry,
+reachable today only by being on the machine. It rides Phase 9's read surface, so
+it is cheap once that exists and pointless to design separately.
 
----
+**Root it at project directories the node already reports**, rather than at the
+filesystem. A file browser over an agent's node is otherwise arbitrary file read
+on that machine, bounded by whatever the handler decides; a project root is
+already a first-class concept here, and rooting the browser at one turns an
+unbounded capability into an enumerable one. That is the recommendation and it is
+also the cheaper build.
 
-## Phase 5 — protocol negotiation
+## Phase 11 — the ethos as a managed thing
 
-**Before Phase 6, never after.** Today the only thing exchanged at login is a
-build stamp; there is no version or capability negotiation. `upgrade --all` is
-deliberately serial, so **mixed versions are guaranteed during every upgrade**.
+The deepest of the three and the least specified, so it goes last and starts with
+a written design rather than code.
 
-Minimal form: the node reports a protocol level at login, and the coordinator
-**refuses** operations a node cannot support rather than degrading silently. A
-refusal is diagnosable; a silent degrade in Phase 6 means a keystroke landing in
-the wrong pane, which is the exact failure Phase 6 exists to fix.
+shabadoo already carries the guidance — the payload installs `CLAUDE.md` and the
+skills onto every machine, and a node reinstalls its own on start. What is missing
+is the loop *back*: a session that learns something has to hand it to a human, who
+has to edit the payload, in the repo, by hand. The `retro` skill names that
+process; nothing mechanises it.
 
-**Verify:** an old node and a new coordinator produce a clear refusal, not a
-misdirected write.
+Three pieces, in the order that makes each independently useful:
 
----
+1. **Show the drift.** A node already reports `payload_pending`, a count. Name the
+   files, the way the fleet view now names the projects with no `MISSION.md` — a
+   count is something a reader defers, and "which ones" was the first question
+   asked of the last count that stood here.
+2. **Layer the rules.** Payload → machine (`CLAUDE.local.md`) → project → session
+   is the layering that exists in practice and is written down nowhere; making it
+   explicit is what lets a project state a rule without forking the global file.
+3. **Propose upward.** A session that has *paid* for a finding files it as a
+   proposal against the payload, with the evidence attached. Deliberately a
+   proposal and not a write: the whole value of the payload is that a human read
+   every line of it, and a fleet that edits its own ethos unattended is the one
+   failure mode nothing else here guards against.
 
-## Phase 6 — pane addressing
-
-The largest single piece of work in the plan. `{node, session, window}` becomes
-`{node, session, window, pane}` across the wire protocol, every op in
-`handleOp`, `reportSessions`, `input_state`, and the dashboard's row model.
-
-- **Pane 0 keeps the session id it has today.** Ids are how mail is addressed;
-  renaming them all at once orphans every undrained handoff.
-- It fixes a live hazard: `target()` is `session:window`, which tmux resolves to
-  whichever pane is *active*, so a multi-pane window already accepts writes
-  aimed at the wrong pane.
-- The dashboard's flat list becomes a tree.
-
-**This phase is optional in a way the others are not.** It is what makes a
-spawned child addressable — able to receive mail and hold a task. If sub-project
-spawning turns out not to be used, this can be deferred indefinitely without
-blocking anything else in the plan.
-
-**Verify:** two panes in one window receive distinct sends. Existing single-pane
-sessions keep their ids and their mail.
-
----
-
-## Phase 7 — token accounting
-
-Independent of everything above; could run at any point.
-
-The direction document calls context the scarce resource and then measures none
-of it at fleet level. `claudelog` **already parses** input, output, cache-read
-and cache-write token counts and sums them per session — it is served on demand
-per session and shown in the detail panel, but is absent from the session list.
-So nothing aggregates across the hive, nothing notices the session that spent
-two million tokens overnight, and the router cannot weigh cost.
-
-**The plumbing is trivial; the caching is the work.** Re-reading transcripts on
-every five-second report is not affordable, so this needs a cache keyed on file
-modification time. Do not start this believing it is a small change.
-
-**Verify:** totals in the session list match the detail panel. Report latency is
-unchanged with a warm cache and does not grow with transcript size.
+**Speculative, and marked so.** Only step 1 has a concrete request behind it.
+Steps 2 and 3 are worth designing before building, and worth building only if the
+retro loop keeps producing findings faster than they get filed.
 
 ---
 
@@ -281,23 +247,31 @@ not.
 
 In order of what to drop first:
 
-1. **Phase 6** — large, and only pays off if spawning is actually used.
-2. **Phase 7** — genuinely useful, entirely optional, and the caching is real work.
-3. **Phase 4** — tasks matter once delegation is common; before that, mail is enough.
+1. **Phase 11** — speculative but for its first step, and the retro loop works
+   today with a human in it. Dropping it costs nothing that is currently hurting.
+2. **Phase 10b** — the file browser is a convenience; `docs/` is readable on the
+   machine that holds it, and every session that needs one is already there.
+3. **Phase 10** — the board is assembly over data that is already served three
+   other ways. Useful, not load-bearing.
 
-**Phases 0–3 are the spine.** They are what turn a session list into an
-operating system: sessions that can stop and be restarted, projects that stay
-addressable while asleep, and work that arrives on its own. Nothing in Phase 3
-should ship without its guard.
+**Phases 8 and 9 are the ones to keep.** Eight is measured in minutes and removes
+friction every session pays daily; nine is the only item here that makes the
+system usable from the device the notifications arrive on, which is the gap
+between a dashboard you check and one you act from.
 
 ## What could make this plan wrong
 
-- **Pane addressing may never be needed.** If sub-project spawning goes unused,
-  Phase 6 is a large change bought for nothing. Watch whether anyone actually
-  spawns before committing to it.
-- **The always-on core session may prove too expensive**, in tokens or in drift.
-  No mechanism here fixes that; it is a working discipline, and if the
+- **The board may be the wrong shape entirely.** It is the one item whose
+  requester said "let's discuss", and building it before that conversation is how
+  a week goes into a layout nobody wanted. The decision is recorded and open.
+- **Rendering conversations may not be worth its read surface.** If the honest
+  answer is that a phone should show *what is being asked* and not the whole
+  transcript, then Phase 9 shrinks to the dialog prompt it already has — and that
+  is a smaller, safer system rather than a failure.
+- **The ethos loop may not need mechanising.** Findings are currently filed by a
+  human who reads them, and that human is the guard. Automating the path from
+  finding to payload removes the one review step protecting a file every machine
+  on the fleet obeys.
+- **The always-on core session may still prove too expensive**, in tokens or
+  drift. No mechanism here fixes that; it is a working discipline, and if the
   discipline fails the design needs revisiting rather than patching.
-- **Auto-start may turn out to be the wrong default.** It is the one decision
-  that lets a message spend money. If it surprises anyone once, queueing instead
-  is a one-line change — and that is worth remembering rather than defending.

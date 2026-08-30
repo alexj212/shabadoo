@@ -300,7 +300,11 @@ And brevity is a constraint rather than a preference. A router holds every
 description at once; that is the whole reason this is separate from the body.
 One line, with a real limit, not a paragraph that happens to be short today.
 
-## The three primitives that are missing
+## The three primitives that were missing — all three built
+
+Kept as a record of the reasoning, because each carries a decision that would
+otherwise be re-made. What follows is what they ARE, not what they need to be.
+
 
 **1. `kind` on a session — `claude` | `worker` | `core`.**
 The session table silently claims every tmux window is a Claude session, and
@@ -528,9 +532,39 @@ carries the things that need doing; nothing needed a broadcast.
 
 ## Still open
 
-Nothing structural. Every question raised while writing this was put to the
-operator and answered, and the answers are in the text above with the costs they
-carry.
+The structural questions in this document are answered and built. What is open
+now arrived from *using* the system, which is where nearly everything of value
+here has come from — the scoped-mission defect, the empty message, the broadcast
+that reached zero subscribers, the wrapped `Waiting on` line, and `blockers`
+answering "nothing is stuck" against forty standing rows were all reported by a
+peer session or found by running the thing, never by review.
 
-What remains is the work itself — none of which is started, and none of which
-should begin without re-reading the decision it depends on.
+Three questions that are genuinely undecided, each recorded where it can be
+answered rather than re-discovered:
+
+**What shape is the board?** A kanban invites moving cards, and a card here maps
+to a line in somebody's hand-written `MISSION.md`. Writing back to that file from
+a parsed model deletes the reasons written beside every row — the failure
+`shabadoo config` and `boot add` already refuse to commit. So a read-only board
+and a set of grouped tables are genuinely different products, not two renderings,
+and the choice is the requester's. See `build-plan.md` Phase 10.
+
+**How much of a conversation should a phone show?** Rendering transcripts well
+makes a very wide read surface easy to read — the store holds file contents,
+memory directories and anything ever pasted into a prompt, for every session ever
+run in a folder. The narrow answer is that a phone shows the question it was
+notified about and nothing else; the wide one is a chat reader. The narrow answer
+is a smaller, safer system rather than a failure, and it should be argued for
+rather than skipped past.
+
+**Should a session be able to change the ethos it obeys?** The payload is what
+every machine reads, and its value is that a human read every line. A session
+that has paid for a finding can currently only hand it to that human. Mechanising
+the path from finding to payload removes the one review step guarding a file the
+whole fleet obeys — which is either the missing half of the retro loop or the one
+automation this design should refuse. Undecided, deliberately.
+
+**Spawn-with-inheritance remains unsketched.** A session creating a child that
+inherits its context, rather than a window that starts cold. Named here because
+it has been mentioned three times and designed zero, which is the state that
+produces a bad design under time pressure.

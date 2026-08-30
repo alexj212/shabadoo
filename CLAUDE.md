@@ -2191,33 +2191,30 @@ is simply unused.
 
 ## Future phases (not yet built)
 
-Select, send-text, `/clear`, `/remote-control`, kill, reopen and open-new-window
-are all done (see API).
+**`docs/build-plan.md` is the plan — phases 8-11, in order, with the reason for
+the order.** Phases 0-7 are shipped and deployed; the plan no longer describes
+them as work.
 
-**Session detail is phase 1 of 3.** The summary (stats header) ships; the reader
-underneath it already returns a byte cursor, which is what the rest builds on:
+The short version, because a pointer nobody follows is a pointer nobody reads:
 
-- **Phase 2 — rendered conversation.** `GET /api/claude/events` returning
-  cursor-paginated user/assistant turns with tool calls collapsed, below the
-  stat header. Two constraints already discovered: `proxyGet` buffers a peer
-  response through `io.ReadAll` with an **8 MB cap**, so responses must paginate
-  hard and truncate individual tool results on the wire; and the poll must
-  *append* DOM nodes using the cursor rather than rewriting `innerHTML`, or it
-  destroys scroll position every 2 s.
-- **Phase 3 — session browser.** Every past session per project, not just the
-  live one, with resume. `transcripts()` already lists them newest-first, so
-  this is mostly UI.
+| | |
+|---|---|
+| **8 — papercuts** | `*` on boot-enabled sessions in listings, the dashboard URL in output, and `open` waiting until the coordinator has registered the session (three sessions independently wrote the same poll loop) |
+| **9 — reading a conversation on a phone** | `GET /api/claude/events`, cursor-paginated turns, tool calls collapsed. The one thing the mobile client cannot do at all: it drives every pane and can barely show what any of them said |
+| **10 — the board** | inbox, todo, blockers, done. Assembly over data already served four ways; the shape is an open decision, read-only first |
+| **10b — browsing a project's files** | rides Phase 9's read surface, rooted at project directories rather than the filesystem |
+| **11 — the ethos as a managed thing** | name the drifted payload files rather than counting them; then rule layering; then proposals upward. Speculative past the first step |
 
-Also still open: the cross-host NATS `CLAUDE_PRESENCE` view that the retired
-`claude-sessions` script showed (peers on other hosts) — `shabadoo win list` is
-local-only, and the coordinator's own `/agent/peers` covers the same ground for
-connected nodes and is what `session_list` reads. And, before the write surface grows
-further, real auth: everything currently leans on the network-trust posture
-above.
+Three questions are recorded as genuinely undecided in `docs/direction.md` —
+the board's shape, how much of a conversation a phone should show, and whether a
+session may ever change the ethos it obeys. None should be answered by whoever
+happens to pick the work up.
 
-The reviewed gap list (health endpoint, redeem throttling, audit retention,
-downgrade guard, uninstall) and the feature backlog (blocked-session push,
-waiting queue, SSE for the human plane, CLI read commands, transcript search,
-capability negotiation, folding the MCP bridge in as `shabadoo mcp`) live in
-the task list. Closed since: `hub.db` backup (the move to dm put it under
-borg) and device-token renewal.
+Also open, and smaller: the cross-host `CLAUDE_PRESENCE` view the retired
+`claude-sessions` script showed (`/agent/peers` covers the connected case),
+scoped broadcast, and spawn-with-inheritance — mentioned three times, designed
+zero.
+
+The reviewed gap list and the earlier feature backlog live in the task list.
+Closed since: `hub.db` backup (the move to dm put it under borg), device-token
+renewal, and every item that became phases 0-7.
