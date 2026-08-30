@@ -74,6 +74,27 @@ type Mission struct {
 	// short rows precisely because that path runs every five seconds for every
 	// project. This is read on demand instead.
 	Log []MissionLog `json:"log,omitempty"`
+
+	// Raw lines, joined across wraps during the scan and turned into entries
+	// once the file is read. Built here rather than as entries arrive because
+	// a log entry's id is a hash of its TEXT — computing it before the
+	// continuation lines have been seen would key the entry to half of itself,
+	// and a client's "since I last looked" watermark would break on every
+	// reflow of the file.
+	rawWaiting []string `json:"-"`
+	rawLog     []string `json:"-"`
+}
+
+// appendEntry starts a new entry on a bullet and continues the previous one
+// otherwise. A continuation with nothing before it is an entry: a list written
+// without bullets is still a list, and refusing to read it would silently drop
+// a section somebody wrote in good faith.
+func appendEntry(list []string, line string, bullet bool) []string {
+	if bullet || len(list) == 0 {
+		return append(list, line)
+	}
+	list[len(list)-1] += " " + line
+	return list
 }
 
 // MissionLog is one `- <date> <text>` line.
@@ -182,22 +203,45 @@ func readMission(root string) *Mission {
 		if trimmed == "" {
 			continue
 		}
+		// A MISSION.md is written by hand in an editor that wraps, so a single
+		// item routinely spans several lines. Treating each of those as its own
+		// entry is not a cosmetic defect: the continuation arrives with no
+		// owner, so it renders as an unattributed blocker that nobody wrote,
+		// and it spends a slot against the six-row cap — which is how this was
+		// found, a real row reported as dropped to make room for the second
+		// half of the row above it.
+		//
+		// A bullet starts an entry; anything else continues the one before it.
+		bullet := strings.HasPrefix(trimmed, "- ") || strings.HasPrefix(trimmed, "* ") ||
+			trimmed == "-" || trimmed == "*"
 		switch section {
 		case "now":
+			// Now is prose and wraps too, so continuations join it rather than
+			// being discarded — the first line alone reads as a sentence that
+			// was cut off, which is worse than either the whole thing or none.
 			if m.Now == "" {
-				m.Now = clampMission(trimmed)
+				m.Now = trimmed
+			} else {
+				m.Now += " " + trimmed
 			}
 		case "log":
-			m.addLog(trimmed)
+			m.rawLog = appendEntry(m.rawLog, trimmed, bullet)
 		case "waiting on", "waiting":
-			m.addWaiting(trimmed)
+			m.rawWaiting = appendEntry(m.rawWaiting, trimmed, bullet)
 		case "blocked on", "blocked":
 			// The section `Waiting on` replaced. Read into the same list with
 			// no owner, because that is what the line actually says — it is a
 			// blocker nobody has been named for, and inventing "you" here would
 			// put words in the file's mouth.
-			m.addWaiting(trimmed)
+			m.rawWaiting = appendEntry(m.rawWaiting, trimmed, bullet)
 		}
+	}
+	m.Now = clampMission(m.Now)
+	for _, raw := range m.rawWaiting {
+		m.addWaiting(raw)
+	}
+	for _, raw := range m.rawLog {
+		m.addLog(raw)
 	}
 	// Blocked is derived rather than stored, so the two can never disagree. It
 	// is the first entry that is waiting on somebody — "nobody" is open work,
@@ -217,6 +261,54 @@ func readMission(root string) *Mission {
 		return nil // a file that says nothing is the same as no file
 	}
 	return &m
+}
+
+// missionFor finds the MISSION.md that describes THIS pane, not the repo it
+// happens to sit in.
+//
+// A session scoped into a subfolder is named by that subfolder — `projectName`
+// has always done this — while its mission was read from the project root two
+// lines later. So the same pane path was treated two different ways in adjacent
+// lines, and seven sessions under one repo all advertised their parent's card.
+//
+// Reported with the cost measured: three of those seven said `status: done` on
+// disk and were advertised as `active`, and the parent's single blocker was
+// shown seven times while six of the children's own were shown nowhere. That
+// direction is the bad one — duplicates read as corroboration.
+//
+// Nearest wins, walking up to the root and no further. Further would be another
+// project's file, and the root is where an unscoped session already looks, so
+// the overwhelmingly common case is unchanged.
+func missionFor(dir, root string) *Mission {
+	if d := missionDirFor(dir, root); d != "" {
+		return readMission(d)
+	}
+	return nil
+}
+
+// missionDirFor is the same walk, returning WHERE the file is.
+//
+// The directory is what a merged fleet view has to key on. Keying on the
+// project root instead collapses every scoped session under one repo into a
+// single entry — which is the same defect from the other end: one card shown
+// seven times, or seven cards shown as one.
+func missionDirFor(dir, root string) string {
+	dir = filepath.Clean(dir)
+	root = filepath.Clean(root)
+	for p := dir; ; p = filepath.Dir(p) {
+		if hasFile(filepath.Join(p, "MISSION.md")) {
+			return p
+		}
+		if p == root {
+			return ""
+		}
+		parent := filepath.Dir(p)
+		if parent == p || len(parent) < len(root) {
+			// Off the top without meeting the root: the pane is not under it,
+			// which should not happen and must not become an unbounded walk.
+			return ""
+		}
+	}
 }
 
 // addWaiting parses one `- owner: item` line.

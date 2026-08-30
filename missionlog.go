@@ -21,12 +21,13 @@ type projectLog struct {
 	Log     []MissionLog `json:"log,omitempty"`
 }
 
-// missionLogs reads every distinct project on this host.
+// missionLogs reads every distinct mission on this host.
 //
-// Keyed by project ROOT rather than by pane: several panes share one project —
-// a split window, or a session scoped into a subfolder — and reading the same
-// file once per pane would return the same entries several times, which a merged
-// fleet view would render as duplicates rather than as one project.
+// Keyed by the directory that OWNS the file, not by the project root: several
+// panes share one mission — a split window — and reading it once per pane would
+// render duplicates rather than one project. But a session scoped into a
+// subfolder with its own MISSION.md is a DIFFERENT mission, and keying on the
+// root collapsed seven of them into their parent's card.
 func missionLogs(ctx context.Context) ([]projectLog, error) {
 	// Panes, not sessions: each pane has its own directory and therefore its own
 	// project, which is the whole reason reporting moved from windows to panes.
@@ -43,16 +44,20 @@ func missionLogs(ctx context.Context) ([]projectLog, error) {
 			continue
 		}
 		root := projectRoot(p.Path)
-		if root == "" || seen[root] {
+		if root == "" {
 			continue
 		}
-		seen[root] = true
-		m := readMission(root)
+		dir := missionDirFor(p.Path, root)
+		if dir == "" || seen[dir] {
+			continue // no MISSION.md above this pane — absent, not empty
+		}
+		seen[dir] = true
+		m := readMission(dir)
 		if m == nil {
-			continue // has no MISSION.md — absent, not empty
+			continue
 		}
 		out = append(out, projectLog{
-			Project: projectName(root), Path: root, Status: m.Status,
+			Project: projectName(dir), Path: dir, Status: m.Status,
 			Owner: m.Owner, Updated: m.Updated, Log: m.Log,
 		})
 	}

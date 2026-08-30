@@ -242,7 +242,7 @@ func reportSessions(ctx context.Context) ([]hub.Session, error) {
 				state, asking := windowInput(ctx, s.Name, w.Index, pn.Index)
 				root := projectRoot(pn.Path)
 				tok := sessionTokens(pn.Path)
-				mission := readMission(root)
+				mission := missionFor(pn.Path, root)
 				sess := hub.Session{
 					InputState: state,
 					Asking:     asking,

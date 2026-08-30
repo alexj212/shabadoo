@@ -359,3 +359,182 @@ func TestOwnerIsReadAndAbsenceIsPreserved(t *testing.T) {
 		t.Error("the owner key must not disturb the other header keys")
 	}
 }
+
+// A hand-written MISSION.md wraps, and a wrapped entry is ONE entry.
+//
+// Pinned as a pair rather than as an example, because either half passes alone:
+// a parser that joins everything gives the same count as one that joins wraps,
+// and a parser that joins nothing gives the same TEXT for an unwrapped file.
+// The distinction is that two bullets and one wrapped bullet must not produce
+// the same thing — which is exactly what the old parser did, and why a real
+// blocker was reported as dropped to make room for the second half of the row
+// above it.
+func TestWrappedEntriesAreOneEntry(t *testing.T) {
+	wrapped := readMission(writeMission(t, `# p
+status: active
+
+## Waiting on
+- you: the first half of a single item
+  and the second half of that same item
+- mac: a different item entirely
+`))
+	split := readMission(writeMission(t, `# p
+status: active
+
+## Waiting on
+- you: the first half of a single item
+- and the second half of that same item
+- mac: a different item entirely
+`))
+	if wrapped == nil || split == nil {
+		t.Fatal("both files must parse")
+	}
+	if len(wrapped.Waiting) == len(split.Waiting) {
+		t.Fatalf("a wrapped entry and two bullets must not parse alike: both gave %d",
+			len(wrapped.Waiting))
+	}
+	if len(wrapped.Waiting) != 2 {
+		t.Fatalf("wrapped: want 2 entries, got %d: %+v", len(wrapped.Waiting), wrapped.Waiting)
+	}
+	if len(split.Waiting) != 3 {
+		t.Fatalf("split: want 3 entries, got %d", len(split.Waiting))
+	}
+	// The continuation must land in the entry it belongs to, not merely vanish.
+	if !strings.Contains(wrapped.Waiting[0].Item, "second half") {
+		t.Fatalf("continuation lost: %q", wrapped.Waiting[0].Item)
+	}
+	// And the entry keeps its owner — the defect rendered the continuation as
+	// an unattributed blocker, which is a row nobody wrote and nobody can answer.
+	if wrapped.Waiting[0].Owner != "you" || wrapped.Waiting[1].Owner != "mac" {
+		t.Fatalf("owners wrong: %+v", wrapped.Waiting)
+	}
+}
+
+// The same rule for the log, and the id is what makes it matter: the id is a
+// hash of the entry's text, so an id computed before the continuation was read
+// would key the entry to half of itself and every client's "since I last
+// looked" watermark would move on a reflow that changed nothing.
+func TestWrappedLogEntriesAreOneEntry(t *testing.T) {
+	wrapped := readMission(writeMission(t, `# p
+status: active
+
+## Log
+- 2026-08-29 shipped the thing, and here is the rest
+  of that same sentence continuing on
+- 2026-08-28 an earlier thing
+`))
+	if wrapped == nil {
+		t.Fatal("must parse")
+	}
+	if len(wrapped.Log) != 2 {
+		t.Fatalf("want 2 log entries, got %d: %+v", len(wrapped.Log), wrapped.Log)
+	}
+	if !strings.Contains(wrapped.Log[0].Text, "same sentence") {
+		t.Fatalf("continuation lost: %q", wrapped.Log[0].Text)
+	}
+	if wrapped.Log[0].Date != "2026-08-29" {
+		t.Fatalf("date lost: %q", wrapped.Log[0].Date)
+	}
+	// The joined text is what the id is keyed to. Same content wrapped
+	// differently is the same entry, which is the property a watermark needs.
+	unwrapped := readMission(writeMission(t, `# p
+status: active
+
+## Log
+- 2026-08-29 shipped the thing, and here is the rest of that same sentence continuing on
+- 2026-08-28 an earlier thing
+`))
+	if unwrapped.Log[0].ID != wrapped.Log[0].ID {
+		t.Fatalf("reflow changed the id: %s vs %s", wrapped.Log[0].ID, unwrapped.Log[0].ID)
+	}
+}
+
+// A wrapped row must not spend a slot against the six-row cap. This is the
+// defect as it actually presented: a file with five real blockers reported one
+// as dropped, so the dashboard both hid a real row and said a row was hidden —
+// for a row that did not exist.
+func TestWrappingDoesNotSpendTheCap(t *testing.T) {
+	var b strings.Builder
+	b.WriteString("# p\nstatus: active\n\n## Waiting on\n")
+	for i := 0; i < 6; i++ {
+		b.WriteString("- you: item number here\n  wrapped onto a second line\n")
+	}
+	m := readMission(writeMission(t, b.String()))
+	if m == nil {
+		t.Fatal("must parse")
+	}
+	if len(m.Waiting) != 6 {
+		t.Fatalf("want 6 entries, got %d", len(m.Waiting))
+	}
+	if m.Dropped != 0 {
+		t.Fatalf("six wrapped rows fit the six-row cap; reported %d dropped", m.Dropped)
+	}
+}
+
+// A scoped session reports ITS OWN mission, not the repo's.
+//
+// Asserted as a pair on recon-wsl's request, and the request is the point: a
+// fixture saying "the child reports the child's card" passes just as happily
+// when the resolver has gone blind and hands the same card to everything. What
+// has to be true is that the parent and the child produce DIFFERENT cards —
+// which is exactly what went red here, and what no single-sided fixture would
+// have caught.
+//
+// The cost of the version this replaces was measured on a live fleet: seven
+// sessions under one repo all advertising the parent's card, three of them
+// saying `done` on disk while reading as `active`, and the parent's one blocker
+// counted seven times while six of the children's were shown nowhere.
+func TestScopedSessionReportsItsOwnMission(t *testing.T) {
+	root := t.TempDir()
+	// A project root is a CLAUDE.md at a git root, which is what projectRoot
+	// looks for; without both, the walk passes straight over it.
+	mustWrite(t, filepath.Join(root, "CLAUDE.md"), "# parent\n")
+	if err := os.MkdirAll(filepath.Join(root, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mustWrite(t, filepath.Join(root, "MISSION.md"),
+		"# parent mission\nstatus: active\n\n## Waiting on\n- you: the parent's blocker\n")
+
+	child := filepath.Join(root, "missions", "recon")
+	if err := os.MkdirAll(child, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mustWrite(t, filepath.Join(child, "MISSION.md"),
+		"# child mission\nstatus: done\n\n## Waiting on\n- mac: the child's own blocker\n")
+
+	parent := missionFor(root, projectRoot(root))
+	scoped := missionFor(child, projectRoot(child))
+	if parent == nil || scoped == nil {
+		t.Fatal("both must parse")
+	}
+	// The distinction, not one side of it.
+	if parent.Headline == scoped.Headline {
+		t.Fatalf("parent and child report the same card: %q", parent.Headline)
+	}
+	if scoped.Status != "done" {
+		t.Fatalf("child status: want done, got %q — finished work reading as in-flight "+
+			"is the failure `done` exists to prevent", scoped.Status)
+	}
+	if len(scoped.Waiting) != 1 || scoped.Waiting[0].Owner != "mac" {
+		t.Fatalf("child blockers wrong: %+v", scoped.Waiting)
+	}
+
+	// And a scoped session with NO mission of its own still falls back to the
+	// root, because most sessions are not scoped and must keep behaving as they
+	// do today.
+	bare := filepath.Join(root, "missions", "nothing-here")
+	if err := os.MkdirAll(bare, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	fell := missionFor(bare, projectRoot(bare))
+	if fell == nil || fell.Headline != parent.Headline {
+		t.Fatalf("unscoped fallback broken: %+v", fell)
+	}
+}
+
+func mustWrite(t *testing.T, path, body string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
