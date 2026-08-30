@@ -160,7 +160,21 @@ func installPayload(claudeDir string) {
 	}
 	sort.Strings(rels)
 
-	n := 0
+	// The binary's payload is a SNAPSHOT, and it can be older than the disk.
+	//
+	// `make vendor` copies the live ~/.claude into the overlay by hand, so a
+	// file edited after this binary was built is NEWER than the copy inside it —
+	// and installing then reverts a real edit to a stale one, silently, on a
+	// restart nobody connected to the change. Found with a skill corrected at
+	// 12:32 today whose vendored copy was from 14 May: the next node restart
+	// would have thrown away three and a half months of correction and reported
+	// it as an install.
+	//
+	// So the direction is only assumed where it can be established. A file
+	// modified after this build is left alone and counted.
+	built := buildTimeOrZero()
+
+	n, kept := 0, 0
 	for _, rel := range rels {
 		dst := filepath.Join(claudeDir, rel)
 		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
@@ -172,6 +186,14 @@ func installPayload(claudeDir string) {
 			mode = 0o755
 		}
 		before, _ := os.ReadFile(dst)
+		if len(before) > 0 && !bytes.Equal(before, payload[rel]) && newerThanBuild(dst, built) {
+			// Somebody edited this after this binary was built, so THIS COPY is
+			// the stale one. An unstamped build cannot establish the order and
+			// is treated as cannot-tell, which also skips: an automatic
+			// overwrite of a hand-edited file is the wrong side to fail on.
+			kept++
+			continue
+		}
 		if err := s.installFile(dst, payload[rel], mode); err != nil {
 			log.Printf("node: config %s: %v", rel, err)
 			continue
@@ -184,7 +206,51 @@ func installPayload(claudeDir string) {
 		log.Printf("node: installed %d config file(s) from this build's payload "+
 			"(replaced files were backed up alongside)", n)
 	}
+	if kept > 0 {
+		// Said out loud. A skipped file and an installed one are both silent
+		// otherwise, and the whole point is that somebody's edit survived —
+		// which they should be able to see, and which tells them the binary's
+		// copy is behind and wants `make vendor`.
+		log.Printf("node: kept %d config file(s) that were edited after this build "+
+			"(%s) — the payload copy is older; run `make vendor` to fold them in",
+			kept, buildTime)
+	}
 	payloadCache.mu.Lock()
 	payloadCache.at = time.Time{} // force a rescan, so the report reflects this
 	payloadCache.mu.Unlock()
+}
+
+
+// buildTimeOrZero parses the build stamp, or reports zero when there is none.
+//
+// Zero means CANNOT TELL, never "the beginning of time" — a comparison against
+// a zero time would make every file look newer and skip the whole payload,
+// which is the same collapse of unknown into a value that this file exists to
+// avoid elsewhere.
+func buildTimeOrZero() time.Time {
+	if buildTime == "" {
+		return time.Time{}
+	}
+	t, err := time.Parse(time.RFC3339, buildTime)
+	if err != nil {
+		return time.Time{}
+	}
+	return t
+}
+
+// newerThanBuild reports whether dst was modified after this binary was built.
+//
+// An unestablished build time answers TRUE — keep the file. The choice of
+// default is the design: a false "newer" leaves a node running slightly stale
+// guidance, which the payload_pending count already reports and a human can
+// fix; a false "older" silently destroys an edit somebody made deliberately.
+func newerThanBuild(dst string, built time.Time) bool {
+	if built.IsZero() {
+		return true
+	}
+	fi, err := os.Stat(dst)
+	if err != nil {
+		return false // no file: nothing to protect, install it
+	}
+	return fi.ModTime().After(built)
 }

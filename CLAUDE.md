@@ -781,6 +781,26 @@ capabilities, and the pair is pinned by a test that installs the payload, checks
 for zero, then edits **one** file and requires the count to move — otherwise the
 first assertion passes for a scanner that always answers zero.
 
+**The payload is a SNAPSHOT, and it can be older than the disk.** `make vendor`
+copies the live `~/.claude` into the overlay by hand, so a file edited *after*
+this binary was built is newer than the copy inside it — and installing then
+reverts a real edit to a stale one, silently, on a restart nobody would connect
+to the change.
+
+Not hypothetical: a peer corrected a skill at 12:32 whose vendored copy was from
+**14 May**. The next node restart would have thrown away three and a half months
+of correction and logged it as an install. It is the `CLAUDE.md` clobber from
+before, recurring one directory down — that one was fixed by making `config/`
+own the file, which does nothing for the skills the operator edits by hand.
+
+So `installPayload` leaves a file modified after this build alone, and **says how
+many it kept**. An unstamped build cannot establish the order and also keeps: the
+choice of default is the design — a false "keep" leaves slightly stale guidance,
+which `payload_pending` already reports and a human can fix, while a false
+"overwrite" destroys work somebody did deliberately. Pinned as a pair, because an
+installer that never writes satisfies the survival case and one that always
+writes satisfies the upgrade case.
+
 **The node installs its own payload at startup**, so an upgrade brings its
 guidance with it. `upgrade` already has a machine replace its own executable and
 exit non-zero for its supervisor to restart it, so startup is exactly where the
