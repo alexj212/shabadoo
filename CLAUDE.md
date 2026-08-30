@@ -2597,6 +2597,31 @@ the question is answering blind, which is the one failure this page is arranged
 everywhere else to prevent. Polling does not close the gap, because the gap is
 not latency.
 
+### `shabadoo rules` — which guidance is in effect, and from where
+
+Phase 11's second step, built as the thing that was actually needed rather than
+as a layering mechanism. The layers already exist in practice and were written
+down nowhere: the payload's `CLAUDE.md`, the machine's `CLAUDE.local.md` which is
+never vendored, the project's own, and the nearest `MISSION.md`. Four sources,
+one precedence order, and no way to ask what a session is reading.
+
+Built because I answered that question by hand twice in one day — once diffing a
+999-line live file against a 967-line payload to judge whether an install would
+clobber it, and once meeting a skill whose vendored copy was three and a half
+months behind. It also names any **drifted** payload file, which is the half
+nothing else surfaced.
+
+**It found a real drift on its first run**, which is the validation that matters:
+a one-line indent fixed in `config/CLAUDE.md` two hours earlier and never applied
+to the live copy. Then it was made to report **none** — the green case, because a
+check that has only ever reported a problem has not been shown to work.
+
+**And running it against `/tmp` announced a project called `tmp`.**
+`projectRoot` falls back to the directory itself when nothing above is marked,
+which is right for naming a session and wrong here: it invented a layer. A
+project is a directory that SAYS it is one, so the marker is checked rather than
+assumed. That case never appears in a fixture built from real projects.
+
 ## Future phases (not yet built)
 
 **`docs/build-plan.md` is the plan — phase 10b and 11, in order, with the reason for
@@ -2611,7 +2636,7 @@ The short version, because a pointer nobody follows is a pointer nobody reads:
 | ~~**9 — reading a conversation on a phone**~~ | **shipped** — see above |
 | ~~**10 — the board**~~ | **shipped** — see above |
 | ~~**10b — browsing a project's files**~~ | **shipped** — see above |
-| **11 — the ethos as a managed thing** | ~~name the drifted payload files~~ **shipped**; then rule layering, then proposals upward. Speculative past that |
+| **11 — the ethos as a managed thing** | ~~name the drifted files~~ and ~~rule layering (`shabadoo rules`)~~ **shipped**. Proposals upward is unbuilt and remains a recorded open question |
 
 Three questions are recorded as genuinely undecided in `docs/direction.md` —
 the board's shape, how much of a conversation a phone should show, and whether a

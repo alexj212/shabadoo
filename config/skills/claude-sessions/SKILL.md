@@ -200,6 +200,11 @@ command is being typed by a person or repeated in a brief.
   useful over ssh or where no opener exists — which is also the form to paste when pointing a human
   at a pane. The name resolves the way `tail` does. On WSL it goes through `wslview`, because
   `xdg-open` is present there and wrong: the browser is on the Windows side.
+- **`shabadoo rules`** shows which guidance is actually in effect here and from where: the payload's
+  `CLAUDE.md`, this machine's `CLAUDE.local.md`, the project's own, and the nearest `MISSION.md` —
+  with each one's size, date, and who writes it. It also names any payload file that has DRIFTED
+  from what this binary would install, which is the question you cannot otherwise answer without
+  diffing by hand. Absent layers are shown as absent, because most projects have only some of them.
 - **`shabadoo mission`** prints this project's `MISSION.md` as the fleet reads it — the parse, not
   the file — so "does mine actually report?" is answerable from the folder that owns it rather than
   from a dashboard on another host. It also names the waiting rows the six-row cap discarded, which

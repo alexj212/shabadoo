@@ -73,6 +73,8 @@ func main() {
 		runSessions(args[1:])
 	case "who":
 		runWho(args[1:])
+	case "rules", "ethos":
+		runRules(args[1:])
 	case "dash", "dashboard":
 		runDash(args[1:])
 	case "todo", "issues":
