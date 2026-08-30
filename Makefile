@@ -211,6 +211,16 @@ vendor:
 # untracked, embedded only into their own builds. Denying client names there
 # would be denying them their own config. What matters is that nothing under it
 # is tracked — which is the second check.
+# OVERLAY_OWNS lists the files the overlay is MEANT to override, so the check
+# below can tell a deliberate override from a masked edit. It is an allowlist
+# rather than a warning because a guard that mostly cries wolf gets ignored, and
+# because "which of these two files wins" is a decision somebody should have to
+# write down once.
+#
+# settings.json: config/ ships a generic one and the overlay carries this
+# operator's real hooks. Different by design, in both directions, forever.
+OVERLAY_OWNS = settings.json
+
 vendor-check:
 	@fail=0; \
 	if [ -f $(LOCAL_DIR)/CLAUDE.md ]; then \
@@ -222,6 +232,21 @@ vendor-check:
 	  echo "  Fix: rm $(LOCAL_DIR)/CLAUDE.md"; \
 	  fail=1; \
 	fi; \
+	: "A file in BOTH trees whose contents differ is a masked edit: the overlay" ; \
+	: "wins at install, so every improvement to the config/ copy is dead until" ; \
+	: "somebody re-vendors — silently, because both files exist and both look" ; \
+	: "maintained. Found twice in one day: CLAUDE.md and the claude-sessions" ; \
+	: "skill, whose payload edits a May snapshot would have overridden." ; \
+	for f in $$(cd config && find . -type f | sed 's|^\./||'); do \
+	  case " $(OVERLAY_OWNS) " in *" $$f "*) continue ;; esac; \
+	  if [ -f "$(LOCAL_DIR)/$$f" ] && ! cmp -s "config/$$f" "$(LOCAL_DIR)/$$f"; then \
+	    echo "vendor-check: config/$$f and $(LOCAL_DIR)/$$f DIFFER."; \
+	    echo "  The overlay wins at install, so the config/ copy is masked and any"; \
+	    echo "  edit to it is dead. Either re-vendor (make vendor) or delete the"; \
+	    echo "  overlay copy if config/ should own this file."; \
+	    fail=1; \
+	  fi; \
+	done; \
 	for t in $(VENDOR_DENY); do \
 	  hits=$$(grep -ril "$$t" config/ 2>/dev/null); \
 	  if [ -n "$$hits" ]; then \

@@ -115,7 +115,12 @@ func TestSessionSkillNamesNoCommandThatIsGone(t *testing.T) {
 	for _, extra := range []string{"win", "list", "close", "reopen", "clear", "open", "start"} {
 		known[extra] = true
 	}
-	for _, m := range regexp.MustCompile("`?shabadoo? ([a-z-]+)").FindAllStringSubmatch(string(raw), -1) {
+	// `[a-z-]+` matches a bare `--`, which is a shell separator and can never be
+	// a subcommand: `claude mcp add shabadoo -- shabadoo mcp` tripped this. The
+	// first fix was to mangle that line so the test passed, which is corrupting
+	// a real command to satisfy a check — the check is what was wrong. A
+	// subcommand starts with a letter.
+	for _, m := range regexp.MustCompile("`?shabadoo? ([a-z][a-z-]*)").FindAllStringSubmatch(string(raw), -1) {
 		name := m[1]
 		if known[name] {
 			continue

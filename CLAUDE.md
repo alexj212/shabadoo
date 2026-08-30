@@ -1429,6 +1429,48 @@ round-trip on the Mac, not reasoned about: uninstall → no jobs, no plists →
 label, not by file, so deleting the plist first leaves the agent running with
 nothing on disk to explain it.
 
+## The core ethos is small on purpose
+
+The payload's `CLAUDE.md` reached **1039 lines**, of which 52 were the beliefs.
+Every session reads all of it at startup, so 255 lines of war stories and 200
+lines of formatting guidance were a tax on every session to serve the few that
+needed the detail.
+
+**The cut is: what must fire UNPROMPTED stays; what you look up while doing a
+specific thing becomes a skill.** A rule has to be in the file every session
+loads, because nothing will go and fetch it. Evidence, formats and reference
+tables are fetched when relevant — which is the "write it where it is read"
+principle applied to the file that states it.
+
+426 lines now, and three skills carry the rest: **`field-notes`** (the receipts —
+what went wrong and what it cost), **`mission-and-wrapup`** (the `MISSION.md`
+format, the wrap-up tables, when a row is really a decision), and
+**`claude-sessions`**, which gains the messaging plane in full and how to drive
+another machine.
+
+**The test for adding to the core file:** would a session that never loads a
+skill still need this to behave correctly? If not, it is reference.
+
+### An overlay copy silently masks a payload edit
+
+`mergePayloads` lets `config.local/` win a collision, which is right — that is
+how an operator's real config beats a generic one. But a file present in **both**
+trees whose contents differ is then a *masked edit*: every improvement to the
+`config/` copy is dead until somebody re-vendors, silently, because both files
+exist and both look maintained.
+
+Found twice in one day. `CLAUDE.md` was the first, and was fixed by making
+`config/` own it outright. The second was the `claude-sessions` skill, where a
+morning of payload edits would have been overridden by a snapshot from May — and
+it was found by `shabadoo rules` on its second run rather than by review.
+
+`make vendor-check` now fails on it, with `OVERLAY_OWNS` naming the files the
+overlay is *meant* to override — an allowlist rather than a warning, because a
+guard that mostly cries wolf gets ignored, and because "which of these two wins"
+is a decision somebody should write down once. Today that list is
+`settings.json`: the payload ships a generic one, the overlay carries this
+operator's real hooks, and they differ by design forever.
+
 ## Vendoring the embedded payload (`config/` + `config.local/`)
 
 The binary ships **two** payload trees, merged at install time:
