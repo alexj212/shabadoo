@@ -21,7 +21,7 @@ import (
 // machine. Every step is idempotent: re-running reports "unchanged" for
 // anything already correct, and any file it replaces is backed up first.
 type setup struct {
-	binDir    string // where claude.sh / claude-sessions go
+	binDir    string // where this binary and the "shaba" symlink go
 	claudeDir string // ~/.claude — portable config target
 	confDir   string // ~/.config/claude — per-host env file
 	stateDir  string // ~/.config/shabadoo — coordinator db, agent key
@@ -59,7 +59,7 @@ func runSetup(args []string) {
 
 	fs_ := flag.NewFlagSet("setup", flag.ExitOnError)
 	s := &setup{}
-	fs_.StringVar(&s.binDir, "bin-dir", filepath.Join(home, "bin"), "directory for claude.sh / claude-sessions")
+	fs_.StringVar(&s.binDir, "bin-dir", filepath.Join(home, "bin"), "directory for the shabadoo binary and the shaba symlink")
 	fs_.StringVar(&s.claudeDir, "claude-dir", filepath.Join(home, ".claude"), "Claude config directory to sync into")
 	fs_.StringVar(&s.confDir, "config-dir", filepath.Join(home, ".config", "claude"), "directory for the per-host env file")
 	fs_.StringVar(&s.stateDir, "shabadoo-dir", filepath.Join(home, ".config", "shabadoo"), "state directory for the coordinator db and agent key")
@@ -75,17 +75,18 @@ func runSetup(args []string) {
 	fs_.StringVar(&s.accessAud, "access-aud", "", "--service: Cloudflare Access application AUD tag")
 	fs_.BoolVar(&s.boot, "boot", false, "install the login launcher that opens a window per configured folder")
 	fs_.BoolVar(&s.caddy, "caddy", false, "add the Caddy vhost fronting the coordinator (linux only, uses sudo)")
-	skip := fs_.String("skip", "", "comma-separated steps to skip: scripts,path,deps,env,config")
+	skip := fs_.String("skip", "", "comma-separated steps to skip: binary,path,deps,env,config,node")
 	fs_.Usage = func() {
 		fmt.Fprint(os.Stderr, `usage: shabadoo setup [flags]
 
 Installs the toolchain embedded in this binary:
-  scripts  claude.sh + claude-sessions -> --bin-dir
+  binary   install this binary into --bin-dir (plus the "shaba" symlink)
+           so "shabadoo attach" resolves from a fresh shell
   path     ensure --bin-dir is on PATH in your shell rc
   deps     report missing runtime dependencies (tmux, claude)
   env      scaffold <config-dir>/env if absent (never overwritten)
-  binary   install this binary into --bin-dir so "shabadoo attach" resolves
   config   portable ~/.claude config: CLAUDE.md, settings.json, skills/
+  node     register this host's own project folder
 
 Opt-in steps:
   --service  run hub (coordinator) + node (this host's agent) as
@@ -381,7 +382,7 @@ func (s *setup) stepDeps() error {
 	return nil
 }
 
-// stepEnv scaffolds the per-host env file claude.sh sources. It is never
+// stepEnv scaffolds the per-host env file the launcher reads. It is never
 // overwritten without --force: it is the one file here that holds decisions
 // (host label, claude flags) rather than content this binary owns.
 func (s *setup) stepEnv() error {
@@ -646,9 +647,10 @@ func (s *setup) installFile(dst string, data []byte, mode fs.FileMode) error {
 	}
 }
 
-// writeAtomic replaces dst via a temp file + rename. The rename matters for
-// the scripts: overwriting claude.sh in place while a shell is executing it
-// corrupts that running process, whereas rename leaves it on the old inode.
+// writeAtomic replaces dst via a temp file + rename. Everything here is config
+// or state a running process may be reading — the env file, the coordinator
+// URL, the folder list — and rename swaps the inode in one step, so a concurrent
+// reader gets either the old file or the new one and never a half-written one.
 func writeAtomic(dst string, data []byte, mode fs.FileMode) error {
 	tmp, err := os.CreateTemp(filepath.Dir(dst), "."+filepath.Base(dst)+".tmp*")
 	if err != nil {
