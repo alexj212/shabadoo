@@ -206,6 +206,42 @@ session that has registered has not necessarily read a word. When you hand work
 to a session that is not running, the count going to zero is not evidence it
 landed.
 
+### Brief a peer when you can see something they cannot
+
+Not "keep everyone informed" — that is a newsletter, and a newsletter gets
+skimmed. **The trigger is a vantage point: you hold evidence the recipient cannot
+obtain from where they sit.** Send it then, unprompted, without being asked and
+without waiting to be right about what it means.
+
+Seven such briefs landed in one day and every one changed the recipient's code.
+None could have been found by the owner:
+
+| Who could see it | What they found |
+|---|---|
+| a session scoped into a subfolder | its own card was being served from its parent — seven sessions affected, three reading `done` as `active` |
+| a client on a phone | 77% of turns carry no text, inverting a design built on a 1400px screen |
+| the same client, at a prompt | a transcript **cannot** show a dialog: it records completed messages, and the pane was sixteen seconds ahead |
+| a Mac | a fix written on Linux was inert on darwin, and the defect did not exist there |
+| the session that opened a stopped project | queued mail was acked at startup and never read, behind a clean `pending: 0` |
+
+**Three things make it work, and all three were violated at least once:**
+
+- **Send evidence, not a story.** Every brief above carried a measurement. The
+  three that misfired carried a plausible mechanism instead — *"probably a cached
+  copy"*, *"it drains on its own when it comes up"*, *"applying this costs one
+  session loss"* — and all three were wrong. Two were repeating something read
+  rather than something run.
+- **Say what you did not establish.** *"I have no evidence either way about a
+  jetsam kill"* is what let the recipient keep looking. An answer that hides its
+  edges gets treated as complete.
+- **Decouple the brief from a request.** *"No reply needed"* and *"not asking you
+  to do anything"* cost the recipient nothing and got acted on anyway. A brief
+  that demands a turn is a task, and should be sent as one.
+
+**Brief your own retraction the same way.** Three sessions published corrections
+to their own earlier claims unprompted that day, and each cost the reader less
+than discovering it later would have.
+
 ### Surface received messages, and act on them
 
 The user cannot see tool results — only your text. When a bridge message arrives,
