@@ -1096,6 +1096,46 @@ Pruning keeps the newest three **versions** of a set per platform, not the
 newest three files: keeping files would keep three components of one version and
 half of another, leaving a version that looks published and cannot be installed.
 
+## An agent restart must not take the sessions with it
+
+`upgrade` restarts the node **by design** — it replaces its own binary and exits
+non-zero for the supervisor to bring it back. What nobody noticed is where the
+tmux server lives: the agent starts it for the core session, so it lands in the
+unit's **own cgroup**, and systemd's default `KillMode=control-group` kills every
+process in that cgroup on any restart.
+
+So every upgrade killed the tmux server and **every Claude session on the
+machine**. Measured, not inferred: four upgrades in ninety minutes
+(`restart counter is at 37 … 40`), the operator dropped out of their terminal
+each time, and twenty windows down to two. The tmux server carrying the session
+that found this was itself in `/system.slice/shabadoo-node.service`.
+
+Every check in `upgrade` — checksum, platform match, run the staged binary before
+the swap, keep `.prev` — was about not bricking **the node**. The actual blast
+radius was every session on the host, and none of those checks could see it.
+
+`KillMode=process` stops only the agent. The sessions are deliberately
+longer-lived than the thing that reports on them: an agent is a supervisor, not
+an owner. macOS gets `AbandonProcessGroup`, launchd's counterpart — **written
+down as unverified**, because this machine cannot run it.
+
+**Two verification failures on the way to that one-line fix**, both worth more
+than the fix:
+
+- The first probe passed *and its negative control also passed* — the tmux server
+  survived with and without the flag, so it proved nothing. The probe had never
+  confirmed the server was in the unit's cgroup at all. A probe that cannot fail
+  is decoration; one whose control also passes is worse, because it looks like
+  evidence.
+- The test pinning the template then passed against a template with the line
+  **deleted** — `strings.Contains` matched the comment *explaining* the directive,
+  which lives in the same file. **Assert a directive as a line, never as a
+  substring:** the reason a setting exists is usually written next to it.
+
+Pinned in the TEMPLATE rather than the live unit, which was repaired by hand:
+otherwise the next `setup --service` silently writes the broken one back, and the
+symptom is somebody being logged out rather than anything failing.
+
 ## Upgrading a node (`publish` / `upgrade`)
 
 Upgrading a node was scp plus a service restart, per host, per platform, by

@@ -512,6 +512,21 @@ Environment=CLAUDE_HOST_LABEL=%s
 Environment=LANG=en_US.UTF-8
 WorkingDirectory=%s
 ExecStart=%s node --coord %s --node %s --key %s
+# The tmux server this agent starts for the core session lands in THIS unit's
+# cgroup, so the default KillMode=control-group takes EVERY Claude session on
+# the machine down with any restart of the agent — and upgrade restarts the
+# agent by design, exiting non-zero for the supervisor to bring it back.
+#
+# Four upgrades in ninety minutes killed the tmux server four times, dropping
+# the operator out of their terminal each time and taking twenty sessions with
+# it. Every check in upgrade was about not bricking the NODE; the actual blast
+# radius was every session on the host.
+#
+# KillMode=process stops only the agent. The sessions are deliberately
+# longer-lived than the thing that reports on them — the agent is a supervisor,
+# not an owner. Verified with a probe that confirms cgroup membership and goes
+# red without this line.
+KillMode=process
 Restart=on-failure
 RestartSec=3
 
@@ -686,6 +701,24 @@ func (s *setup) plist(label string, args []string, keepAlive bool, logPath strin
 		<string>en_US.UTF-8</string>
 	</dict>
 	<key>RunAtLoad</key>
+	<true/>
+	<!-- The tmux server this agent starts for the core session is a child of
+	     this job, so tearing the job down takes every Claude session on the
+	     machine with it — and upgrade tears it down BY DESIGN, exiting
+	     non-zero for launchd to bring it back. On the Linux side the same
+	     defect dropped an operator out of their terminal four times in ninety
+	     minutes and killed twenty sessions.
+
+	     AbandonProcessGroup is launchd's counterpart to systemd's
+	     KillMode=process: stop the job, leave what it spawned alone. The
+	     sessions are deliberately longer-lived than the thing reporting on
+	     them.
+
+	     UNVERIFIED ON DARWIN at the time of writing — the systemd half was
+	     proven with a probe that confirms cgroup membership and goes red
+	     without the fix, and this machine cannot run the launchd equivalent.
+	     It is written down as unverified rather than assumed correct. -->
+	<key>AbandonProcessGroup</key>
 	<true/>
 	<key>KeepAlive</key>
 	%s

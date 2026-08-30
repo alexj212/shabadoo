@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -470,4 +471,55 @@ func TestInstallShorthandIsIdempotentAndPolite(t *testing.T) {
 	if len(s2.warnings) == 0 {
 		t.Error("declined silently; the operator cannot know why the shorthand is missing")
 	}
+}
+
+// The node unit must not let a restart take the sessions with it.
+//
+// The tmux server the agent starts for the core session lands in the unit's
+// cgroup, so the default KillMode=control-group kills every Claude session on
+// the machine whenever the agent restarts — and `upgrade` restarts it BY
+// DESIGN, exiting non-zero for the supervisor. Four upgrades in ninety minutes
+// dropped the operator out of their terminal four times and killed twenty
+// sessions.
+//
+// Pinned in the TEMPLATE because the live unit was already repaired by hand:
+// without this, the next `setup --service` silently writes the broken one back,
+// and the symptom is somebody being logged out rather than anything failing.
+func TestNodeUnitDoesNotKillTheSessionsItSupervises(t *testing.T) {
+	s := &setup{binDir: "/tmp/bin", stateDir: "/tmp/state", coord: "http://127.0.0.1:8787"}
+	unit := s.nodeUnitFile("http://127.0.0.1:8787")
+	// A LINE, not a substring. The unit carries a comment explaining the
+	// directive, so `strings.Contains` matches whether or not the directive is
+	// present — which is exactly how the first version of this test passed
+	// against a template with the line deleted. A check narrow enough to be
+	// satisfied by its own documentation is decoration.
+	if !hasDirective(unit, "KillMode=process") {
+		t.Fatal("the node unit needs a KillMode=process DIRECTIVE — without it a " +
+			"restart of the agent kills the tmux server in its cgroup, and every " +
+			"session with it")
+	}
+	// The pair that must differ: the HUB starts no tmux server, so it has no
+	// reason to abandon its children and should not silently acquire one.
+	// Asserting only the node's line passes for a template that sets it
+	// everywhere, which would be a different and unexamined change.
+	if hasDirective(s.hubUnitFile([]string{"--device-tokens"}), "KillMode=process") {
+		t.Fatal("the hub unit should not need KillMode=process; if that changed, " +
+			"it was not this defect and wants its own reason")
+	}
+}
+
+// hasDirective reports whether a unit file contains this exact setting on a line
+// of its own, ignoring comments. Substring matching is not enough: the reason a
+// directive exists is usually written beside it, inside the same file.
+func hasDirective(unit, want string) bool {
+	for _, line := range strings.Split(unit, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "#") {
+			continue
+		}
+		if line == want {
+			return true
+		}
+	}
+	return false
 }
