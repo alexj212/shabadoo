@@ -395,7 +395,19 @@ a value can be unknown, carry a companion that says whether it was established �
 `capabilities_known`, `payload_known` — and never omit-when-zero a field whose
 absence a reader could mistake for a measured zero.
 
-Two corollaries worth stating because each has been got wrong separately:
+**Make the zero value the unknown one.** A companion field only helps if its
+default says *not established*. A string-typed enum defaults to `""`, which
+serialises as a value and reads as a measurement; an integer enum with unknown at
+`iota` cannot. Check what your type says when nobody has set it — **that is the
+state no test constructs and every real caller meets.**
+
+Found by a peer writing a type *specifically* to separate not-measured from
+measured-nothing, reaching for a string, and reintroducing the ambiguity inside
+the fix for it. Caught not by review but by a test whose only assertion was
+`var zero Signal; zero == SignalUnknown` — written expecting to pass, and it
+failed. Every other test built the struct deliberately and set the field.
+
+Three corollaries worth stating because each has been got wrong separately:
 
 - **Say which way a check fails, and what that costs.** Two checks reading the
   same input can correctly fail in *opposite* directions: one refuses real work

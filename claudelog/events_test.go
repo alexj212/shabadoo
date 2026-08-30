@@ -412,3 +412,53 @@ func TestToolResultIsFlaggedNotNamed(t *testing.T) {
 		t.Fatalf("a result must not present a tool name, got %q", r[0].Name)
 	}
 }
+
+// Every tool entry the reader emits must carry a Kind.
+//
+// Applying a peer's finding to my own code: a type whose ZERO VALUE is not the
+// unknown state reintroduces the ambiguity it was written to remove. `Kind` is
+// a string, so a `ToolCall{}` constructed anywhere without setting it
+// serialises `"kind":""` — and the web client's `t.kind === "result"` is then
+// false, so an unset kind renders as a CALL. The zero value picks a side
+// instead of being unknown.
+//
+// The type is not changed, because `call`/`result` is a closed set with no
+// third state and clients are already told to treat an unrecognised value as a
+// case. What is pinned is the invariant that makes that safe: the reader never
+// emits one unset. This is the default-construction path — the case every test
+// builds around by setting the field deliberately, and the one a real caller
+// meets.
+func TestEveryToolEntryCarriesItsKind(t *testing.T) {
+	rec := `{"type":"assistant","timestamp":"2026-08-30T10:00:00Z","message":{"role":"assistant",` +
+		`"content":[{"type":"text","text":"go"},` +
+		`{"type":"tool_use","name":"Bash","input":{"command":"ls"}}]}}`
+	res := `{"type":"user","timestamp":"2026-08-30T10:00:01Z","message":{"role":"user",` +
+		`"content":[{"type":"tool_result","content":"ok"}]}}`
+	page, err := Events(writeJSONL(t, rec, res), EventOpts{Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := 0
+	for _, e := range page.Events {
+		for _, tc := range e.Tools {
+			seen++
+			if tc.Kind == "" {
+				t.Fatalf("a tool entry was emitted with no kind: %+v — an unset kind "+
+					"renders as a CALL in the client, so the zero value picks a side", tc)
+			}
+			if tc.Kind != ToolKindCall && tc.Kind != ToolKindResult {
+				t.Fatalf("unknown kind %q — the set is closed", tc.Kind)
+			}
+		}
+	}
+	if seen != 2 {
+		t.Fatalf("fixture must produce one call and one result, got %d", seen)
+	}
+	// The control: a bare ToolCall really does default to the ambiguous state,
+	// so the assertion above is guarding something real rather than restating
+	// what the type already guarantees.
+	var zero ToolCall
+	if zero.Kind != "" {
+		t.Fatal("if a zero ToolCall no longer has an empty Kind, this test is obsolete")
+	}
+}
