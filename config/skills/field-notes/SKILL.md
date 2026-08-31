@@ -546,3 +546,31 @@ the status before anything else touches it:
 The general form is worth more than the shell tip: **when you check a check, say
 which process's answer you are reading.** An exit status that passed through a
 pipe is a fact about the pipe.
+
+**Two checks of the same fact, written with different clients, are not the same
+test — and the disagreement stays invisible until the world changes.** Two
+scripts verified the same policy URL. One used Python's `urllib`, which follows
+redirects by default; the other used `curl` without `-L`, which does not. They
+agreed for as long as no URL in play had ever redirected. The day the legacy host
+started 301ing, the second fetched an empty body and reported the URL
+**unreachable** while the host was answering perfectly.
+
+Nothing revealed it earlier because nothing could: the divergence was in the
+DEFAULTS of two libraries, not in either script's logic, and both had passed
+every day of their lives. So when two checks assert the same fact, ask what they
+would do differently under a condition neither has met — a redirect, an empty
+body, a slow response, a 5xx. **Agreement so far is not agreement; it may only be
+a world that has not yet asked them to differ.**
+
+The sharper half is what happened during the audit for it. The auditor grepped
+their own scripts for calls lacking `-L` with `grep -v -- '-L'` — **which does not
+match `-fsSL`**, so it flagged two calls that do follow redirects and would have
+reported "all clean" on a pattern incapable of telling the two spellings apart.
+They caught it by reading the calls one at a time instead, and the real answer was
+better than the grep's: the non-following calls all fail *loudly* if a redirect
+appears, so nothing was blind.
+
+**A pattern that cannot distinguish the two cases it exists to separate is not a
+weaker check, it is a different check that happens to produce a verdict** — the
+same family as a keyword scan over unlabelled content, met here inside the audit
+written to find the first defect.
