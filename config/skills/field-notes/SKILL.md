@@ -506,9 +506,12 @@ not by reading the rule.
 A session preserving two meeting transcripts grepped both for
 `password|secret|token|credential`. One came back with zero hits and was nearly
 reported clean. The scan could not have caught the dirty one either: the root
-password in it was **spoken aloud as "welcome 01" with the character
-substitutions described in words**, and the file's only keyword hit was an
-unrelated garbled line nine seconds earlier. It sat untracked and un-gitignored
+password in it was **spoken aloud as an ordinary two-word phrase, with the
+character substitutions described in words rather than typed**, and the file's
+only keyword hit was an unrelated garbled line nine seconds earlier. (The phrase
+itself is deliberately not written here: it is a real credential that has not
+been rotated, and a document about not leaking secrets is a poor place to put
+one.) It sat untracked and un-gitignored
 in a repo twenty commits ahead of a work remote — one `git add -A` from a push.
 
 The shape generalises past transcripts to every search for unlabelled content:
