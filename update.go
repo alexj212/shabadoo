@@ -59,7 +59,7 @@ flags:
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	latest, err := latestTag(ctx)
+	latest, releasedAt, err := latestTag(ctx)
 	if err != nil {
 		fatalf("%v", err)
 	}
@@ -74,10 +74,41 @@ flags:
 		fmt.Println("\nalready on the latest release")
 		return
 	}
+	// A DIFFERENT release is not necessarily a NEWER one, and the two were
+	// conflated here: this printed "install it with: shabadoo update" for a
+	// published release older than the running build. Measured on a node
+	// running v0.4.77 against a published v0.4.75 — taking that advice would
+	// have removed a credential-handling rule that shipped in between, on the
+	// machine whose incident produced it. The tool would have undone the fix
+	// and called it an update.
+	older := publishedIsOlder(releasedAt)
 	if *check {
-		fmt.Printf("\na different release is published: %s\n", latest)
-		fmt.Println("install it with: shabadoo update")
+		switch {
+		case older:
+			fmt.Printf("\nthe published release is OLDER than what you are running: %s\n", latest)
+			fmt.Println("`shabadoo update` would DOWNGRADE this machine and is refused;")
+			fmt.Println("--force overrides, and will drop whatever shipped in between")
+		case releasedAt.IsZero() || buildTimeOrZero().IsZero():
+			fmt.Printf("\na different release is published: %s\n", latest)
+			fmt.Println("cannot tell which is newer — this build carries no comparable")
+			fmt.Println("timestamp, so `shabadoo update` will install it as asked")
+		default:
+			fmt.Printf("\na newer release is published: %s\n", latest)
+			fmt.Println("install it with: shabadoo update")
+		}
 		return
+	}
+	// The failure directions are not symmetric, which is why this one refuses.
+	// A false "older" leaves somebody on a stale build — visible, and one
+	// --force away. A false "newer" silently removes whatever shipped in
+	// between, which is what a downgrade actually costs and is discovered later
+	// or never. Unknown still INSTALLS: "cannot tell" must not become "refuse",
+	// or a build with no stamp could never update itself.
+	if older && !*force {
+		fatalf("the published release %s is older than this build%s\n"+
+			"       updating would downgrade this machine and drop whatever shipped\n"+
+			"       in between; re-run with --force if that is genuinely what you want",
+			latest, builtSuffix())
 	}
 
 	self, err := os.Executable()
@@ -149,31 +180,32 @@ flags:
 // watcher uses. The rate limit is 60/hour per address, which is generous for a
 // command a person types and is worth naming when it bites, since "403" alone
 // sends somebody looking for a permissions problem they do not have.
-func latestTag(ctx context.Context) (string, error) {
+func latestTag(ctx context.Context) (string, time.Time, error) {
 	url := fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", releaseRepo)
 	req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
 	req.Header.Set("Accept", "application/vnd.github+json")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("asking GitHub for the latest release: %w", err)
+		return "", time.Time{}, fmt.Errorf("asking GitHub for the latest release: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusForbidden {
-		return "", fmt.Errorf("%s", rateLimitHint(resp.Status))
+		return "", time.Time{}, fmt.Errorf("%s", rateLimitHint(resp.Status))
 	}
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("GitHub answered %s", resp.Status)
+		return "", time.Time{}, fmt.Errorf("GitHub answered %s", resp.Status)
 	}
 	var out struct {
-		Tag string `json:"tag_name"`
+		Tag         string    `json:"tag_name"`
+		PublishedAt time.Time `json:"published_at"`
 	}
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&out); err != nil {
-		return "", fmt.Errorf("could not read GitHub's answer: %w", err)
+		return "", time.Time{}, fmt.Errorf("could not read GitHub's answer: %w", err)
 	}
 	if out.Tag == "" {
-		return "", fmt.Errorf("GitHub named no release tag")
+		return "", time.Time{}, fmt.Errorf("GitHub named no release tag")
 	}
-	return out.Tag, nil
+	return out.Tag, out.PublishedAt, nil
 }
 
 // publishedSum reads SHA256SUMS and returns the digest for one asset.
@@ -268,4 +300,26 @@ func rateLimitHint(status string) string {
 	return fmt.Sprintf("GitHub refused the request (%s) — on a public repository "+
 		"this is the unauthenticated rate limit of 60/hour and not a permissions "+
 		"problem; try again later", status)
+}
+
+// publishedIsOlder answers whether the published release predates this build.
+//
+// The file's original rule — "EQUALITY, never ordering" — is right about TAGS
+// and was over-applied. `git describe` strings genuinely cannot be ordered, but
+// this project already has an ordering primitive for exactly this question: the
+// build stamp, which `setup`'s downgrade guard compares. Declining to use it
+// here meant `update` could only ask "am I that one" and then advised installing
+// whatever the answer was.
+//
+// The comparison is the release's publish time against this binary's COMMIT
+// date. They are different clocks, so a release published within minutes of the
+// commit it builds could compare either way — which is why the guard is
+// deliberately one-sided: it fires only when the release is clearly behind, and
+// a tie or an unknown is not a downgrade.
+func publishedIsOlder(releasedAt time.Time) bool {
+	built := buildTimeOrZero()
+	if releasedAt.IsZero() || built.IsZero() {
+		return false // cannot tell; must not read as a downgrade
+	}
+	return releasedAt.Before(built)
 }
