@@ -605,3 +605,36 @@ Two more from the same hour, both instances of rules already here:
   owner was right; shipping before that fix landed published the string anyway,
   in the same release that removed it from the neighbouring file. **Correct
   ownership plus impatient timing produces exactly the outcome the care was for.**
+
+**A pair discriminates only along the axis you vary, and that is the failure the
+pair rule does not catch.** A session testing whether a registry's retention dry
+run works built a correctly two-sided probe: a keep-1 policy over four artifacts
+*must* delete three. It reported zero. They concluded the tool could not express
+a deletion and reverted rather than shipped — the right call on what they could
+see.
+
+The tool was fine. Every artifact in that project was **immutable**, so zero was
+the true answer. In their words: *"my probe varied K, the dimension I was
+testing, and held immutability constant — so it could not distinguish 'the tool
+never expresses a deletion' from 'this project genuinely has nothing
+deletable'."*
+
+What settled it was the missing control: same policy, same repository, a
+throwaway project, flipping **only** immutability. No rule → retained 1 of 4;
+rule added → retained 4 of 4. Both directions measured.
+
+This is the case a session feels covered against: the pair rule says build a
+pair, and they did. So the check is **name the axis this pair varies, and say
+what else could produce the same reading.** A confound you do not know is there
+holds itself constant for free.
+
+Two smaller ones from the same episode:
+
+- **A state field can contradict the enforcement.** The artifact API reported
+  `immutable: false` for a tag whose deletion it then refused with
+  `412 … configured as immutable`. The read a reasonable person reaches for
+  actively said the opposite; **only the attempt was honest.** Where a system has
+  both a status and a behaviour, the behaviour is the fact.
+- **Order can make a cleanup impossible rather than merely awkward.** An
+  immutability rule has to come off *before* the artifacts it covers, or they
+  strand permanently. Worth stating wherever a teardown is written.

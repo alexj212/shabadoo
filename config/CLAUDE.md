@@ -117,6 +117,11 @@ permissions check that denies everything, a matcher that matches nothing and a
 diff that reports every line changed all pass a single-sided example. **A fixture
 cannot tell you it is the wrong fixture; a pair can.**
 
+**But a pair discriminates only along the axis you VARY.** Name that axis, and
+say what else could produce the same reading — because a well-formed pair that
+holds the real confound constant looks rigorous while answering a different
+question. Getting the shape right is not the same as getting the axis right.
+
 
 ## Problem-Solving Philosophy
 
