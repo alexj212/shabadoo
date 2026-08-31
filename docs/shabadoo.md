@@ -33,7 +33,7 @@ shabadoo's.
 
 | Piece | Name | Status | Notes |
 |---|---|---|---|
-| System / repo / binary | **shabadoo** | built | Domain `shabadu.us` keeps the shortened spelling; the software uses the spoken one |
+| System / repo / binary | **shabadoo** | built | Domain is `shaba.do`, matching the `shaba` CLI alias — sayable and typeable from memory, which matters most on the pairing screen a new operator reaches before they have anything else. `shabadu.us` redirects to it **permanently**: it is the privacy-policy URL registered with Apple, which has no expiry and 404s during review rather than when it changes |
 | Coordinator | **hub** | built | `shabadoo hub`, `shabadoo-hub.service`, `hub.db` |
 | Per-host agent | **node** | built | `shabadoo node`, `shabadoo-node.service` |
 | Shared knowledge | **atlas** | unbuilt | git repo `atlas.git`, full clone at `~/.shabadoo/atlas` |
