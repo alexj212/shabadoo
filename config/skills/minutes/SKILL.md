@@ -1,6 +1,6 @@
 ---
 name: minutes
-description: Use this skill for the meeting recorder on this desktop — "record this meeting", "start recording the standup", "am I recording?", "stop the recording", "transcribe that call", "send the notes to homelab", "what meetings do I have", "clean up old recordings", "why did that track come out silent". ALSO use it when a meeting transcript or delivery brief arrives in this session's inbox asking for decisions, action items and open questions — that brief comes from this tool and this skill says how to answer it. Covers preflight/apps/start/stop/status/list/transcribe/deliver/rm/prune, the refusals that must never be forced past, and the rules about audio leaving the machine.
+description: Use this skill for the meeting recorder on this desktop — "record this meeting", "start recording the standup", "am I recording?", "stop the recording", "transcribe that call", "send the notes to homelab", "what meetings do I have", "clean up old recordings", "why did that track come out silent". ALSO use it when a meeting transcript or delivery brief arrives in this session's inbox asking for decisions, action items and open questions — that brief comes from this tool and this skill says how to answer it. ALSO use it before filing, moving, copying or preserving a meeting transcript anywhere — a transcript is a credential store and must never land in a git repository. Covers preflight/apps/start/stop/status/list/transcribe/deliver/rm/prune, the refusals that must never be forced past, and the rules about audio and transcripts leaving the machine.
 version: 1.0.0
 ---
 
@@ -123,6 +123,43 @@ minutes deliver --to homelab                  # names the project whose session 
 minutes deliver --to homelab --notes notes.md # sends your write-up, and no transcript at all
 ```
 
+## A transcript is a credential store
+
+**People read passwords, tokens and addresses aloud on calls.** A verbatim
+transcript captures them with no marker of any kind, and nothing in this pipeline
+treats a transcript as sensitive. This is the one thing about transcripts that
+must be known before anything is filed anywhere.
+
+Paid for on this fleet: a transcript preserved from a recording being deleted —
+correct instinct, 105 KB against 5.2 GB of audio, the only record of a two-hour
+meeting — was filed next to existing meeting notes in a project's `docs/`,
+because that is where a person would go looking for meeting material. It
+contained **a root password read aloud, with its character substitutions spelled
+out and the host address to test it on**. Untracked, not gitignored, in a repo
+twenty commits ahead of a work remote. One `git add -A` from being pushed.
+
+Three rules, in the order they bite:
+
+- **Raw transcripts live outside every git repository.** The notes go in the
+  repo; the transcript does not. This skill's own advice to *file the notes where
+  they belong in the project* is about the **notes** — following it with the
+  transcript is what produced the incident above.
+- **Read a transcript for credentials before writing notes from it, and never
+  reproduce one in the notes.** Say that a credential was disclosed and that it
+  needs rotating. The notes are the thing that travels.
+- **Destroying your copy does not undo the disclosure.** It was spoken on a call
+  and exists on the far end, in whatever the other participants recorded. Deleting
+  is cleanup, not remediation — the credential still needs rotating.
+
+**And do not trust a keyword scan.** Grepping for `password|secret|token|
+credential` is decoration here: the thing you are looking for is, by nature, not
+labelled. In the incident above the password was spoken as *"welcome 01"* with
+the substitutions described in words, and the only keyword hit in the file was an
+unrelated garbled line nine seconds earlier. A clean scan is not evidence of a
+clean transcript — the second transcript in that pair scanned clean too, and its
+owner wrote *"I do not know whether this is clean"* into its README rather than
+calling it safe. That is the honest answer when a machine cannot check.
+
 The destination is what `--to` says, else what the recording was *started* with,
 else `delivery.to` from the config. If none of those named one it **errors**
 rather than picking — every one of those three was named by a person at some
@@ -144,6 +181,13 @@ retry — find the loop.
 The brief states the ask: **decisions**, **action items with owners**, **open
 questions**. Beyond that:
 
+0. **Check whether the notes already exist.** A brief arriving says the tool
+   delivered a recording; it says nothing about whether anybody has already
+   written the meeting up. Paid for here: a session wrote up a 1:1 in full and
+   then found notes that had been in the project since the day of the meeting.
+   **Delivered is not the same as unwritten** — look in the project first, and if
+   notes exist, say so and add what the transcript contributes rather than
+   producing a second account of the same meeting.
 1. **Read the flagged stretches before quoting anything.** A brief may carry
    stretches marked *the other side was silent* — the far end said nothing for
    over two minutes. What the microphone picked up there may be the room rather
@@ -155,8 +199,11 @@ questions**. Beyond that:
 3. **Attribution has a caveat when echoes were dropped.** If the brief reports
    suppressed microphone lines, the meeting was on speakers — treat single-line
    attributions with suspicion rather than quoting them as verbatim.
-4. **File the notes where they belong in the project** and say where you put
-   them. That judgment is the reason a session gets the brief at all.
+4. **File the NOTES where they belong in the project** — and never the
+   transcript. That judgment is the reason a session gets the brief at all, and
+   the word *notes* is load-bearing: a transcript filed the same way is how a
+   root password reached a work repository. See **A transcript is a credential
+   store** above before moving one anywhere.
 
 ## Refusals that must not be forced past
 

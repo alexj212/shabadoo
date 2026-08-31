@@ -481,3 +481,28 @@ only appeared once somebody went looking for why the accepted config did nothing
 **Permissive parsing turns an unsupported feature into a silent no-op.** Ask what
 the system would do with a rule it cannot honour: if the answer is "accept it",
 then acceptance proves nothing and only the effect does.
+
+**A scan finds only what names itself, and a clean result is not a clean file.**
+A session preserving two meeting transcripts grepped both for
+`password|secret|token|credential`. One came back with zero hits and was nearly
+reported clean. The scan could not have caught the dirty one either: the root
+password in it was **spoken aloud as "welcome 01" with the character
+substitutions described in words**, and the file's only keyword hit was an
+unrelated garbled line nine seconds earlier. It sat untracked and un-gitignored
+in a repo twenty commits ahead of a work remote — one `git add -A` from a push.
+
+The shape generalises past transcripts to every search for unlabelled content:
+secrets in prose, personal data in logs, a licence buried in a vendored tree. **A
+keyword scan tests whether the thing announces itself**, and the reason it is
+sensitive is usually that it does not. So do not convert a clean scan into a
+clean verdict; the honest report is what that session eventually wrote into the
+surviving file's README — *I do not know whether this is clean* — which is worth
+more than a green tick a reader would have trusted.
+
+Two corollaries, both cheap:
+
+- **Where a machine cannot check, say so rather than defaulting to safe.** This
+  is the same distinction as [empty versus unknown], applied to a scanner.
+- **Destroying your copy is cleanup, not remediation.** A credential spoken on a
+  call exists on the far end whatever you delete; the rotation still has to
+  happen, and only a person can start it.
