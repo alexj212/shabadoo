@@ -17,11 +17,15 @@ package main
 // layers and is said as absent rather than as missing.
 
 import (
+	"bytes"
 	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
+
+	"shabadoo/claudelog"
 )
 
 type ruleLayer struct {
@@ -118,6 +122,8 @@ func runRules(args []string) {
 		fmt.Println("      a file edited after this build is kept on restart; run `make vendor`")
 		fmt.Println("      in the shabadoo repo to fold your edits into the payload")
 	}
+
+	upstreamDrift()
 }
 
 // countLines is a size a person can compare against another file at a glance.
@@ -128,4 +134,116 @@ func countLines(path string) int {
 		return 0
 	}
 	return strings.Count(string(b), "\n")
+}
+
+// upstreamDrift reports payload skills that another REPOSITORY owns.
+//
+// `minutes` is the live case and so far the only one: the skill documenting a
+// tool lives in that tool's own repo, pinned there by a test against the tool's
+// command dispatch — a test this repo structurally cannot run. So the tool's
+// repo is the source and what the payload carries is a vendored copy.
+//
+// A vendored copy is hand-editable, which is exactly how it went wrong: a rule
+// about transcripts containing credentials, written after a root password
+// nearly reached a work remote, was edited into the SNAPSHOT and shipped. The
+// file the tool's own CLAUDE.md declares the interface of record never got it.
+// Both copies were being edited as though each were authoritative, by different
+// sessions, and nothing anywhere compared them. Found by a peer on another host
+// answering a different question.
+//
+// Reported, never enforced. A gate in `make vendor` would have blocked the very
+// state that produced the finding — the payload legitimately ahead while the fix
+// was routed to the repo — and this project has already paid once for a guard
+// that blocks the fix it exists to prompt.
+func upstreamDrift() {
+	payload, err := mergePayloads()
+	if err != nil {
+		fmt.Println("  upstream skills: CANNOT TELL — the payload could not be read")
+		return
+	}
+
+	// Where this machine's projects are. The boot list is the only local answer:
+	// `rules` runs from an arbitrary directory and the coordinator is not
+	// necessarily reachable.
+	roots := map[string]string{}
+	note := func(dir string) {
+		if dir == "" {
+			return
+		}
+		if r, err := filepath.EvalSymlinks(dir); err == nil {
+			dir = r
+		}
+		if _, ok := roots[filepath.Base(dir)]; !ok {
+			roots[filepath.Base(dir)] = dir
+		}
+	}
+	// The boot list alone is NOT enough and that is measured, not assumed: the
+	// first version used it and reported "nothing checkable" in all three arms
+	// of its own teeth-check, including the arm that had been deliberately
+	// broken. `minutes` is a live project on this host and simply is not a boot
+	// folder — the list holds what starts at boot, not what exists.
+	for _, dir := range configuredFolders() {
+		note(dir)
+	}
+	// Every folder that has ever run a Claude session. Same source /api/folders
+	// merges, and the one that actually contains the projects a session works in.
+	if projects, err := claudelog.Projects(); err == nil {
+		for _, p := range projects {
+			note(p.Path)
+		}
+	}
+
+	same, differ := compareUpstream(payload, roots)
+
+	// Nothing to compare is not the same as nothing wrong, and the difference is
+	// invisible from the output unless it is stated. A stranger's machine has no
+	// sibling repos at all and must not read as verified.
+	if len(same)+len(differ) == 0 {
+		fmt.Println("  upstream skills: none checkable here — no project on this host")
+		fmt.Println("      owns a skill this payload ships, so nothing was compared")
+		return
+	}
+	if len(differ) == 0 {
+		fmt.Printf("  upstream skills: %d checked, all match (%s)\n",
+			len(same), strings.Join(same, ", "))
+		return
+	}
+	fmt.Printf("  upstream skills: %d of %d DIFFER from the repo that owns them\n",
+		len(differ), len(same)+len(differ))
+	for _, d := range differ {
+		fmt.Printf("      %s\n", d)
+	}
+	fmt.Println("      that repo is the source; the payload carries a vendored copy.")
+	fmt.Println("      edit it THERE, then vendor — a hand edit here ships a rule the")
+	fmt.Println("      file its own project calls authoritative does not contain")
+}
+
+// compareUpstream is split out so the DISTINCTION can be tested: a comparator
+// that has gone blind and reports everything as matching passes any single-sided
+// fixture. The pair is what catches it.
+func compareUpstream(payload map[string][]byte, roots map[string]string) (same, differ []string) {
+	for rel := range payload {
+		parts := strings.Split(filepath.ToSlash(rel), "/")
+		if len(parts) != 3 || parts[0] != "skills" || parts[2] != "SKILL.md" {
+			continue
+		}
+		name := parts[1]
+		root, ok := roots[name]
+		if !ok {
+			continue // no project of that name here; not evidence of anything
+		}
+		up := filepath.Join(root, "skills", name, "SKILL.md")
+		got, err := os.ReadFile(up)
+		if err != nil {
+			continue // the directory exists but ships no such skill
+		}
+		if bytes.Equal(got, payload[rel]) {
+			same = append(same, name)
+		} else {
+			differ = append(differ, name+" ("+up+")")
+		}
+	}
+	sort.Strings(same)
+	sort.Strings(differ)
+	return same, differ
 }

@@ -112,6 +112,56 @@ Whether a recording is live, without asking the tool:
 [ -f ~/.config/minutes/recording ] && echo "● REC"
 ```
 
+### The tray icon
+
+On Windows a red dot appears in the tray for the length of the recording. Right
+click it for the meeting's name, how long it has been going, **Stop recording**
+and **Open folder**.
+
+Stopping from the tray is the same as `minutes stop` — it asks the orchestrator,
+which finishes the manifest and queues transcription the usual way. It is not a
+kill.
+
+**It is disclosure, not control.** The point is that somebody in the room can
+see a recording is happening without being told. If it fails to start, the
+recording continues and says so; do not treat that as a reason to stop, and do
+not suggest disabling it.
+
+### A microphone that is denied looks exactly like one that is working
+
+**`preflight` now catches this, and it is worth knowing why it had to.** On
+macOS a denied microphone *opens*: the audio unit starts, the format reads back,
+every call returns success, and the samples are all zero. Nothing in the capture
+path can see it. A real meeting recorded the far end and none of the operator
+while preflight said `mic ok`.
+
+The check is **"is the signal constant"**, never "is it quiet". A real
+microphone in a silent room still varies — preamp noise, room tone. A signal
+with no variation at all is denied, muted, or unplugged.
+
+If preflight refuses for this, the fix is a permission or a cable, not a volume
+control. Every segment also carries `constant` in the manifest, so it can be
+checked afterwards on any machine.
+
+**A recording with a constant track will not auto-deliver.** It is stored, and
+`minutes deliver` sends it if the user asks — half a meeting reaching a
+summariser as a normal brief is the failure being avoided.
+
+### If a track stops producing audio
+
+Sixty seconds in, a track that has delivered nothing raises a notification:
+
+    ⚠ no audio on the mic track after 1m0s — if the meeting has started,
+      it is not being recorded
+
+**Tell the user immediately.** It is a measurement, not a diagnosis: a loopback
+stream delivers nothing while the render endpoint is idle, so seeing it for the
+`system` track before the call starts is normal. Seeing it once the meeting is
+under way means that track is not recording and everything on it will be absent.
+
+This exists because a real 44-minute standup recorded zero microphone frames and
+nobody noticed for two days.
+
 ## Delivering — this is a judgment call, and not the tool's
 
 A recording bound for **this machine's own core session** is delivered
@@ -122,43 +172,6 @@ sending a meeting to another project is *publishing* rather than filing.
 minutes deliver --to homelab                  # names the project whose session writes it up
 minutes deliver --to homelab --notes notes.md # sends your write-up, and no transcript at all
 ```
-
-## A transcript is a credential store
-
-**People read passwords, tokens and addresses aloud on calls.** A verbatim
-transcript captures them with no marker of any kind, and nothing in this pipeline
-treats a transcript as sensitive. This is the one thing about transcripts that
-must be known before anything is filed anywhere.
-
-Paid for on this fleet: a transcript preserved from a recording being deleted —
-correct instinct, 105 KB against 5.2 GB of audio, the only record of a two-hour
-meeting — was filed next to existing meeting notes in a project's `docs/`,
-because that is where a person would go looking for meeting material. It
-contained **a root password read aloud, with its character substitutions spelled
-out and the host address to test it on**. Untracked, not gitignored, in a repo
-twenty commits ahead of a work remote. One `git add -A` from being pushed.
-
-Three rules, in the order they bite:
-
-- **Raw transcripts live outside every git repository.** The notes go in the
-  repo; the transcript does not. This skill's own advice to *file the notes where
-  they belong in the project* is about the **notes** — following it with the
-  transcript is what produced the incident above.
-- **Read a transcript for credentials before writing notes from it, and never
-  reproduce one in the notes.** Say that a credential was disclosed and that it
-  needs rotating. The notes are the thing that travels.
-- **Destroying your copy does not undo the disclosure.** It was spoken on a call
-  and exists on the far end, in whatever the other participants recorded. Deleting
-  is cleanup, not remediation — the credential still needs rotating.
-
-**And do not trust a keyword scan.** Grepping for `password|secret|token|
-credential` is decoration here: the thing you are looking for is, by nature, not
-labelled. In the incident above the password was spoken as *"welcome 01"* with
-the substitutions described in words, and the only keyword hit in the file was an
-unrelated garbled line nine seconds earlier. A clean scan is not evidence of a
-clean transcript — the second transcript in that pair scanned clean too, and its
-owner wrote *"I do not know whether this is clean"* into its README rather than
-calling it safe. That is the honest answer when a machine cannot check.
 
 The destination is what `--to` says, else what the recording was *started* with,
 else `delivery.to` from the config. If none of those named one it **errors**
@@ -176,18 +189,67 @@ failure — say so and move on. A `429` is the coordinator's loop guard; notes g
 out once per meeting, so hitting it means something is sending in a loop. Do not
 retry — find the loop.
 
+### A refused delivery is final, not queued
+
+If `deliver` reports the destination is unknown, **the message was not queued and
+will not arrive later.** The coordinator only routes to destinations it has
+already seen; a project nobody has opened is refused at send time and nothing is
+kept for it. The brief is written to `delivery.md` in the recording directory and
+nothing is lost — but do not tell the user it was sent.
+
+`shaba folders` lists what is addressable. Adding a folder to the boot list makes
+it addressable before it has ever been opened.
+
+An unreachable agent is different and transient: same fallback, and retrying
+later is reasonable.
+
+## A transcript is a credential store
+
+**People read passwords, tokens and addresses aloud on calls.** A verbatim
+transcript of a working meeting is therefore closer to a secrets file than to a
+document, and it should be handled like one.
+
+This is written from an incident rather than a worry. Two transcripts were
+preserved before their recordings were deleted — the right instinct, 105 KB
+against 5.2 GB, the only surviving record of a two-hour meeting — and filed
+beside the notes in a project's `docs/`. One of them contained **a root password
+read aloud, with its character substitutions spelled out, and the host to try it
+on.** Untracked, not gitignored, in a repo twenty commits ahead of a work
+remote: one `git add -A` from being published. It was caught by somebody else
+looking.
+
+- **Raw transcripts live outside every git repository.** The notes go in the
+  repo; the transcript never does. Preserving one is reasonable — leave it in
+  `~/minutes`, or somewhere no `git add` will ever reach.
+- **Read a transcript for credentials before writing notes from it, and never
+  reproduce one in the notes.** Say that a credential was disclosed and that it
+  needs rotating. The notes are the thing that travels.
+- **Deleting our copy is cleanup, not remediation.** It was spoken on a call, so
+  it exists on the far end and in whatever else was recording. The credential
+  still has to be rotated by a person.
+
+**And do not trust a keyword scan.** Grepping for
+`password|secret|token|credential` is decoration here, because the thing being
+looked for is by its nature not labelled. In the incident above the clean file
+returned zero hits — **and so would the dirty one have.** Its password was
+spoken as *"welcome 01"* with the substitutions described in words, and the only
+keyword hit in the whole file was an unrelated garbled line nine seconds
+earlier.
+
+So a scan that finds nothing has established nothing. *"I do not know whether
+this is clean"* is the correct thing to write down, and the expected answer —
+not a failure to check properly. Saying it is clean is a claim, and reading a
+two-hour transcript end to end is what backs it.
+
 ## Writing the notes when a brief arrives
 
 The brief states the ask: **decisions**, **action items with owners**, **open
 questions**. Beyond that:
 
-0. **Check whether the notes already exist.** A brief arriving says the tool
-   delivered a recording; it says nothing about whether anybody has already
-   written the meeting up. Paid for here: a session wrote up a 1:1 in full and
-   then found notes that had been in the project since the day of the meeting.
-   **Delivered is not the same as unwritten** — look in the project first, and if
-   notes exist, say so and add what the transcript contributes rather than
-   producing a second account of the same meeting.
+0. **Check the project for notes before writing any.** A brief arriving is not
+   evidence that notes are missing — it is only evidence that this tool asked.
+   A 1:1 was written up in full before somebody noticed notes for it had existed
+   since the day of the meeting. Look first; the answer may be "already filed".
 1. **Read the flagged stretches before quoting anything.** A brief may carry
    stretches marked *the other side was silent* — the far end said nothing for
    over two minutes. What the microphone picked up there may be the room rather
@@ -199,11 +261,13 @@ questions**. Beyond that:
 3. **Attribution has a caveat when echoes were dropped.** If the brief reports
    suppressed microphone lines, the meeting was on speakers — treat single-line
    attributions with suspicion rather than quoting them as verbatim.
-4. **File the NOTES where they belong in the project** — and never the
-   transcript. That judgment is the reason a session gets the brief at all, and
-   the word *notes* is load-bearing: a transcript filed the same way is how a
-   root password reached a work repository. See **A transcript is a credential
-   store** above before moving one anywhere.
+4. **File the notes — and only the notes — where they belong in the project**,
+   and say where you put them. That judgment is the reason a session gets the
+   brief at all. **The transcript does not go with them**, and neither does any
+   credential found in it: see *A transcript is a credential store* above. The
+   earlier wording of this step said "file the notes" and was read as licence to
+   file the transcript beside them, which is how a root password reached a work
+   repository.
 
 ## Refusals that must not be forced past
 
@@ -218,6 +282,7 @@ can be redone. Bring the refusal to the user; do not clear it on their behalf.
 | `--app` matched nothing, or two things | (none) | naming the wrong process records silence |
 | preflight says an endpoint will not start | (none) | the recording would be missing half the conversation |
 | preflight is **waiting** for a permission dialog | (none) | nothing is broken; somebody has to answer it. Do not report this as a failure |
+| preflight says `system ... opened; no audio observed` | (none) | **not a failure and not a refusal.** The render endpoint is idle until something plays, which it is before every meeting. It is also what a dead capture path looks like and preflight cannot tell them apart — if it matters, play something for a second and run it again |
 | a one-source recording carries **no speaker labels** | (none) | with nothing captured from the far end the microphone holds whoever was in the room, not the operator. Never re-attribute those lines |
 
 ## Audio leaves this machine only when told to
@@ -233,17 +298,30 @@ right for meetings; `tiny` is faster and hallucinates on quiet audio. Which back
 written into the manifest and the transcript, and `minutes list` marks such a
 meeting with `↑`. It is a question somebody may have to answer later.
 
-`~/.config/minutes/config.json` (absent = defaults): `transcription`
-(`backend`, `model` — default `small`, `language`, `device`, `afterStop`),
-`delivery` (`to`, `coreSession`, `auto`), `retention` (`keepDays`, `keepCount`,
-`keepUndelivered` — all off unless set).
+### Reading and changing settings
+
+`minutes config` shows what is actually in effect and says when there is no
+file, so "this is a default" and "this is what somebody chose" do not look
+alike. `minutes config set KEY VALUE` changes one, validating it first; an
+unknown key is refused with near-misses rather than silently ignored, which is
+what hand-editing the JSON used to do.
+
+`minutes config set --help` lists the keys. They are `transcription.{backend,
+model, language, device, baseUrl, apiKeyEnv, afterStop}`,
+`delivery.{to, coreSession, auto}` and
+`retention.{keepDays, keepCount, keepUndelivered}`.
+
+**`transcription.backend` is the one covered by the rule above.** Setting it to
+`openai` prints a warning saying every future recording will be uploaded —
+do not run it unless the user asked in those words.
 
 ## Disk
 
 **1.33 GB/hour** for both tracks, measured. Nothing prunes automatically.
 `minutes list` totals the directory; `minutes rm --older-than 720h` and
 `minutes prune --dry-run` are the cleanup, and `prune` does nothing unless a
-retention policy is configured. Mention the total when it gets large rather than
+retention policy is configured — `minutes config set retention.keepDays 30` is
+how it gets configured. Mention the total when it gets large rather than
 deleting anything unprompted.
 
 ## When something is wrong
@@ -264,7 +342,7 @@ deleting anything unprompted.
 | Platform | State — what is **built**, not what is designed |
 |---|---|
 | **Windows, driven from WSL** | records. WASAPI capture + loopback, helper started over interop |
-| **macOS** | records. HAL audio unit for the microphone, a CoreAudio process tap for system audio. Needs an audio-capture permission grant once. `preflight` **blocks until somebody answers the dialog**, so run it before the meeting rather than at it. The grant then persists, including across rebuilds, provided the helper was signed — `build.sh` does that automatically where a signing identity exists |
+| **macOS** | records. HAL audio unit for the microphone, a CoreAudio process tap for system audio. Needs an audio-capture permission grant once. `preflight` **blocks until somebody answers the dialog**, so run it before the meeting rather than at it. The grant belongs to **whatever launched the helper**, not to the helper, so it can be revoked by that program updating — signing `minutes-capture` does not protect it. If that launcher has the hardened runtime without `com.apple.security.device.audio-input`, macOS raises **no dialog at all** and the Microphone pane's toggle does nothing: a launcher defect, not a recorder one |
 | **native Linux desktop** | **refuses.** The PulseAudio path (source + `<sink>.monitor`) is designed and not built |
 | **WSL as the audio source** | **refuses on purpose** — `RDPSink.monitor` carries only audio from Linux apps inside WSL, so a Teams/Zoom/browser meeting never touches it |
 

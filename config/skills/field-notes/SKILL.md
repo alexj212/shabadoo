@@ -506,3 +506,23 @@ Two corollaries, both cheap:
 - **Destroying your copy is cleanup, not remediation.** A credential spoken on a
   call exists on the far end whatever you delete; the rotation still has to
   happen, and only a person can start it.
+
+**A pipeline reports the LAST stage's exit status, so `if cmd | tail` tests the
+wrong process.** Twice in one session, in the two places it does most damage:
+`go build ... | head -5 && echo BUILD_OK` printed BUILD_OK for a build that could
+not have failed the check either way, and `if go test ... | tail -6` printed
+*passed* while `--- FAIL:` was visible three lines above it in the same output.
+Both were **teeth-checks** — the ritual that exists to prove a check can fail —
+so the failure was a verification of a verification quietly reporting on
+`head(1)`.
+
+It is invisible for the reason the rest of this file keeps naming: the happy path
+and the broken path print the same word. Read the tool's own output, or capture
+the status before anything else touches it:
+
+    go test ./... ; rc=$?        # not: go test ./... | tail
+    set -o pipefail              # or make the pipeline carry the real status
+
+The general form is worth more than the shell tip: **when you check a check, say
+which process's answer you are reading.** An exit status that passed through a
+pipe is a fact about the pipe.
