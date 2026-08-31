@@ -577,3 +577,31 @@ appears, so nothing was blind.
 weaker check, it is a different check that happens to produce a verdict** — the
 same family as a keyword scan over unlabelled content, met here inside the audit
 written to find the first defect.
+
+**A CDN can serve you the old bytes and call it a verified fix.** Removing a
+credential from a public file, the fixer checked the result through
+`raw.githubusercontent.com` — and it was still serving the pre-fix content
+minutes after the push. Read that way, the check would have reported the string
+gone while it was being served to everyone. They used the repository contents API
+instead, which reads the object rather than a cached edge copy.
+
+This is *read the effect back through the interface the consumer uses*, with the
+twist that makes it dangerous: **the readback path can have its own staleness,
+and a stale readback of a fix is a FALSE GREEN** — strictly worse than no check,
+because it stops anybody looking. When the thing you are verifying is a removal,
+prefer the authoritative store over any cache, and treat "I fetched it and it was
+gone" as evidence only if you know which layer answered.
+
+Two more from the same hour, both instances of rules already here:
+
+- **Deleting from HEAD is cleanup, not remediation.** The string stayed reachable
+  at its original commit on a public repo. Same distinction the transcript rule
+  draws — destroying your copy does not undo a disclosure — arriving in `git`,
+  where it is easy to mistake a clean working tree for a clean history. The
+  remedy is still rotation; rewriting a public branch peers have pulled is a
+  decision for a person, not a reflex.
+- **"Heading for public" and "public" are different states, and the weaker claim
+  was the one asserted.** It had gone public the day before. The fix routed to its
+  owner was right; shipping before that fix landed published the string anyway,
+  in the same release that removed it from the neighbouring file. **Correct
+  ownership plus impatient timing produces exactly the outcome the care was for.**
