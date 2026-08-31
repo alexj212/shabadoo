@@ -457,3 +457,27 @@ machine in front of you, in minutes, without a reference.
 
 The cost of the alternative was live: three plausible mechanisms were offered on
 this fleet in one afternoon and all three were wrong.
+
+
+---
+
+## A system accepting your configuration is not the same as it being able to honour it
+
+The familiar version of this is *config written is not config loaded* — a file
+changed and never reloaded. This is worse, because every step reported success.
+
+A hostname redirect was written into a Pages `_redirects` file in the documented
+absolute-URL form, **accepted into the file, deployed without complaint, and
+silently ignored**: `_redirects` matches paths, not hosts. The old hostnames kept
+answering **200 with content**. Nothing errored, nothing warned, and the config
+was genuinely present and genuinely loaded — the engine simply had no capability
+for the rule it had accepted.
+
+Caught only by reading the **status code of the old host**, rather than trusting
+the deploy. The right mechanism was a zone-level rule in a different phase
+entirely, which the stored credential could not write — a permission error that
+only appeared once somebody went looking for why the accepted config did nothing.
+
+**Permissive parsing turns an unsupported feature into a silent no-op.** Ask what
+the system would do with a rule it cannot honour: if the answer is "accept it",
+then acceptance proves nothing and only the effect does.
