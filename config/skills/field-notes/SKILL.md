@@ -482,6 +482,26 @@ only appeared once somebody went looking for why the accepted config did nothing
 the system would do with a rule it cannot honour: if the answer is "accept it",
 then acceptance proves nothing and only the effect does.
 
+The instance that paid for it: redirecting three legacy hostnames to a new
+domain took **three mechanisms, and the first two failed in opposite ways.** A
+Cloudflare Pages `_redirects` file cannot match on hostname — but the
+absolute-URL form is *accepted*, deploys with no complaint and a green tick, and
+is then **silently ignored**, with the old hosts still answering 200 and serving
+content. Caught only by reading the status code rather than the deploy result. A
+zone Redirect Rule is the textbook answer and returned 403 on the
+dynamic-redirect entrypoint for every stored token — which at least fails
+loudly. What worked was a Pages Function (`functions/_middleware.js`): it runs on
+every custom domain of the project, needs no permission anybody has to grant, and
+is reviewable in a diff.
+
+Two things worth carrying out of it. **The honest cost was written down** — the
+site is no longer purely static, so a second Function has to argue for itself.
+And **the check to build is one that fetches the live URL and fails if the
+content is wrong, never one that verifies the configuration**: a domain move is
+precisely the event that recreates *correct in the repo, wrong where anybody
+reads it*. Verified here by following the redirect to a 200 on the real policy,
+not by reading the rule.
+
 **A scan finds only what names itself, and a clean result is not a clean file.**
 A session preserving two meeting transcripts grepped both for
 `password|secret|token|credential`. One came back with zero hits and was nearly
