@@ -174,7 +174,7 @@ func (h *Hub) agentSend(w http.ResponseWriter, r *http.Request) {
 	// Wake the recipient if its session is on a connected agent. This is the
 	// nudge, and it lands immediately rather than up to 15 minutes later like
 	// the cron that preceded it.
-	h.nudge(r.Context(), c.tenant, env.ToSession)
+	h.nudge(r.Context(), c.tenant, env.ToSession, wakeAgentSend)
 
 	// Report what it resolved to, AND how deep the recipient's queue now is.
 	//
@@ -354,7 +354,7 @@ func (h *Hub) agentPeers(w http.ResponseWriter, r *http.Request) {
 // Best effort by design: an offline session's mail waits in the store, and a
 // busy one is left alone rather than having a prompt injected mid-thought.
 // This replaces the 15-minute cron that read the presence KV.
-func (h *Hub) nudge(ctx context.Context, tenant, sessionID string) {
+func (h *Hub) nudge(ctx context.Context, tenant, sessionID string, why wakeReason) {
 	if sessionID == "" {
 		return
 	}
@@ -369,6 +369,19 @@ func (h *Hub) nudge(ctx context.Context, tenant, sessionID string) {
 		if !h.IsOnline(tenant, s.Agent) {
 			return // offline: the delivery row is the wait
 		}
+		// The cap decides WHEN mail is noticed, never whether it arrives —
+		// exactly what a skipped nudge has always meant. The delivery row stays,
+		// and stuck.go's existing two-minute retry is what releases the hold, so
+		// no new queue was needed: the machinery was already running.
+		if ok, behind := h.cap.allow(s.SessionID, s.Project, s.Kind, why); !ok {
+			h.store.Tenant(tenant).Audit(ctx, AuditEntry{
+				Actor: "cap", Action: "wake.queued", Target: s.SessionID,
+				Detail: fmt.Sprintf("held behind %d working (%s); retry in %s",
+					behind, why, stuckRetry),
+			}, h.now())
+			return
+		}
+		h.cap.clearQueued(s.SessionID)
 		go func(agent, tmuxSession string, window int) {
 			// Detached from the request: the sender must not block on the
 			// recipient's tmux server.
@@ -605,7 +618,7 @@ func (h *Hub) agentTaskCreate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	h.nudge(r.Context(), c.tenant, to)
+	h.nudge(r.Context(), c.tenant, to, wakeHumanSend)
 
 	tn.Audit(r.Context(), AuditEntry{
 		Actor: "session:" + req.From, Action: "task.create", Target: to,
@@ -651,7 +664,7 @@ func (h *Hub) agentTaskUpdate(w http.ResponseWriter, r *http.Request) {
 			Title: "Task " + task.State + ": " + firstLineOf(task.Brief),
 			Body:  body, Type: map[bool]string{true: "success", false: "warning"}[task.State == TaskDone],
 		}, now); err == nil {
-			h.nudge(r.Context(), c.tenant, task.RequestedBy)
+			h.nudge(r.Context(), c.tenant, task.RequestedBy, wakeTaskEnd)
 		}
 	}
 	writeJSON(w, task)
@@ -686,7 +699,6 @@ func firstLineOf(s string) string {
 	}
 	return truncate(strings.TrimSpace(s), 80)
 }
-
 
 // pendingFor reports how much undrained mail a session is now holding.
 //

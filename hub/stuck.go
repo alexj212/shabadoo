@@ -64,7 +64,19 @@ type stuckWatcher struct {
 	// failure hide for ten hours — a mechanism nobody can observe is one nobody
 	// can tell has stopped.
 	audit func(ctx context.Context, tenant, target, detail string)
-	now   func() time.Time
+	// queued reports whether the wake cap is deliberately holding this session.
+	//
+	// Without it this watcher pages a human at five minutes about mail the cap
+	// is holding ON PURPOSE — the feature added to calm the fleet generating the
+	// alarm. Three states have to stay distinguishable: IDLE has nothing to do,
+	// QUEUED is held and needs nobody, STUCK needs a person. Collapsing queued
+	// into stuck is the empty-versus-unknown failure rebuilt in a new place.
+	//
+	// The RETRY still fires while queued, deliberately: it re-enters the gate,
+	// which is what releases the hold when a slot frees. Only the escalation is
+	// suppressed.
+	queued func(sessionID string) bool
+	now    func() time.Time
 }
 
 type stuckEntry struct {
@@ -130,6 +142,10 @@ func (s *stuckWatcher) observe(ctx context.Context, tenant string, sessions []Se
 			continue
 		}
 
+		// Held by the cap: not stuck, and not a person's problem.
+		if s.queued != nil && s.queued(sess.SessionID) {
+			continue
+		}
 		switch {
 		case e.notified.IsZero() && waited >= stuckGrace:
 			e.notified = now

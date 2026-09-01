@@ -204,3 +204,44 @@ func TestStuckWatcherDoesNotAuditAFailedNotification(t *testing.T) {
 		t.Error("recorded a notification that was never delivered")
 	}
 }
+
+// A session held by the wake cap is QUEUED, not STUCK, and must not page anyone.
+//
+// Without this the cap added to calm the fleet becomes the thing that generates
+// the alarm: mail is held on purpose, the hold outlasts stuckGrace, and a human
+// is notified about a wait the system chose. Three states have to stay
+// distinguishable — idle has nothing to do, queued needs nobody, stuck needs a
+// person.
+//
+// Pinned as a PAIR. An assertion that a queued session is silent passes just as
+// well for a watcher that has stopped notifying anybody, so the control runs the
+// identical fixture with the hold removed and requires the notification.
+func TestQueuedByTheCapIsNotStuck(t *testing.T) {
+	base := time.Unix(1_700_000_000, 0)
+	online := func(string) bool { return true }
+	sess := []Session{{SessionID: "s1", Agent: "wsl", Alias: "iptv", Pending: 2, InputState: "composer"}}
+	past := base.Add(stuckGrace + time.Minute)
+
+	t.Run("held by the cap: silent", func(t *testing.T) {
+		w, sent := stuckFixture(base)
+		w.queued = func(string) bool { return true }
+		w.observe(context.Background(), "t", sess, online)
+		w.now = func() time.Time { return past }
+		w.observe(context.Background(), "t", sess, online)
+		if len(*sent) != 0 {
+			t.Fatalf("paged a human about mail the cap is deliberately holding: %v", *sent)
+		}
+	})
+
+	t.Run("control: the same wait with no hold DOES notify", func(t *testing.T) {
+		w, sent := stuckFixture(base)
+		w.queued = func(string) bool { return false }
+		w.observe(context.Background(), "t", sess, online)
+		w.now = func() time.Time { return past }
+		w.observe(context.Background(), "t", sess, online)
+		if len(*sent) == 0 {
+			t.Fatal("genuinely stuck mail must still reach a person, or the " +
+				"assertion above only proves the watcher went quiet")
+		}
+	})
+}

@@ -4,7 +4,6 @@ package main
 // and `shabadoo hub` (coordinator).
 
 import (
-	"path/filepath"
 	"context"
 	"flag"
 	"io/fs"
@@ -12,6 +11,8 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -148,6 +149,10 @@ func runHub(args []string) {
 	ciRepo := fset.String("ci-repo", os.Getenv("SHABADOO_CI_REPO"),
 		"owner/name of a PUBLIC GitHub repo to watch; notifies when its default "+
 			"branch goes red. Needs --apprise-url; no token, the API is public")
+	wakeCapN := fset.Int("session-cap", envInt("SHABADOO_SESSION_CAP", 6),
+		"most sessions woken into a turn at once; 0 disables. Core sessions, "+
+			"this project, a human's own send and task-end notices are never "+
+			"held. Disable without a restart: touch cap.off beside the database")
 	apprise := fset.String("apprise-url", os.Getenv("SHABADOO_APPRISE_URL"),
 		"notification relay endpoint, e.g. http://apprise:8000/notify/homelab "+
 			"(empty disables notify_send)")
@@ -363,6 +368,19 @@ func runHub(args []string) {
 	}
 	// Two independent decisions, and they were briefly one.
 	//
+	// The wake cap, enabled on its own line for the reason written just below
+	// about the notifier chain: a feature decided inside somebody else's branch
+	// is a feature that silently stops running.
+	if *wakeCapN > 0 {
+		h.EnableWakeCap(*wakeCapN, filepath.Dir(*dbPath))
+		log.Printf("hub: waking at most %d session(s) into a turn at once; "+
+			"core sessions, shabadoo, human sends and task-end notices exempt. "+
+			"Disable with: touch %s",
+			*wakeCapN, filepath.Join(filepath.Dir(*dbPath), "cap.off"))
+	} else {
+		log.Printf("hub: --session-cap 0, so nothing paces the wake path")
+	}
+
 	// Adding the CI watcher turned this into an if/else chain, which put
 	// EnableBlockedNotifications in a branch reached only when --ci-repo was
 	// UNSET. Setting one flag therefore switched off the blocked-session and
@@ -475,4 +493,21 @@ func keyOnCommandLine(args []string) bool {
 		}
 	}
 	return false
+}
+
+// envInt reads an integer from the environment, falling back to def. A value
+// that does not parse is IGNORED rather than treated as zero: zero disables the
+// cap, so a typo would silently switch off the thing somebody set it to
+// configure, and a disabled guard looks exactly like one that never fires.
+func envInt(key string, def int) int {
+	v := os.Getenv(key)
+	if v == "" {
+		return def
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		log.Printf("hub: %s=%q is not a number, using %d", key, v, def)
+		return def
+	}
+	return n
 }

@@ -1155,6 +1155,91 @@ discarded value. A session cannot be the instrument here — it has no way to te
 a nudge-delivered message from a hook-delivered one — so the coordinator is the
 only place the difference is observable, and it was the one place not looking.
 
+## Pacing the wake path (`--session-cap`)
+
+A check-in fan-out sent 25 tasks in a few minutes, woke roughly two dozen idle
+sessions into simultaneous turns, and consumed the account's usage window.
+**Nothing opened a window.** The sessions were already there, already idle,
+costing nothing — so the thing to cap is ACTIVITY, not existence, and the
+enforcement point is the WAKE path. A limit guarding `open` would have been
+fully satisfied while the window burned.
+
+`h.nudge` turned out to be a single chokepoint with five callers, and three of
+the four things a queue needs were already running: mail is durable, a skipped
+nudge is already a supported state, and `stuck.go` already retries one every two
+minutes — which *is* the release mechanism. So the cap is a gate in one function.
+
+**It counts token counters GROWING between two agent reports.** Cache-read
+dominates output by ~327x here, so the cost is turns taken across large
+contexts, and a session that burns tokens is working. Available every five
+seconds, no new field on the agent protocol — which matters, because the hub
+decodes reports with `DisallowUnknownFields` and an additive field would have
+forced a two-step deploy.
+
+**It deliberately does not use `Session.Status`.** That is tmux's
+selected-window flag: `statusOf` returns `"active"` when `w.Active`, meaning
+*this is the window you are looking at*. Two sessions independently reported
+"2 of 29 active" and "1 of 26 active" as activity measurements and I repeated
+one of them before checking; both were counting foregrounded windows. Gating on
+it would cap against whichever pane somebody last clicked.
+
+Recently-nudged sessions count too. A turn takes seconds to start, so without
+that a fan-out passes the gate two dozen times before the first report reflects
+any of it — the exact herd this exists to stop.
+
+### It must never hold the sessions that would fix it
+
+The operator's words were *"making sure to not cap ourselves fixing it"*, and it
+is the design constraint rather than a footnote: a cap that queues the sessions
+needed to diagnose or disable it is a fleet-wide lockout, arriving at the worst
+moment because that is when the cap binds.
+
+Never held: **core sessions** (the addressable "you" of a machine and the only
+thing permitted to start sessions there), **this project**, **a human's own
+send**, and **task-end notices** — which report completion rather than
+requesting work, and holding them makes finished work look unfinished. A caller
+that does not say why is exempt too, because `wakeReason`'s zero value is
+`wakeUnknown` and an unset enum must mean the safe thing.
+
+Every exemption is tested against a **full** cap, with a control asserting an
+ordinary session in the identical state IS held — an exemption that only works
+when the cap is not binding is not an exemption, and the assertions prove
+nothing against a cap that holds nothing.
+
+### It fails open, and the comment says so
+
+Every uncertain path — no limit, kill switch present *or unreadable*, unknown
+caller, unseen session — lets the wake through. Failing closed on a bug stops
+the fleet and holds the sessions that could fix it, needing a human at the
+machine; failing open means the cap silently does not bind, which is recoverable
+and costs one bad afternoon. The asymmetry is not close, and it is written at
+the gate so the next person to tighten it knows the looseness was chosen.
+
+### The kill switch is a file
+
+`touch <state dir>/cap.off` — checked on every gate call, so it takes effect
+with no restart. A file rather than a flag or an endpoint because **a broken cap
+is exactly when sessions and dashboards do not work**: if turning it off
+requires messaging a session, it is not a kill switch.
+
+### Queued, idle and stuck are three different states
+
+`stuck.go` escalates to a human after five minutes of undrained mail — so a
+held session would page somebody about mail the cap is deliberately holding, the
+calming feature generating the alarm. `queuedSince` makes the hold explicit and
+the watcher skips it; the **retry still fires**, because re-entering the gate is
+what releases the hold. Pinned as a pair: silence while held, and a control
+requiring genuinely stuck mail to still reach a person.
+
+### It measures what nobody had measured
+
+`/healthz` carries `wake_cap` — limit, concurrent, **high_water**, allowed, held,
+exempted, queued_now. The high-water mark is the point: the default of 6 is a
+guess, because concurrent activity had never been measured by anything. Within a
+day it stops being one. And counters exist so that *"the cap is working"* and
+*"the cap is not wired up"* are distinguishable, which is this codebase's most
+expensive recurring failure.
+
 ## Blocked-session notifications
 
 When a session sits at a prompt for **90 seconds**, the coordinator sends a

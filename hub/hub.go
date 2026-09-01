@@ -83,10 +83,10 @@ type conn struct {
 	// because it changes the moment somebody runs `setup` and a badge that only
 	// clears on reconnect would outlive the fix by up to a day.
 	payload NodePayload
-	expires  time.Time
-	out      chan command
-	closed   chan struct{}
-	once     sync.Once
+	expires time.Time
+	out     chan command
+	closed  chan struct{}
+	once    sync.Once
 }
 
 func (c *conn) close() {
@@ -117,6 +117,17 @@ type Hub struct {
 	blocked *blockedWatcher
 	stuck   *stuckWatcher
 	tasks   *taskWatcher
+
+	// wakeCap paces how many sessions are woken into a turn at once. nil means
+	// no cap, which is also what a zero limit means — see cap.go.
+	cap *wakeCap
+}
+
+// EnableWakeCap paces the wake path. dir is where the kill-switch file lives;
+// it must be a directory an operator can reach from a plain shell on the host,
+// because a broken cap is exactly when sessions and dashboards do not work.
+func (h *Hub) EnableWakeCap(limit int, dir string) {
+	h.cap = newWakeCap(limit, dir, h.now)
 }
 
 func New(auth *Authorizer, store *Store) *Hub {
@@ -160,6 +171,10 @@ func (h *Hub) EnableBlockedNotifications() {
 	// broke, two sessions in a handoff sat waiting for ten hours and it took a
 	// human asking one of them how it was doing.
 	sw := newStuckWatcher(h.now)
+	sw.queued = func(sessionID string) bool {
+		_, held := h.cap.queuedSince(sessionID)
+		return held
+	}
 	sw.send = func(ctx context.Context, tenant, title, body, tag string) error {
 		return postApprise(ctx, title, body, tag, "warning")
 	}
@@ -168,7 +183,7 @@ func (h *Hub) EnableBlockedNotifications() {
 	// so the retry is free and silent — and it is what sweeps up a backlog the
 	// arrival-time nudge can never revisit.
 	sw.retry = func(ctx context.Context, tenant, sessionID string) {
-		h.nudge(ctx, tenant, sessionID)
+		h.nudge(ctx, tenant, sessionID, wakeStuckRetry)
 	}
 	sw.audit = func(ctx context.Context, tenant, target, detail string) {
 		h.store.Tenant(tenant).Audit(ctx, AuditEntry{
@@ -338,6 +353,14 @@ func (h *Hub) HealthRoutes(mux *http.ServeMux) {
 			// said it and nobody reads a startup log. This is checkable from
 			// outside, by anything, at any time.
 			"watchers": h.activeWatchers(),
+			// The cap's own behaviour, reported here for the same reason the
+			// watcher list is: "the cap is working" and "the cap is not wired
+			// up" are indistinguishable from the outside without counters, and
+			// this endpoint needs no credential — which is exactly what you have
+			// when a broken cap is holding the sessions you would have asked.
+			// `high_water` is the measurement that turns the limit from a guess
+			// into a number: nobody has ever measured concurrent activity.
+			"wake_cap": h.cap.stats(),
 		})
 	})
 }
@@ -595,6 +618,9 @@ func (h *Hub) handleReport(w http.ResponseWriter, r *http.Request) {
 	for i := range req.Sessions {
 		req.Sessions[i].Agent = c.node // never trust an agent's claim about which node it is
 	}
+	// Read who burned tokens since the last report before the rows are replaced.
+	// This is the cap's activity signal and it costs a map diff.
+	h.cap.observe(req.Sessions)
 	if err := tn.ReplaceAgentSessions(ctx, c.node, req.Sessions, now); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -693,7 +719,6 @@ func addressesAPane(raw json.RawMessage) bool {
 	}
 	return *probe.Pane > 0
 }
-
 
 // activeWatchers names the background work this coordinator is doing, so an
 // absence is visible rather than merely true.

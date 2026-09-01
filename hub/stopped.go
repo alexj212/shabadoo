@@ -141,7 +141,7 @@ func (h *Hub) askCoreToStart(ctx context.Context, tenant string, p stoppedProjec
 		Type:        "warning",
 	}, h.now())
 	if err == nil {
-		h.nudge(ctx, tenant, core)
+		h.nudge(ctx, tenant, core, wakeStoppedCore)
 	}
 	return err
 }
