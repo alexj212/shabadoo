@@ -220,6 +220,23 @@ is more expensive than a wrong "maybe"**, because "maybe" invites a check and
 "gone" closes the subject. Name the peer, never their state: `session_list`
 answers liveness now, a row answers it as of whenever somebody last looked.
 
+**And the subject generalises: record the ACTION, not the STATE.** A peer's
+existence is one instance; *the config is restored*, *the directory is clean*,
+*the process is stopped* and *the queue is drained* are the same sentence with
+different nouns. **An action is permanently true; a state is a claim with an
+expiry nobody wrote down.** So write the verb — *"restored it and verified from
+disk at 00:28"* — which costs nothing and never goes stale. Where the state
+genuinely is the useful thing, **stamp it**, so a reader sees a sample rather
+than a constant. That is what `updated:` is for on a mission card, and why a
+`status:` line is honest while the same words in prose are not.
+
+**Closing a row ends the watching, not just the work.** While a task is open
+something is chasing it; the moment it is `done`, every transient claim in its
+note becomes unverified — and a check that stopped running looks exactly like a
+check that found nothing wrong. So the expiry is on the attention as well as on
+the claim. If a note asserts a state you want somebody to keep an eye on,
+closing the row is the act that stops anyone doing so.
+
 ### Brief a peer when you can see something they cannot
 
 Not "keep everyone informed" — that is a newsletter, and a newsletter gets

@@ -638,3 +638,33 @@ Two smaller ones from the same episode:
 - **Order can make a cleanup impossible rather than merely awkward.** An
   immutability rule has to come off *before* the artifacts it covers, or they
   strand permanently. Worth stating wherever a teardown is written.
+
+**A measurement can be correct and the tense still wrong.** A session verified
+two things from disk — a directory empty, a config key absent — and wrote both
+into a task note as settled fact, then closed the task. Both were true when
+written. **Six minutes later both were false**: a peer had re-armed the config
+for another probe. The durable record said the machine was safe while it was
+armed at a threshold below its own noise floor, with an auto-stop that is
+unrecoverable there — a recording-loss path, described in the record as
+resolved.
+
+Nothing was harmed, and the finder caught it in their own writing within
+minutes. What makes it worth keeping is that **the error was not in the
+checking**. The reads were right. The sentence was written the way you write a
+constant, about a fact that was a sample.
+
+Two halves, and the second is the one that is easy to miss:
+
+- **Write the verb.** *"Restored it and verified from disk at 00:28"* is
+  permanently true and costs nothing extra. *"The config is restored"* is true
+  until it is not, and nothing in the row says when it was taken.
+- **Closing the row ended the watching.** While the task was open, something was
+  chasing that machine's state; `done` stopped that, and the transient claims
+  went unverified at the same moment they became invisible. The expiry is on the
+  attention, not only on the claim.
+
+Worth noting how it was reported: the finder said plainly they had **not**
+established that this ever bit anybody before that night — only that the shape
+is identical to the liveness rule already in the core file. Handing over the
+weakness of their own case is what made it possible to judge on the evidence
+rather than on the advocacy.
