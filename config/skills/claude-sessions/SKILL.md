@@ -36,6 +36,25 @@ has to travel in the message.
 | **start it clean** | `shabadoo command --pane <name> /clear` | a folder with history RESUMES on open. Escape dismisses the prompt but the context still loads |
 | **kill** | `shabadoo win close <name>` | `reopen` rebuilds it in the same directory |
 
+**Before accepting a task, ask what state would CLOSE it.** If no value is
+honest, it is a role rather than a task — and that is the moment it becomes
+unclosable, not later when somebody notices.
+
+Paid for: *"You are the patching mission, your charter is `MISSION.md`"* was
+accepted as `active` and chased for eleven days. There was never a value its
+owner could set — `done` would be false while the mission continues, `blocked`
+false because nothing was blocking, and `active` is what produced the chasing.
+**`dropped` was the only accurate one.** Their own diagnosis of where it went
+wrong: the row was accepted without anyone asking what completion looked like.
+
+So when you are the one CREATING it, **one row per deliverable** — for that
+mission it would have been three, each of which can close. And when you are the
+one receiving a role, `dropped` with a note saying *standing charter, not a
+deliverable* is the honest answer. Dropping is an answer, not a failure.
+
+A role row and a deliverable row look identical in a list and behave completely
+differently: one converges and the other cannot.
+
 **The unit of concurrency is a session. You spawn one — you never split anything.** More work in
 parallel means another session, in its own directory, with its own context. Narrower work under a
 project is a session in a subfolder, reported as `<parent>/<child>`.
