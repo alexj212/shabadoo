@@ -447,6 +447,27 @@ Collected instances, each found by somebody else after it had cost something:
 | every session's tools are current | this platform has no `/proc` to look in |
 | a diagnostic counter absent | never measured, not never happened |
 | nothing listed | nothing was *visible to me* |
+| `systemctl show -p Result` → `success` | ran and succeeded, **or** never ran, **or** the unit is not installed |
+
+That last row is worth the extra sentence because the fix is not obvious and the
+default reading is the wrong one. `Result` is systemd's value for a unit with no
+execution history, not a statement about an execution. Two sessions a week apart
+read it as a measurement: one reported three hosts backed up when two had never
+run a backup — 17 snapshots in the repository, none from either — and one had a
+host reporting `success` for a unit that **does not exist**, which had therefore
+never applied an update and carried 63 outstanding security packages against its
+twin's 9.
+
+**It takes two fields, not one.** `LoadState` separates *not installed*
+(`not-found`) from installed. `ExecMainExitTimestamp` separates *ran* from *did
+not* — but only for units that COMPLETE: a healthy long-running service has no
+exit timestamp either, so empty means "no exit recorded" rather than "never
+started". Verified across systemd 249 as well as el8/el9, so this is not one
+distribution's quirk.
+
+**And the move that actually settles it is the one this section keeps arguing
+for: verify the outcome, not the unit.** List the backup repository, read `dnf
+history`. The host's own exit status is the component reporting on itself.
 
 So **distinguish the two at the point of measurement, not in the caller**. Where
 a value can be unknown, carry a companion that says whether it was established —
