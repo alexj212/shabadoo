@@ -98,6 +98,46 @@ as `ok (cached)`. **Before trusting a check, name the input that would make it
 red. If you cannot, it is decoration.** That one question would have caught five
 of the six.
 
+**A check can be well-formed, run cleanly, and be incapable of a positive.** The
+variant the question above does not catch: *name the input that would make it
+red* assumes such an input exists. Sometimes none does.
+
+The specimen that earns it: a secret scan keyed on the `glpat-` prefix, run
+against a server from 2020 whose tokens are twenty characters with **no prefix
+at all** — GitLab only added that prefix in 14.5. The scan returns clean on
+every credential that server has ever issued, and will for everyone who runs it
+afterwards. The implied detection rule is length-and-entropy plus a
+server-specific pattern, never a prefix.
+
+A second, same day, different session: a sweep for scripts depending on local
+Docker, keyed on the literal word `docker` — while the thing at risk was
+`/run/host-services/tools.sock`, a path containing no such word. Re-keyed on
+socket shapes it still came back clean, and its author put the distinction
+better than the rule does: *"the all-clear still stands — but it now stands on a
+check that could actually have failed, which the first one could not."* Identical
+output both times; only the second meant anything.
+
+Five more in one day, three mechanisms, every one a confident wrong answer from
+a valid-looking read: a `401` from testing a token against the **wrong server**;
+a `No such file` from the **wrong host**, two machines sharing a hostname; a
+`404 Group Not Found` because the CLI was pointed at the public service rather
+than the private one; *"17 of 21 hosts missing from inventory"* from a grep
+carrying an unstated **line-adjacency** assumption against a file organised by
+topic; and *non-default is not absent* — repos counted as missing a branch that
+also carried it under another name.
+
+**The method worth copying is how it surfaced.** Their scan reported `0` where a
+peer's finding said otherwise, and they **treated the contradiction as the signal
+rather than as their answer.** The reporter also noted the last instance was
+their own, made *after* reading the rule — knowing it did not stop them
+inferring absence from a property merely adjacent to absence.
+
+**A scope statement that names what is denied without naming what is not invites
+a peer to widen it.** *"Group audit events are 403 to us"* was carried forward
+by a reader as *"group reads are 403 to them"*, and cost a turn supplying
+something already in hand. Four words fix it: *"403 on `/audit_events` only;
+group, members and variables all readable."*
+
 **A check wired to your own activity cannot see what happens when you are not
 there.** The third variant, and the one nobody looks for. A version-pin checker
 ran `on: push` only — so it could report drift **only while somebody was already

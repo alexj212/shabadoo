@@ -122,6 +122,15 @@ say what else could produce the same reading — because a well-formed pair that
 holds the real confound constant looks rigorous while answering a different
 question. Getting the shape right is not the same as getting the axis right.
 
+**And a negative result is only evidence if a POSITIVE could have existed.**
+Both rules above assume the check ran and could have come back the other way.
+Sometimes it could not — and then a clean answer is not weak evidence, it is
+*none*, while reading as reassurance. A secret scan keyed on a token prefix its
+target server predates returns clean on every credential that server has ever
+issued. So before believing an empty result, **say what a true positive would
+have looked like in THIS system**; if the thing you are matching on could not
+appear in the thing you fear, the clean result is an artefact of the query.
+
 
 ## Problem-Solving Philosophy
 
