@@ -1186,3 +1186,13 @@ it is never wasted work.
   tailnet device, and a mock would encode today's misunderstandings.
 - When something in this document turns out to be wrong, report it — a stale
   contract is worse than a missing one.
+
+**`online` is a fact about the NODE, not the session.** It is stamped onto every
+session row from whether that session's *agent* currently holds a connection, so
+a session that has been shut down individually still reads `online: true` while
+its host is connected, with an activity timestamp that keeps looking current.
+Measured: a peer treated it as ground truth against a send that had just been
+refused, and the two disagreed because they answer different questions. Treat it
+as *this host is reachable*, never as *this session is alive* — and note that a
+node reconnecting has had its sessions deleted outright until its first report,
+so a session's absence from the listing is equally a statement about the node.

@@ -532,8 +532,24 @@ func (t *Tenant) ResolveSession(ctx context.Context, want string, now time.Time)
 		// enumerates one namespace while the tool accepts two invites the reader
 		// to conclude the wrong thing, which is this refusal's whole failure
 		// mode — it reads as authoritative about what exists.
-		return "", fmt.Errorf("%w: %q (known aliases: %s; a full session id also works)",
-			ErrNoSuchSession, want, sessionNames(sessions))
+		// The COUNT travels with the list, because the list reads as exhaustive
+		// and is only ever a snapshot. An agent disconnecting has its sessions
+		// deleted outright (DropAgentSessions), so between a node dropping and
+		// its first report after reconnecting, this index legitimately holds a
+		// fraction of the fleet — and a coordinator upgrade restarts every agent
+		// by design.
+		//
+		// Measured: a send refused 92 seconds after a hub restart, naming two
+		// aliases while twenty-two sessions were live. The reader nearly
+		// recorded the peer as GONE, which is the expensive direction of this
+		// project's own wrong-"gone" rule, reached from a tool's output rather
+		// than a stale card. They checked only because the payload names this
+		// exact string as "my index was half-written".
+		return "", fmt.Errorf("%w: %q (index holds %d session(s) right now, which "+
+			"may be incomplete if a node is reconnecting — known aliases: %s; a "+
+			"full session id also works, and retrying is worth more than "+
+			"concluding the peer is gone)",
+			ErrNoSuchSession, want, len(sessions), sessionNames(sessions))
 	default:
 		return "", fmt.Errorf("%q is ambiguous: %s", want, sessionNames(matches))
 	}
