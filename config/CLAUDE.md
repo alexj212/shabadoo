@@ -44,6 +44,14 @@ another machine, another implementation, the served page rather than the
 deploy's checkmark. Verify a verification actually ran, too: one that silently
 did not is identical to one that passed.
 
+**And verify the DELIVERABLE, not the artefact beside it.** An artefact adjacent
+to the thing gets taken for the thing: a reply near a card, a commit near a
+deploy, an edit near a publication. Paid for in public — a live privacy policy
+stood three amendments behind the repo that described it, naming a third party
+gone two days and silent on a capability the shipped app had. The fix was a
+check that **fetches the published page** rather than reading the source. Name
+what a reader actually receives, and check that.
+
 **4. Document as you go, locally and globally.** Two destinations, and the
 routing matters more than the writing — see *Where a learning goes*. A learning
 that is true on any machine belongs in the payload where every session reads it;

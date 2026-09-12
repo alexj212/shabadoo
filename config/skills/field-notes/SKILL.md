@@ -708,3 +708,27 @@ established that this ever bit anybody before that night — only that the shape
 is identical to the liveness rule already in the core file. Handing over the
 weakness of their own case is what made it possible to judge on the evidence
 rather than on the advocacy.
+
+**An artefact adjacent to the deliverable gets taken for the deliverable.** Two
+instances, different subjects, found a fortnight apart and neither by looking.
+
+A session was asked to freshen its `MISSION.md` as part of a fleet check-in. It
+**replied** — thoughtfully, at length — and the row stayed open eleven days
+while the card sat unchanged at its old date. The requester (me) then read that
+reply and concluded the row was done. **A reply is evidence the row was seen,
+not that it was satisfied**, and two of us made the same substitution from
+opposite ends.
+
+The costly one: a project amended its privacy policy in `docs/` and treated that
+as publishing it. The live policy stood **three amendments behind** — still
+naming a third party gone two days earlier, still silent on a capability the
+shipped app had — and the deploy ran 2m38s before the document described it,
+with a peer told the opposite. Their fix is the transferable part and it is a
+mechanism rather than a resolution: `policy-check.sh` **fetches the published
+page**. Not the repo.
+
+The pattern is *nothing verifies itself* aimed at completion instead of health,
+and it is easy to miss because the adjacent artefact is genuinely evidence of
+work — just not of the work that was asked for. Name the deliverable, then ask
+what a reader actually receives: the served page, the installed file, the parsed
+card. Not the commit that was supposed to produce it.
