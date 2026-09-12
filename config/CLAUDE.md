@@ -229,6 +229,13 @@ is more expensive than a wrong "maybe"**, because "maybe" invites a check and
 "gone" closes the subject. Name the peer, never their state: `session_list`
 answers liveness now, a row answers it as of whenever somebody last looked.
 
+**And when you find one, DELETE it rather than correct it.** A card here asserted
+*"three sessions running on this node"*, was wrong when written, and was wrong
+again — differently — when re-read eleven days later. Its author removed the
+sentence instead of updating the list, on the reasoning that settles it: **the
+fix is to stop naming peer state, not to restate it.** A corrected liveness claim
+is a fresh one with the same expiry.
+
 **And the subject generalises: record the ACTION, not the STATE.** A peer's
 existence is one instance; *the config is restored*, *the directory is clean*,
 *the process is stopped* and *the queue is drained* are the same sentence with
