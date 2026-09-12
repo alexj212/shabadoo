@@ -8,9 +8,9 @@ package hub
 // human and recorded in the audit log, which the flock could not do.
 
 import (
-	"errors"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"sort"
@@ -356,7 +356,7 @@ type nodeView struct {
 	// on a platform it cannot inspect, and a resolver listing the half of the
 	// fleet it can see as though that were the fleet — all three shipped in one
 	// evening, which is what turned it into a rule. See Conventions.
-	CapabilitiesKnown bool      `json:"capabilities_known"`
+	CapabilitiesKnown bool `json:"capabilities_known"`
 
 	// PayloadPending is how many ~/.claude files on that node differ from the
 	// payload in its own binary — non-zero means somebody should run `setup`
@@ -366,8 +366,8 @@ type nodeView struct {
 	PayloadPending int  `json:"payload_pending,omitempty"`
 	// PayloadDrift names which files differ, so "1 pending" is actionable
 	// rather than a number somebody defers.
-	PayloadDrift []string `json:"payload_drift,omitempty"`
-	Sessions          []Session `json:"sessions"`
+	PayloadDrift []string  `json:"payload_drift,omitempty"`
+	Sessions     []Session `json:"sessions"`
 }
 
 func (h *humanAPI) sessions(w http.ResponseWriter, r *http.Request) {
@@ -720,11 +720,35 @@ func (h *humanAPI) tasks(w http.ResponseWriter, r *http.Request) {
 		list = []Task{} // an empty list, never null: a client must not have to
 		// distinguish "no tasks" from "field absent" at the JSON layer.
 	}
+	writeJSON(w, taskPageJSON(list, page))
+}
+
+// taskPageJSON renders a page of tasks.
+//
+// Split out because the bug it fixes was invisible from the store: TasksPage
+// computed `Tail` correctly and this handler, hand-building its map, never
+// serialised it. `missionlog` encodes the Page struct whole so its tail survives
+// by construction; this one enumerated fields and omitted one. Nothing failed —
+// a client simply could not follow the feed forward, and the Page contract says
+// why that is unrecoverable at the other end: a caller cannot mint a forward
+// cursor itself without parsing a token it was told is opaque.
+//
+// Third instance of the same shape in this codebase after `acked_at` and node
+// capabilities: a value computed, carried to the edge, and dropped before the
+// consumer sees it.
+func taskPageJSON(list []Task, page Page) map[string]any {
 	out := map[string]any{"tasks": list, "next": page.Next}
+	// Both are omitempty on the struct and stay conditional here: `tail` is
+	// present only on an initial page, and `clamped` only when the page was cut.
+	// Emitting either as an empty string would turn "not applicable" into a
+	// value a client has to interpret.
+	if page.Tail != "" {
+		out["tail"] = page.Tail
+	}
 	if page.Clamped != "" {
 		out["clamped"] = page.Clamped
 	}
-	writeJSON(w, out)
+	return out
 }
 
 func (h *humanAPI) messages(w http.ResponseWriter, r *http.Request) {
