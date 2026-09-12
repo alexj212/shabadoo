@@ -116,18 +116,52 @@ func (h *Hub) findStoppedProject(ctx context.Context, tenant, want string) (stop
 // So the mail is already stored — nothing is lost or waiting on this — and the
 // core session decides whether waking is warranted. Slowness here costs
 // latency, never a message.
-func (h *Hub) askCoreToStart(ctx context.Context, tenant string, p stoppedProject, from string) error {
+// It carries the message's SUBJECT, not just its sender. The core session is
+// being asked to make a judgment — is this worth waking a machine for — and the
+// warning used to ship only who sent it. A core session that cannot read
+// another session's inbox then has two options, guess or wake it to find out.
+// Measured: one guessed from board state, guessed wrong, and spent three of its
+// own turns and a peer's turn asking the sender what it had queued — to
+// establish a fact the coordinator was holding at the moment it warned.
+//
+// Withholding the subject protects nothing, which is the part worth checking
+// rather than assuming: `Replay` selects `m.title` across the whole tenant and
+// the dashboard's Mail panel renders it, so a subject line already crosses
+// project lines by design. This is the machine's own core session, on the node
+// the mail is addressed to.
+//
+// The BODY is still withheld. A subject is what a decision needs; a body is the
+// work itself, and inlining it would deliver the handoff to a session that has
+// not agreed to take it.
+func (h *Hub) askCoreToStart(ctx context.Context, tenant string, p stoppedProject, env Envelope) error {
 	core, ok := h.coreSessionOf(ctx, tenant, p.Node)
 	if !ok {
 		return fmt.Errorf("no core session on %s to ask", p.Node)
 	}
+	// An untitled message SAYS it is untitled. Rendering a blank line there
+	// would read as "the coordinator did not tell me", which is the empty-versus-
+	// unknown failure this codebase keeps paying for, arriving in a warning whose
+	// whole purpose is to inform a decision.
+	subject := env.Title
+	if strings.TrimSpace(subject) == "" {
+		subject = "(the sender set no title)"
+	}
 	body := fmt.Sprintf(
 		"Mail has arrived for %s on this node, which is not running.\n\n"+
-			"Path: %s\nFrom: %s\n\n"+
-			"The message is already stored and will be delivered when that session starts; "+
-			"nothing is lost if you decide it can wait. Start it if the work is worth waking, "+
-			"using the open command for that folder.",
-		p.Project, p.Path, from)
+			"Subject: %s\nPath: %s\nFrom: %s\n",
+		p.Project, subject, p.Path, env.FromSession)
+	// Type and tag only when set: absence genuinely means the sender chose none,
+	// so there is no unknown to distinguish here.
+	if env.Type != "" {
+		body += "Type: " + env.Type + "\n"
+	}
+	if env.Tag != "" {
+		body += "Tag: " + env.Tag + "\n"
+	}
+	body += "\n" + h.queuedLine(ctx, tenant, p) +
+		"\n\nThe message is already stored and will be delivered when that session starts; " +
+		"nothing is lost if you decide it can wait. Start it if the work is worth waking, " +
+		"using the open command for that folder."
 	if p.Deactivated {
 		body += "\n\nNote: this project was closed deliberately, so somebody chose to stop it. " +
 			"Weigh that before restarting it."
@@ -136,7 +170,7 @@ func (h *Hub) askCoreToStart(ctx context.Context, tenant string, p stoppedProjec
 	_, err := h.store.Tenant(tenant).Send(ctx, Envelope{
 		FromSession: "coordinator",
 		ToSession:   core,
-		Title:       "Work waiting for " + p.Project,
+		Title:       h.warnTitle(ctx, tenant, p),
 		Body:        body,
 		Type:        "warning",
 	}, h.now())
@@ -158,4 +192,36 @@ func (h *Hub) coreSessionOf(ctx context.Context, tenant, node string) (string, b
 		}
 	}
 	return "", false
+}
+
+// queuedLine says how much is waiting, so a second warning is distinguishable
+// from a repeat of the first.
+//
+// Two warnings for one project arrived ninety seconds apart and were byte
+// identical, so the reader could not tell a retry from a follow-up and reported
+// that to a human as an unknown. A count separates them.
+//
+// A failed count is reported as UNKNOWN rather than omitted or rendered as
+// zero: "nothing else is waiting" and "I could not look" lead to opposite
+// decisions, and the whole point of this message is to inform one.
+func (h *Hub) queuedLine(ctx context.Context, tenant string, p stoppedProject) string {
+	n, err := h.store.Tenant(tenant).Pending(ctx, p.SessionID, h.now())
+	switch {
+	case err != nil:
+		return "Queued for it: could not be counted — treat this as unknown rather than as one."
+	case n <= 1:
+		return "Queued for it: this message, and nothing else."
+	default:
+		return fmt.Sprintf("Queued for it: %d messages including this one.", n)
+	}
+}
+
+// warnTitle puts the count in the subject line too, because that is the part a
+// reader sees before deciding whether to open anything.
+func (h *Hub) warnTitle(ctx context.Context, tenant string, p stoppedProject) string {
+	base := "Work waiting for " + p.Project
+	if n, err := h.store.Tenant(tenant).Pending(ctx, p.SessionID, h.now()); err == nil && n > 1 {
+		return fmt.Sprintf("%s (%d queued)", base, n)
+	}
+	return base
 }

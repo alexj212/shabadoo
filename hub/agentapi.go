@@ -134,7 +134,7 @@ func (h *Hub) agentSend(w http.ResponseWriter, r *http.Request) {
 			// Stored first, asked second. The message is safe whatever the core
 			// session decides or how long it takes; a failure to ask is a
 			// latency problem, never a lost handoff.
-			askErr := h.askCoreToStart(r.Context(), c.tenant, p, env.FromSession)
+			askErr := h.askCoreToStart(r.Context(), c.tenant, p, env)
 			tn.Audit(r.Context(), AuditEntry{
 				Actor: "session:" + env.FromSession, Action: "message.deferred",
 				Target: p.Project,
