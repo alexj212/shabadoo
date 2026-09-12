@@ -578,13 +578,29 @@ func (s *ReleaseStore) ToolSet(tool, version, platform string) ([]Release, bool)
 
 	newest := version
 	if newest == "" {
+		// Track the best candidate directly. The previous version looked the
+		// incumbent up by a SYNTHESIZED key — Release{Tool, Version, Platform}
+		// — which omits Component, and a tool set has several by definition.
+		// That key therefore matched nothing, `ok` was false on every
+		// iteration, and the condition collapsed to "take the first release the
+		// map yields, then never reconsider". Go randomises map order, so this
+		// picked an ARBITRARY published set rather than the newest, and could
+		// answer differently on two consecutive runs.
+		//
+		// Measured: a node was handed a set 48 commits stale, over a newer
+		// local build, moments after a newer set was published.
+		var best *Release
 		for _, rel := range s.rels {
+			rel := rel
 			if rel.Tool != tool || rel.Platform != platform {
 				continue
 			}
-			if cur, ok := s.rels[Release{Tool: tool, Version: newest, Platform: platform}.key()]; newest == "" || (ok && rel.Published > cur.Published) {
-				newest = rel.Version
+			if best == nil || rel.Published > best.Published {
+				best = &rel
 			}
+		}
+		if best != nil {
+			newest = best.Version
 		}
 	}
 	if newest == "" {

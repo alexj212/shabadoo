@@ -320,7 +320,64 @@ func (c *Client) installTool(ctx context.Context, payload json.RawMessage) (any,
 		}
 		installed = append(installed, comp.Name)
 	}
-	return map[string]any{
-		"tool": req.Tool, "version": req.Version, "installed": installed, "dir": binDir,
-	}, nil
+	// Report what LANDED, not what was asked for.
+	//
+	// This returned req.Version — the request echoed back — so the caller
+	// printed "installed v0.1.0-17-gee5ec50" while the binary on disk reported
+	// a different build entirely, and nothing anywhere noticed. Same shape as a
+	// publish that reports acceptance rather than fetchability: a step stating
+	// its intent instead of its achievement.
+	//
+	// The component named after the tool is the one that can answer. If there
+	// is none, the version is UNKNOWN rather than assumed — an unverified
+	// install must not render as a verified one.
+	out := map[string]any{
+		"tool": req.Tool, "installed": installed, "dir": binDir,
+		"requested": req.Version,
+	}
+	primary := ""
+	for _, comp := range req.Components {
+		if comp.Name == req.Tool {
+			primary = filepath.Join(binDir, comp.Name)
+		}
+	}
+	switch {
+	case primary == "":
+		out["version"] = req.Version
+		out["verified"] = false
+		out["note"] = "no component named " + req.Tool + " to ask, so the version is the one requested"
+	default:
+		got, err := toolVersion(ctx, primary)
+		switch {
+		case err != nil:
+			out["version"] = req.Version
+			out["verified"] = false
+			out["note"] = "installed, but it could not be asked its version: " + err.Error()
+		default:
+			out["version"] = got
+			out["verified"] = true
+			if got != req.Version {
+				out["note"] = "DISAGREES with the requested " + req.Version
+			}
+		}
+	}
+	return out, nil
+}
+
+// toolVersion asks an installed tool what it is, by the same contract this
+// program uses on itself: `version --json` with a `version` field.
+func toolVersion(ctx context.Context, path string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	raw, err := exec.CommandContext(ctx, path, "version", "--json").Output()
+	if err != nil {
+		return "", fmt.Errorf("it does not run here: %w", err)
+	}
+	var got struct {
+		Version string `json:"version"`
+	}
+	if err := json.Unmarshal(raw, &got); err != nil || got.Version == "" {
+		return "", fmt.Errorf("no parseable version in its --json output")
+	}
+	return got.Version, nil
 }
