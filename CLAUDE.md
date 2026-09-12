@@ -1349,6 +1349,20 @@ radius was every session on the host, and none of those checks could see it.
 longer-lived than the thing that reports on them: an agent is a supervisor, not
 an owner.
 
+**Verifying it needs the pid captured BEFORE the restart, not remembered.** The
+obvious check — read `tmux display-message -p '#{pid}'` after a deploy and see
+that it matches — is worthless without a baseline taken in the same run. Done
+from memory it survived six deploys in one day and then met a machine reboot:
+the pid legitimately changed from 1730146 to 2383, the remembered baseline was
+stale, and the check could no longer distinguish "the agent killed the tmux
+server" from "the host rebooted fifteen hours ago". A check comparing against a
+number a human recalls is not a measurement.
+
+What settles it without a baseline is `ps -o etimes=` on the tmux pid against
+`/proc/uptime`: a server 53,258s old on a host 53,417s up started just after
+boot and has outlived every restart since. Capture the pid before, or read the
+elapsed time after — either works; remembering does not.
+
 **macOS does not have this defect, and the reason is a mechanism rather than a
 flag.** `AbandonProcessGroup` was written into the plist first, as launchd's
 apparent counterpart, and marked unverified because this machine cannot run
