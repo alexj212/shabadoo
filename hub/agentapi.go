@@ -665,6 +665,24 @@ func (h *Hub) agentTaskUpdate(w http.ResponseWriter, r *http.Request) {
 			Body:  body, Type: map[bool]string{true: "success", false: "warning"}[task.State == TaskDone],
 		}, now); err == nil {
 			h.nudge(r.Context(), c.tenant, task.RequestedBy, wakeTaskEnd)
+			// A requester that is not RUNNING got no nudge and, until this, no
+			// warning either — this path sent directly and skipped the
+			// resolve-then-defer dance every ordinary message takes. So a
+			// finished task landed in a stopped project's inbox correctly and
+			// its core session was never given the chance to decide anything.
+			//
+			// Guarded behind a failed resolve: findStoppedProject calls every
+			// online node for its folder list, and that cost has no business on
+			// the path where the requester is simply there.
+			if _, rerr := tn.ResolveSession(r.Context(), task.RequestedBy, now); rerr != nil {
+				if p, found := h.findStoppedProject(r.Context(), c.tenant, task.RequestedBy); found {
+					_ = h.askCoreToStart(r.Context(), c.tenant, p, Envelope{
+						FromSession: task.SessionID,
+						Title:       "Task " + task.State + ": " + firstLineOf(task.Brief),
+						Type:        "info",
+					})
+				}
+			}
 		}
 	}
 	writeJSON(w, task)

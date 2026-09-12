@@ -61,8 +61,6 @@ func (h *Hub) findStoppedProject(ctx context.Context, tenant, want string) (stop
 	if want == "" {
 		return stoppedProject{}, false
 	}
-	lower := strings.ToLower(want)
-
 	var exact, partial []stoppedProject
 	for _, node := range h.Online(tenant) {
 		// Bounded: this runs inside somebody's send, and a node that has
@@ -85,10 +83,10 @@ func (h *Hub) findStoppedProject(ctx context.Context, tenant, want string) (stop
 				Node: node, Path: f.Path, Project: f.Project,
 				SessionID: f.SessionID, Deactivated: f.Deactivated,
 			}
-			switch {
-			case strings.EqualFold(f.Project, want):
+			switch e, pa := stoppedMatch(f, want); {
+			case e:
 				exact = append(exact, p)
-			case strings.Contains(strings.ToLower(f.Project), lower):
+			case pa:
 				partial = append(partial, p)
 			}
 		}
@@ -224,4 +222,35 @@ func (h *Hub) warnTitle(ctx context.Context, tenant string, p stoppedProject) st
 		return fmt.Sprintf("%s (%d queued)", base, n)
 	}
 	return base
+}
+
+// stoppedMatch decides whether a folder answers to a recipient name.
+//
+// Split out because the defect it fixes is a DIRECTION error, invisible at a
+// glance and silent in effect. The substring arm asked whether the PROJECT NAME
+// contains the thing being looked up — right for a human typing `dev`, and
+// backwards for a session id, because "devops" does not contain
+// "claude-devops-wsl-0bcb99a1".
+//
+// A task's requester is always a concrete session id, so every task-completion
+// notice addressed to a stopped project matched nothing here. The completion was
+// stored correctly against the id it would have, and nobody was ever told. Found
+// by a core session doing arithmetic on queue counts it could not reconcile: two
+// messages arrived, one warning appeared, and the missing one was a task notice.
+func stoppedMatch(f folderView, want string) (exact, partial bool) {
+	if want == "" {
+		return false, false
+	}
+	// A session id is the most precise thing a caller can hand over, so it wins
+	// outright rather than competing with names that merely resemble it.
+	if f.SessionID != "" && strings.EqualFold(f.SessionID, want) {
+		return true, false
+	}
+	if f.Project == "" {
+		return false, false
+	}
+	if strings.EqualFold(f.Project, want) {
+		return true, false
+	}
+	return false, strings.Contains(strings.ToLower(f.Project), strings.ToLower(want))
 }
