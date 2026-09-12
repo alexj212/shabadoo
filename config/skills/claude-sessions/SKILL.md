@@ -84,6 +84,26 @@ The node's core session is asked whether to start a queued recipient, so you do
 not open a window first just to have somewhere to send to — provided the project
 is one the coordinator can see.
 
+**Deciding whether to wake one: ask the sender, and offer no guess.** You cannot
+read another session's inbox, so the choice is guess or wake it to find out —
+and guessing cost one core session three of its own turns plus a peer's, to
+learn a fact it could have been told. The question that worked:
+
+1. **What did you send? A subject is enough.**
+2. **Does it need this recipient specifically, or would a person — or a session
+   that is already running — take it?** Name who is currently up.
+3. **Is it time-sensitive?** Say that *leave it queued* is the outcome you would
+   prefer, so the sender is not guessing at your appetite either.
+
+Close with *not a task, no reply needed beyond these answers*, so it does not
+consume a turn it does not need.
+
+Offering your own guess is the part to avoid rather than an optimisation: both
+senders asked this way **re-routed half their mail to a running session**, having
+noticed the mis-routing only because writing the subject out made them look at
+it. A guess suppresses that. Recorded as two instances on one node in one day —
+a pattern worth following, not a proof.
+
 ## Running several at once
 
 Spawn them all, then stop thinking about them — each completion arrives on its own.

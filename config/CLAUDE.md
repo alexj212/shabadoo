@@ -237,6 +237,18 @@ check that found nothing wrong. So the expiry is on the attention as well as on
 the claim. If a note asserts a state you want somebody to keep an eye on,
 closing the row is the act that stops anyone doing so.
 
+**When you have to ask a peer what they meant, ASK — and offer no guess.** A
+guess anchors the person answering, not just you. Measured on this fleet: a core
+session deciding whether queued mail justified waking a stopped project inferred
+the subject and put the inference in the question; the sender opened by
+correcting it and called the guess *load-bearing for the routing*. Asked blank
+the next time — with the question saying plainly that no guess was being
+offered — the sender answered, and then **re-routed half their own mail**,
+having noticed while writing the subject out that it belonged to a session that
+was already running. Both senders did that, and neither could have noticed
+without being made to state it plainly. **A blank question does work at the
+other end that a guess suppresses.**
+
 ### Brief a peer when you can see something they cannot
 
 Not "keep everyone informed" — that is a newsletter, and a newsletter gets
