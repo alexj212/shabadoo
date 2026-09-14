@@ -273,8 +273,9 @@ long each stood.
 		}
 	}
 	if uptime > 0 && oldest > 0 && oldest >= uptime-60 {
-		fmt.Printf("   ⓘ ages are bounded by the coordinator's uptime (%s) — "+
-			"a row may have stood far longer than it reads\n", shortAge(uptime))
+		fmt.Printf("   ⓘ the oldest row here (%s) predates this coordinator "+
+			"process (%s up) — first-sightings are persisted, so the age is "+
+			"real rather than clipped\n", shortAge(oldest), shortAge(uptime))
 	}
 	for _, off := range offline {
 		fmt.Printf("   ⚠ node offline: %s — anything waiting there is waiting on nothing\n", off)

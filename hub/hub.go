@@ -507,8 +507,27 @@ func (h *Hub) handleStream(w http.ResponseWriter, r *http.Request) {
 
 	// The stream *is* the presence signal, so its lifetime is the agent's.
 	defer func() {
+		// The rows STAY. Deleting them here destroyed mail: a name-addressed
+		// send to a live peer on a reconnecting node resolved to nothing,
+		// findStoppedProject could not see it either, and the send was refused
+		// with the content discarded — while an id-addressed send survived,
+		// because an unmatched `claude-` id is passed through. So the addressing
+		// form this project TELLS sessions to use was the lossy one, and a
+		// coordinator upgrade restarts every agent by design.
+		//
+		// Keeping them restores the documented offline behaviour instead of
+		// special-casing it: mail for an offline session is meant to wait, and
+		// its delivery row IS the wait. A typo still bounces, because it still
+		// matches nothing. The agent's next report replaces its list wholesale,
+		// so a window genuinely closed while it was away disappears on
+		// reconnect.
+		//
+		// Presence is unaffected: `online` is keyed on the AGENT, so a node that
+		// is gone reads as offline without deleting anything. The cost is that a
+		// node which never returns leaves rows reading as offline sessions — so
+		// their staleness has to be legible, which is why the listing shows when
+		// each node last reported rather than a bare boolean.
 		h.disconnect(c)
-		h.store.Tenant(c.tenant).DropAgentSessions(context.WithoutCancel(r.Context()), c.node)
 	}()
 
 	// Keepalives stop an idle connection being reaped by an intermediary. SSE

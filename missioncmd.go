@@ -55,7 +55,55 @@ func missionRoot(args []string, what string) string {
 		fatalf("%s is not inside a project (no CLAUDE.md at a git root above it), so there is\n"+
 			"nowhere to %s a MISSION.md that the fleet would read", abs, what)
 	}
-	return root
+	// READING takes the NEAREST card, which is what the fleet reads. Taking the
+	// project root instead is why this printed the PARENT's card for every
+	// mission nested under another project: fourteen of them here, each with its
+	// own MISSION.md, all shown somebody else's. Reported twice by a session
+	// that could only self-check through `session_list`, because the command
+	// built for exactly that question was answering about the wrong file.
+	//
+	// WRITING scaffolds where you are standing. The project root would put the
+	// file in the parent — creating the very collision the read side just
+	// stopped falling into.
+	return missionDirFrom(abs, root, what)
+}
+
+// missionDirFrom picks WHICH directory a mission command acts on.
+//
+// Split out because the bug was a one-word difference with no visible symptom:
+// reading took the PROJECT root while the fleet reads the NEAREST card, so every
+// mission nested under another project printed its parent's card — fourteen of
+// them here. The session that reported it could only self-check through
+// `session_list`, because the command built to answer that question was
+// answering about a different file.
+//
+// Pinned as a pair for the reason this codebase always gives: a fixture
+// asserting "the nested dir reads its own card" passes just as happily when the
+// resolver has gone blind and returns the argument unchanged. The parent and the
+// child must produce DIFFERENT answers.
+func missionDirFrom(abs, root, what string) string {
+	// Deliberately NOT missionDirFor's walk. That helper climbs to the project
+	// root, which is right for the coordinator — a session scoped into
+	// `shabadoo/hub` belongs to shabadoo's card. It is wrong here, because this
+	// command exists to answer "does MY file parse", and climbing answers it
+	// about somebody else's.
+	//
+	// The two cases are indistinguishable by path shape, which is why the rule
+	// has to come from the payload instead: absent and inherited are different
+	// answers. A directory with no card reports none — more useful than one
+	// confidently showing another mission's work, which is what fourteen nested
+	// missions saw.
+	if what == "read" {
+		if hasFile(filepath.Join(abs, "MISSION.md")) {
+			return abs
+		}
+		// Nothing here. Fall through to abs anyway: the caller then reports the
+		// honest "no file at this path" rather than the parent's card.
+	}
+	// Writing scaffolds where you are standing. Taking the project root would
+	// put the file in the parent — creating the collision the read side just
+	// stopped falling into.
+	return abs
 }
 
 func missionShow(args []string) {

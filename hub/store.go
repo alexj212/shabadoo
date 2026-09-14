@@ -114,7 +114,7 @@ CREATE TABLE IF NOT EXISTS agents (
 -- What a session says it is DOING, in its own words.
 --
 -- A separate table because the sessions table is replaced wholesale on every
--- agent report (DropAgentSessions deletes, then rows are re-upserted), so a
+-- agent report (ReplaceAgentSessions deletes, then rows are re-upserted), so a
 -- column there would be erased every five seconds. This is written by the
 -- session itself through the MCP bridge, not by the agent, and the two must
 -- not race.
@@ -534,7 +534,8 @@ func (t *Tenant) ResolveSession(ctx context.Context, want string, now time.Time)
 		// mode — it reads as authoritative about what exists.
 		// The COUNT travels with the list, because the list reads as exhaustive
 		// and is only ever a snapshot. An agent disconnecting has its sessions
-		// deleted outright (DropAgentSessions), so between a node dropping and
+		// kept when a node drops (they used to be deleted, which destroyed mail), but a
+		// node that has never reported at all is genuinely absent, so between a first connection and
 		// its first report after reconnecting, this index legitimately holds a
 		// fraction of the fleet — and a coordinator upgrade restarts every agent
 		// by design.
@@ -1295,9 +1296,17 @@ func (t *Tenant) ListSessions(ctx context.Context, now time.Time) ([]Session, er
 	return out, nil
 }
 
-// DropAgentSessions removes an agent's sessions. Called when it disconnects:
-// presence is connection liveness, so a session whose agent is gone must not
-// linger in the dashboard looking alive.
+// DropAgentSessions removes an agent's sessions.
+//
+// NO LONGER CALLED ON DISCONNECT, and that is the point. It used to run when a
+// stream closed, on the reasoning that a session whose agent is gone must not
+// linger looking alive — but presence is already keyed on the AGENT, so nothing
+// had to be deleted to render it correctly, and deleting DESTROYED MAIL: a
+// name-addressed send to a live peer on a reconnecting node resolved to nothing
+// and was refused with the content discarded.
+//
+// Kept as a store operation because removing a node's rows is a legitimate
+// thing to want deliberately. It simply has no automatic caller.
 func (t *Tenant) DropAgentSessions(ctx context.Context, agent string) error {
 	_, err := t.s.db.ExecContext(ctx, `DELETE FROM sessions WHERE tenant = ? AND agent = ?`, t.id, agent)
 	return err

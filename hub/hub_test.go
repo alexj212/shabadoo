@@ -261,7 +261,20 @@ func TestLoginRejectsUnlistedKey(t *testing.T) {
 
 // Presence is connection liveness: when the stream drops, the agent's sessions
 // must stop appearing in the dashboard.
-func TestDisconnectClearsPresenceAndSessions(t *testing.T) {
+// Presence clears on disconnect; the SESSION ROWS DO NOT.
+//
+// This test used to assert both, and the second half was the contract that
+// destroyed mail: deleting a node's rows when its stream closed meant a
+// name-addressed send to a live peer on a reconnecting node resolved to
+// nothing and was refused with the content discarded — while an id-addressed
+// send survived, so the addressing form this project recommends was the lossy
+// one, and a coordinator upgrade restarts every agent by design.
+//
+// Both halves are asserted on purpose. Dropping the survival check would let a
+// future change delete the rows again with nothing noticing; dropping the
+// presence check would let a dead node read as alive. They fail for opposite
+// reasons and neither substitutes for the other.
+func TestDisconnectClearsPresenceButKeepsSessions(t *testing.T) {
 	f := newHubFixture(t)
 	token := f.login(t)
 	stop := f.fakeAgent(t, token, func(command) result { return result{OK: true} })
@@ -285,15 +298,24 @@ func TestDisconnectClearsPresenceAndSessions(t *testing.T) {
 		t.Fatal("agent still online after stream closed")
 	}
 
-	for time.Now().Before(deadline) {
-		got, _ := f.store.ListSessions(ctx, now)
-		if len(got) == 0 {
-			return
-		}
-		time.Sleep(10 * time.Millisecond)
+	// The rows must STILL be there: mail for an offline session is meant to
+	// wait, and its delivery row IS the wait. Give the old teardown time to run
+	// if it ever comes back — a race that deletes late must still fail here.
+	time.Sleep(250 * time.Millisecond)
+	got, err := f.store.ListSessions(ctx, now)
+	if err != nil {
+		t.Fatal(err)
 	}
-	got, _ := f.store.ListSessions(ctx, now)
-	t.Fatalf("%d sessions survived disconnect: %+v", len(got), got)
+	if len(got) != 1 || got[0].SessionID != "s1" {
+		t.Fatalf("sessions were deleted on disconnect (%d left) — a name-addressed "+
+			"send to this session would now be refused and its content discarded",
+			len(got))
+	}
+	// And it is still ADDRESSABLE by name, which is the property that actually
+	// matters to a sender. Presence being false is not the same as being gone.
+	if to, err := f.store.ResolveSession(ctx, "iptv", now); err != nil || to != "s1" {
+		t.Fatalf("offline session not addressable by name: got %q err=%v", to, err)
+	}
 }
 
 // A reconnecting agent supersedes its old connection rather than both

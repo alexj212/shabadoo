@@ -816,7 +816,17 @@ func bootFolders(c *client, nodes []cliNode) map[string]bool {
 		if !n.Online {
 			continue // its agent cannot answer; absent, not empty
 		}
-		list, err := fetchFolders(c, n.Node)
+		// Bounded, because this is a MARKER. The coordinator proxies `folders`
+		// to the agent under a 30s callTimeout, so one node that accepts the
+		// call and never answers costs half a minute — measured at 30,139ms for
+		// mac against 996ms for wsl, which is the whole of `shabadoo sessions`
+		// taking 31s while /api/sessions returns in 138ms.
+		//
+		// Phase 8 justified this join as "one extra GET against data already
+		// served". Thirty seconds is not that, and the marker is worth less than
+		// the listing it delays. A node that cannot answer quickly contributes
+		// nothing, which is already what an error does here: absent, not empty.
+		list, err := fetchFoldersWithin(c, n.Node, bootMarkerBudget)
 		if err != nil {
 			continue
 		}
@@ -861,6 +871,32 @@ type cliFolder struct {
 	Name   string `json:"name"`
 	Source string `json:"source"`
 	Open   bool   `json:"open"`
+}
+
+// bootMarkerBudget is how long the `*` marker is worth waiting for, per node.
+//
+// Deliberately far below the coordinator's 30s call timeout: this decorates a
+// listing that has already been fetched, and a decoration must never dominate
+// the thing it decorates.
+const bootMarkerBudget = 3 * time.Second
+
+// fetchFoldersWithin is fetchFolders with a client-side deadline.
+func fetchFoldersWithin(c *client, node string, d time.Duration) ([]cliFolder, error) {
+	type result struct {
+		list []cliFolder
+		err  error
+	}
+	ch := make(chan result, 1)
+	go func() {
+		l, e := fetchFolders(c, node)
+		ch <- result{l, e}
+	}()
+	select {
+	case r := <-ch:
+		return r.list, r.err
+	case <-time.After(d):
+		return nil, fmt.Errorf("%s did not answer within %s", node, d)
+	}
 }
 
 func fetchFolders(c *client, node string) ([]cliFolder, error) {
