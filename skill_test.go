@@ -46,9 +46,14 @@ var operatorOnly = map[string]string{
 	"doctor":     "reports what setup would change",
 	"uninstall":  "removes it",
 	"version":    "prints the build",
-	"help":       "is help",
-	"audit":      "is an operator's record of who drove which pane",
-	"mail":       "reads the traffic; documented in the skill by name already",
+	// A session must never hold or release ITSELF. Documenting this verb to
+	// sessions would invite exactly the reach the hold exists to prevent — the
+	// switch belongs to the operator, and a held session learns about it from
+	// the drain banner, which arrives whether or not anyone read a skill.
+	"hold":  "is the operator's switch; a session must not hold or release itself",
+	"help":  "is help",
+	"audit": "is an operator's record of who drove which pane",
+	"mail":  "reads the traffic; documented in the skill by name already",
 }
 
 func dispatchedCommands(t *testing.T) []string {

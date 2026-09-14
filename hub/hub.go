@@ -121,7 +121,22 @@ type Hub struct {
 	// wakeCap paces how many sessions are woken into a turn at once. nil means
 	// no cap, which is also what a zero limit means — see cap.go.
 	cap *wakeCap
+
+	// hold delivers mail and asks the recipient not to act on it. nil means no
+	// hold is configured, which is also what an absent file means — see hold.go.
+	hold *holdState
 }
+
+// EnableHold lets an operator ask sessions to report rather than act. dir is
+// where the hold file lives, and it must be reachable from a plain shell for
+// the same reason the cap's kill switch is: the moment you most want to stop
+// the fleet is the moment its own tooling is what is misbehaving.
+func (h *Hub) EnableHold(dir string) {
+	h.hold = newHoldState(dir)
+}
+
+// Hold exposes the state so the human API can read and set it.
+func (h *Hub) Hold() *holdState { return h.hold }
 
 // EnableWakeCap paces the wake path. dir is where the kill-switch file lives;
 // it must be a directory an operator can reach from a plain shell on the host,
@@ -361,6 +376,11 @@ func (h *Hub) HealthRoutes(mux *http.ServeMux) {
 			// `high_water` is the measurement that turns the limit from a guess
 			// into a number: nobody has ever measured concurrent activity.
 			"wake_cap": h.cap.stats(),
+			// A hold is reported here for the same reason: a quiet fleet and a
+			// HELD fleet look identical from outside, and the second is a thing
+			// somebody chose. This endpoint needs no credential, which is what
+			// you have when the symptom is "nothing is happening".
+			"hold": h.hold.stats(),
 		})
 	})
 }

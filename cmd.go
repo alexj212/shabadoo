@@ -368,6 +368,12 @@ func runHub(args []string) {
 	}
 	// Two independent decisions, and they were briefly one.
 	//
+	// The hold is always available: it costs nothing when no file exists, and a
+	// switch you have to enable first is one that is off when you need it.
+	h.EnableHold(filepath.Dir(*dbPath))
+	log.Printf("hub: hold switch reads %s (absent = no hold)",
+		filepath.Join(filepath.Dir(*dbPath), "hold"))
+
 	// The wake cap, enabled on its own line for the reason written just below
 	// about the notifier chain: a feature decided inside somebody else's branch
 	// is a feature that silently stops running.

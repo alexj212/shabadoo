@@ -854,6 +854,8 @@ part of driving its panes when the coordinator is gone.
 | `GET /api/messages?limit=&session=` | the durable inbox: last 24h across the tenant, or one session's thread. **Read-only — looking never consumes it** |
 | `POST /api/message/send` | `{to_session, title, body}` |
 | `POST /api/message/broadcast` | `{topic, title, body}` |
+| `GET /api/hold` | `{enabled, holding[], consulted, held}` — whether sessions have been asked to report rather than act. **Readable under read scope**, deliberately: "nothing is happening" is exactly the question a phone would be asking, and a held fleet and an idle one are otherwise indistinguishable |
+| `POST /api/hold` | `{holding: ["all"]}` or `{holding: []}` to release. Operator-grade — it changes how every session treats its mail. Replaces rather than adds, so the list is always the whole statement |
 
 ### Managing devices from the app
 
@@ -937,6 +939,19 @@ If you do surface the question by voice, speak the **verbatim** `asking` string
 from `/api/sessions`. Never let the model paraphrase it: rendering
 `Do you want to delete /etc/foo?` as *"it wants to remove a config file, shall
 I approve?"* is precisely the failure this is guarding against.
+
+### A held session is delivered its mail and asked not to act on it
+
+`GET /api/hold` reports this, and it changes what a session list MEANS. Under a
+hold, sessions still receive handoffs and still reply — with what they *would*
+do — and then wait. So `pending` dropping to zero and a session looking busy no
+longer imply work is being done, and a client that renders "active" over a held
+fleet is telling its reader the opposite of what is happening.
+
+Core sessions, the `shabadoo` project and messages from a `human:` sender are
+never held, so an operator can always reach in and lift it. Surface the state if
+you show session status at all; it costs one field and it is the difference
+between a quiet fleet and a stopped one.
 
 ### Deliberately out of scope for a phone
 

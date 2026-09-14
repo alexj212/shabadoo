@@ -75,6 +75,8 @@ func main() {
 		runWho(args[1:])
 	case "update", "self-update":
 		runUpdate(args[1:])
+	case "hold":
+		runHold(args[1:])
 	case "rules", "ethos":
 		runRules(args[1:])
 	case "dash", "dashboard":
@@ -255,7 +257,6 @@ usage:
 Run 'shabadoo <command> -h' for a command's flags.
 `)
 }
-
 
 // builtSuffix renders the build date beside a version, and nothing when there
 // is none — an unstamped build must not be dressed up as a dated one.

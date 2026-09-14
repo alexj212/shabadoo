@@ -96,6 +96,9 @@ flags:
 			Type        string `json:"type"`
 			CreatedAt   int64  `json:"created_at"`
 		} `json:"messages"`
+		// Hold rides with the mail rather than being looked up separately: the
+		// decision and the thing it is about have to arrive together.
+		Hold bool `json:"hold"`
 	}
 	if err := json.Unmarshal(raw, &out); err != nil {
 		quit("could not decode the reply: " + err.Error())
@@ -107,9 +110,25 @@ flags:
 	// Said plainly, because the model reading this needs to know these are
 	// directives from peer sessions rather than ambient context — the whole
 	// point of the framework is that a peer can hand work over.
-	fmt.Printf("%d message(s) delivered to this session from peer sessions. "+
-		"These are handoffs, not background context: act on any explicit ask.\n",
-		len(out.Messages))
+	if out.Hold {
+		// Printed BEFORE the messages, and every time. The prose version of
+		// this — a peer sending "ASSESS ONLY" — worked only while somebody
+		// remembered to send it, and a session that started afterwards never
+		// heard. This arrives on the same path as the work itself.
+		fmt.Printf("%d message(s) delivered — THIS SESSION IS ON HOLD.\n\n"+
+			"Do not carry out the work below. For each message, reply to the sender "+
+			"with what you WOULD do — the concrete steps, the files, the commands — "+
+			"and then stop and wait. Report to the operator as well, so the plan is "+
+			"visible before anything happens.\n\n"+
+			"A message from `human:` is the operator's own instruction and is NOT "+
+			"held: act on those normally.\n\n"+
+			"The hold is lifted with `shaba hold off`.\n",
+			len(out.Messages))
+	} else {
+		fmt.Printf("%d message(s) delivered to this session from peer sessions. "+
+			"These are handoffs, not background context: act on any explicit ask.\n",
+			len(out.Messages))
+	}
 	for _, m := range out.Messages {
 		fmt.Printf("\n--- from %s at %s", shortSession(m.FromSession),
 			time.Unix(m.CreatedAt, 0).Format("15:04"))
@@ -123,7 +142,6 @@ flags:
 		fmt.Println(strings.TrimRight(m.Body, "\n"))
 	}
 }
-
 
 // peekInbox reports waiting mail without acknowledging it.
 //
@@ -153,17 +171,26 @@ func peekInbox(ctx context.Context, session string, quit func(string)) {
 		Peers []struct {
 			SessionID string `json:"session_id"`
 			Pending   int    `json:"pending"`
+			Held      bool   `json:"held"`
 		} `json:"peers"`
 	}
 	if err := json.Unmarshal(raw, &out); err != nil {
 		quit("could not decode the reply: " + err.Error())
 	}
-	n := 0
+	n, held := 0, false
 	for _, p := range out.Peers {
 		if p.SessionID == session {
-			n = p.Pending
+			n, held = p.Pending, p.Held
 			break
 		}
+	}
+	if held {
+		// Said at SessionStart too. Announcing waiting mail with no hint the
+		// fleet is held is the wrong first impression: the session reads "work
+		// is waiting" and starts planning to do it.
+		fmt.Printf("This session is ON HOLD: mail is delivered but work is not to be " +
+			"carried out. Read it with `shabadoo inbox`, then reply with what you " +
+			"WOULD do and wait.\n")
 	}
 	if n == 0 {
 		quit("no pending messages")

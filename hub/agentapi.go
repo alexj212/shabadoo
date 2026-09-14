@@ -242,7 +242,15 @@ func (h *Hub) agentDrain(w http.ResponseWriter, r *http.Request) {
 	if msgs == nil {
 		msgs = []Envelope{}
 	}
-	writeJSON(w, map[string]any{"messages": msgs})
+	// The hold travels WITH the mail. Delivering the messages and leaving the
+	// session to find out elsewhere that it should not act is the same failure
+	// as a brief with no subject: the decision and the thing it is about have to
+	// arrive together.
+	out := map[string]any{"messages": msgs}
+	if h.heldSession(r.Context(), c.tenant, req.Session) {
+		out["hold"] = true
+	}
+	writeJSON(w, out)
 }
 
 func (h *Hub) agentSubscribe(w http.ResponseWriter, r *http.Request) {
@@ -341,10 +349,17 @@ func (h *Hub) agentPeers(w http.ResponseWriter, r *http.Request) {
 	type peerView struct {
 		Session
 		Online bool `json:"online"`
+		// Held says this session has been asked to report rather than act. It
+		// rides here so SessionStart can say so too — announcing waiting mail
+		// with no hint the fleet is held is the wrong first impression.
+		Held bool `json:"held,omitempty"`
 	}
 	out := make([]peerView, 0, len(sessions))
 	for _, s := range sessions {
-		out = append(out, peerView{Session: s, Online: online[s.Agent]})
+		out = append(out, peerView{
+			Session: s, Online: online[s.Agent],
+			Held: h.hold.holds(s.SessionID, s.Alias, s.Project, s.Kind),
+		})
 	}
 	writeJSON(w, map[string]any{"peers": out})
 }
@@ -734,4 +749,29 @@ func (h *Hub) pendingFor(ctx context.Context, tenant, sessionID string) int {
 		}
 	}
 	return 0
+}
+
+// heldSession answers whether one session is under a hold, looking up the
+// identity the hold list matches on.
+//
+// A lookup per drain rather than a cached flag: a drain happens once per prompt,
+// and a hold that took effect only after some refresh interval would be a switch
+// whose position you cannot trust — which is the one property it must have.
+func (h *Hub) heldSession(ctx context.Context, tenant, sessionID string) bool {
+	if h.hold == nil || sessionID == "" {
+		return false
+	}
+	sessions, err := h.store.Tenant(tenant).ListSessions(ctx, h.now())
+	if err != nil {
+		return false // cannot tell: deliver normally, per the fail-open rule
+	}
+	for _, s := range sessions {
+		if s.SessionID == sessionID {
+			return h.hold.holds(s.SessionID, s.Alias, s.Project, s.Kind)
+		}
+	}
+	// A session the coordinator cannot see is not held. Holding something we
+	// cannot identify would fail closed, which is the direction this must not
+	// take.
+	return false
 }

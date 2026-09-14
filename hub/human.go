@@ -103,6 +103,11 @@ func HumanRoutes(mux *http.ServeMux, hub *Hub, store *Store, devices *DeviceStor
 	mux.HandleFunc("POST /api/devices/code", requireWrite(h.enrolCode))
 	mux.HandleFunc("GET /api/devices", h.listDevices)
 	mux.HandleFunc("POST /api/devices/revoke", requireWrite(h.revokeDevice))
+	// Reading a hold is NOT a write: a read-only client should be able to see
+	// that the fleet is held, because "nothing is happening" is exactly the
+	// question it would be asking.
+	mux.HandleFunc("GET /api/hold", h.readHold)
+	mux.HandleFunc("POST /api/hold", requireWrite(h.setHold))
 	// Renewal keeps a live credential alive. Without it a 90-day TTL means the
 	// only recovery is restarting the coordinator with --bootstrap, which is a
 	// trip to a terminal — impossible from the phone that just expired.
@@ -999,6 +1004,35 @@ type deviceView struct {
 	Device
 	Push bool `json:"push"`
 	Self bool `json:"self"`
+}
+
+// readHold reports what is held. Always answers, even with no hold configured,
+// so a client can tell "not held" from "this build has no hold".
+func (h *humanAPI) readHold(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, h.hub.Hold().stats())
+}
+
+// setHold replaces the hold list. An empty list releases.
+//
+// Replace rather than add/remove: a hold is a small, deliberate statement about
+// the whole fleet, and an operator reaching for it under pressure should be able
+// to say exactly what it is rather than reason about what it was.
+func (h *humanAPI) setHold(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Holding []string `json:"holding"`
+	}
+	if !readJSON(w, r, &req) {
+		return
+	}
+	if err := h.hub.Hold().set(req.Holding); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	h.scope(r.Context()).Audit(r.Context(), AuditEntry{
+		Actor: actor(r.Context()), Action: "hold.set",
+		Detail: strings.Join(req.Holding, ", "),
+	}, h.now())
+	writeJSON(w, h.hub.Hold().stats())
 }
 
 func (h *humanAPI) revokeDevice(w http.ResponseWriter, r *http.Request) {
