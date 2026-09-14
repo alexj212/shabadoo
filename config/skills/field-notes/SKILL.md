@@ -171,6 +171,38 @@ one — with deliberately awkward formatting — must go green. The green fixtur
 the one that gets skipped, and it is the one that catches a check which cannot
 pass.
 
+**And a check can fire correctly, in the right direction, and still report
+failures that are not failures.** Everything above is about a check that wrongly
+says CLEAN. This is the other end, and it is dangerous for a different reason:
+the number is believable, so it gets reported, and somebody spends an afternoon
+on a defect that does not exist.
+
+Measured. Verifying that an owner-parsing fix had worked across fourteen files, a
+session grepped whole rendered lines for `**` and got **42 rows still wrong** —
+counting row BODIES, which legitimately contain bold, as failures of the owner
+field. Narrowing the window to 24 columns gave **24** — still wrong, because a
+short owner like `you` leaves the window overlapping the body. Only the third
+pass, anchored to the owner field itself, gave the truth: **one**, and that one
+was a known unparseable annotation rather than a regression. Their words: *"I
+built a check whose false-positive rate was 42:1 and then 24:1 against a tool
+that was working, and each time the number looked plausible enough to report."*
+
+Plausibility is the trap. A check returning 4,200 gets questioned; 42 and 24 get
+acted on. **A count is not a result — read the matches, not the number**, and
+anchor the match to the field you actually care about rather than to the line it
+sits on.
+
+The same week, from the other side: a session declared a working feature broken
+three times running — a stale counter read as "never called", a dropped count
+line that made an empty response indistinguishable from a missing row, and two
+rounds spent holding a session that did not exist. The feature was correct
+throughout; only the verification was wrong.
+
+Two sessions, opposite ends of one mistake, and the pairing is worth keeping as
+they put it: **one nearly made nothing read as somebody, the other nearly made
+everything read as broken.** Both were caught the same way — by looking at what
+matched instead of how much did.
+
 **And confirm the check ran, because "did not run" wears good disguises.** Three
 in one evening, each read as a pass:
 
