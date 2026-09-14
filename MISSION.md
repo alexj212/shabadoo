@@ -1,23 +1,45 @@
 # The session framework itself — coordinator, per-host agents, and the payload of skills and conventions they install.
 status: active
-updated: 2026-08-31
+updated: 2026-09-14
 
 ## Now
-Nothing in flight. The public release path works for the first time — v0.4.81 is
-Latest on GitHub and on both nodes, verified by fetching it unauthenticated,
-checking the published sum, running it, and installing into a throwaway HOME.
-Today was peer-driven: six sessions found things, I shipped and verified them.
+Nothing in flight. v0.4.85 is on both nodes and public: a deliver-but-don't-act
+hold, and fixes for four defects that were all on this card — three of whose
+diagnoses this card had wrong.
 
 ## Waiting on
-- you: four decisions out of the 08-29 retro — ElevenLabs key, 5.5GB of home audio, two unrouted meetings, one mis-addressed send · CARRIED, NOT RE-VERIFIED since 08-30; homelab and wsl hold the detail · risk of skipping: a leaked key keeps billing and the audio keeps growing · cost: one conversation
-- me: no scoped broadcast — today's fleet fan-out cost 25 hand-copied sends, not the 8 this row claimed · risk of skipping: every check-in scales with the fleet and Alex just hit it · cost: a day, and a design decision about who may address whom
-- me: the board's Waiting-on extractor runs past a blank line to the next `##`, swallowing the charter paragraph into the last row · wsl diagnosed the cause FROM THE RENDERING and told four sessions to delete text the checker requires; backups later established the checker was never wrong — my extractor is the only broken half · risk: near-miss on fleet-wide scope-statement deletion, caught by dev-env reading the source · cost: stop the block at the first blank line — and observability wants mission-check.py to ASSERT its extraction matches the board's and go red on divergence, which needs my extraction callable from outside: a SHARED function, never a second parser, or the class returns as two bugs instead of one
-- me: `shabadoo sessions` takes 31s (3/3 runs: 31.18/31.25/31.54) while /healthz answers in 94ms — deterministic, not load, and it gates devops' mission-check.py · POINTER from observability: deterministic to 0.4s is a fixed timeout being waited out, NOT a slow query — look for a deadline constant, not something to optimise · corroborated: `PATH=/usr/bin:/bin` hides the binary and mission-check.py drops 120s+ to 0.167s on two machines · risk: every CLI call and any script looping it · cost: unknown, not diagnosed
-- me: `shaba todo` states "ages are bounded by the coordinator's uptime (2h)" while printing rows aged 41h — the two contradict, and a board that disagrees with its own caveat teaches a reader to discount both · found during the 08-31 check-in, NOT diagnosed · risk: Alex reads the fleet board today · cost: unknown until the age source is traced
-- me: `shabadoo mission` serves the PARENT card for a mission nested under another project's root — reproduced on v0.4.81 in devops/missions/software, which has a valid card of its own · the card-served-from-parent defect I fixed in the coordinator path and missed in the CLI · risk: I told sessions to self-check with this command and it answers confidently and wrongly · cost: small, `missionFor` already exists
+- you: four decisions out of the 08-29 retro — ElevenLabs key, 5.5GB of home audio, two unrouted meetings, one mis-addressed send · CARRIED, NOT RE-VERIFIED since 08-30 · risk: a leaked key keeps billing and the audio keeps growing · cost: one conversation
+- me: no scoped broadcast — a fleet fan-out costs 25 hand-copied sends · risk: every check-in scales with the fleet, and Alex has hit it · cost: a day, plus a decision about who may address whom
+- nobody: `shaba todo` hides 26 rows behind its six-row cap — Alex considered and declined raising it; the cap keeps a card readable, and this is the stated cost of that
 
 ## Log
-- 2026-08-31 FIVE payload findings are QUEUED AND UNWRITTEN because payload edits are
+- 2026-09-14 FOUR ROWS ON THIS CARD DESCRIBED WORK ALREADY DONE, and three of them
+  had the cause wrong: `shabadoo sessions` 31s blamed a coordinator timeout when it
+  was the CLI waiting 30s on an absent node for a `*` marker; the Waiting-on
+  extractor was filed as a code fix when no parser can separate charter prose from
+  author annotation; `shabadoo mission`'s parent-card bug was fixed and left
+  standing. Record the action, not the state — failing on the session that shipped
+  the rule
+- 2026-09-14 the hold: mail is delivered, action is not. Built because the log said
+  something different from what I assumed — 2 task creations that day, but 140
+  nudges across 16 sessions, so it was peer mail waking sessions, not a task
+  fan-out. Core sessions, this project and `human:` senders are never held
+- 2026-09-14 verified the hold three times and got it wrong three times — a stale
+  counter read as "never called", a dropped count line that made silence
+  ambiguous, and two rounds holding a session that does not exist. The feature was
+  correct throughout; the verification was not
+- 2026-09-14 fifteen verbs were dispatched and missing from `shabadoo` usage.
+  skill_test pinned the SKILL against dispatch and nothing pinned the usage text.
+  Found by checking what a stranger receives from the published binary
+- 2026-09-14 an owner extractor read `**you (Alex)**` as nobody — bold wrapping,
+  not parentheses, and it failed two ways depending on whether the name had a
+  space. Found by devops. The census of real cards killed the fix I was about to
+  write from imagination
+- 2026-09-14 a disconnect deleted a node's session rows, so a name-addressed send
+  to a reconnecting peer was refused with the content DISCARDED — while an
+  id-addressed one survived. The addressing form the payload recommends was the
+  lossy one
+## Log- 2026-08-31 FIVE payload findings are QUEUED AND UNWRITTEN because payload edits are
   work and the check-in froze them. Recorded here so a pause does not lose them:
   (1) `--author` is not a session discriminator on a fleet sharing one git identity —
       dns filtered `git log --author="Alex"`, matched all thirteen sessions, and got a

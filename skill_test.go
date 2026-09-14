@@ -137,3 +137,43 @@ func TestSessionSkillNamesNoCommandThatIsGone(t *testing.T) {
 		t.Errorf("%s names `shabadoo %s`, which this binary does not dispatch", sessionSkill, name)
 	}
 }
+
+// Every dispatched command appears in `shabadoo`'s own usage text.
+//
+// Same drift as the skill, one layer over, and it had gone further: FIFTEEN
+// verbs were dispatched and unlisted — hold, blockers, todo, rules, mission,
+// dash, who, update, capture and their aliases — so anyone typing `shabadoo`
+// could not discover them. The list is hand-kept, and a hand-kept list agrees
+// with whatever its author last assumed.
+//
+// Aliases are not required: `ethos`, `good`, `issues` and `dashboard` are second
+// names for verbs that ARE listed, and demanding every spelling would make the
+// usage longer to serve nobody.
+func TestUsageListsEveryDispatchedCommand(t *testing.T) {
+	src, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	usage := string(src)
+
+	// Aliases, mapped to the verb whose entry covers them.
+	alias := map[string]string{
+		"ethos": "rules", "good": "blockers", "issues": "todo",
+		"dashboard": "dash", "self-update": "update",
+	}
+	var missing []string
+	for _, cmd := range dispatchedCommands(t) {
+		if a, ok := alias[cmd]; ok {
+			cmd = a
+		}
+		if !strings.Contains(usage, "  shabadoo "+cmd) {
+			missing = append(missing, cmd)
+		}
+	}
+	if len(missing) > 0 {
+		t.Errorf("dispatched but absent from `shabadoo` usage: %v\n"+
+			"Add a line, or an alias entry in this test saying which verb covers it — "+
+			"but do not leave somebody unable to discover a command by typing the "+
+			"program's name.", missing)
+	}
+}

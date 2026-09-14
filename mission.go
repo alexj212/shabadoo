@@ -334,9 +334,14 @@ func (m *Mission) addWaiting(line string) {
 	// anywhere would turn "shipped: the paging dialect, which fixes: nothing"
 	// into an owner of "shipped", and prose contains colons far more often than
 	// it contains owners.
-	if i := strings.Index(line, ":"); i > 0 && i <= 32 && !strings.Contains(line[:i], " ") {
-		w.Owner = strings.ToLower(line[:i])
-		w.Item = strings.TrimSpace(line[i+1:])
+	// 32, unchanged. The longest owner this fleet actually writes is
+	// "observability (session)" at 23 characters; widening this was a change I
+	// made while fixing something else, with no case that needed it.
+	if i := strings.Index(line, ":"); i > 0 && i <= 32 {
+		if o, ok := ownerToken(line[:i]); ok {
+			w.Owner = o
+			w.Item = strings.TrimSpace(line[i+1:])
+		}
 	}
 	full := w.Item
 	if w.Item = clampMissionTo(w.Item, 120); w.Item == "" {
@@ -413,4 +418,61 @@ func clampMissionTo(s string, max int) string { // max is RUNES, not bytes
 	// have produced.
 	out := []rune(s)[:max-1]
 	return string(out) + "…"
+}
+
+// ownerToken decides whether the text before a colon NAMES somebody.
+//
+// The rule was "short, and containing no space", which is right about prose and
+// wrong about two forms this fleet actually writes. Census of every card:
+//
+//	you 27   nobody 19   me 8   **you (Alex)** 4   devops 4   jeff 3
+//	**devops** 3   you+mia 1   **observability** 1   mission-control 1 …
+//
+// Eight rows are BOLD-wrapped. `**devops**` has no space, so it parsed and
+// produced an owner rendered literally as `**devops**`; `**you (Alex)**` has
+// one, so the colon was rejected and the row rendered `(nobody named)` — a row
+// with a real owner reported as ownerless, which is worse than blank because it
+// reads as a measured absence. Two tools then disagreed about who owns it, and
+// the one saying "nobody" is the one a person believes.
+//
+// So: strip the emphasis, then allow ONE parenthesised qualifier. Not a general
+// loosening — prose keeps failing, which is the property the old rule got right.
+func ownerToken(s string) (string, bool) {
+	t := strings.TrimSpace(s)
+	// Emphasis is presentation, not identity. Strip it before deciding.
+	for _, m := range []string{"**", "__", "*", "_"} {
+		for strings.HasPrefix(t, m) && strings.HasSuffix(t, m) && len(t) > 2*len(m) {
+			t = strings.TrimSpace(t[len(m) : len(t)-len(m)])
+		}
+	}
+	// A struck-through owner is a resolved row somebody kept for the record.
+	t = strings.TrimSpace(strings.TrimPrefix(t, "~~"))
+	// An owner has to NAME somebody. `**` survives the strip above — the loop
+	// requires the token to be longer than the markers wrapping it — and would
+	// otherwise become an owner called "**", which is this fix pointed the wrong
+	// way: I set out to stop real owners reading as nobody and nearly made
+	// nothing read as somebody. Inventing an owner is the worse direction,
+	// because a row attributed to a name that does not exist is chased.
+	named := false
+	for _, r := range t {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
+			named = true
+			break
+		}
+	}
+	if !named {
+		return "", false
+	}
+	// One optional "(qualifier)" after the name: `you (Alex)`, `observability
+	// (session)`. Everything else must be a single unspaced token, so a
+	// sentence that happens to contain a colon is still not an owner.
+	if i := strings.Index(t, " "); i >= 0 {
+		rest := strings.TrimSpace(t[i+1:])
+		if !strings.HasPrefix(rest, "(") || !strings.HasSuffix(rest, ")") ||
+			strings.Contains(rest[1:len(rest)-1], "(") {
+			return "", false
+		}
+		t = t[:i] + " " + rest
+	}
+	return strings.ToLower(t), true
 }

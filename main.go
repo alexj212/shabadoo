@@ -242,6 +242,14 @@ usage:
   shabadoo disconnect <node>      cut a node's live session immediately
   shabadoo revoke <device>        sign out an enrolled browser/phone/CLI
 
+  shabadoo who                    who is out there and what each is for
+  shabadoo blockers               what is stuck: prompts, mail, tasks, nodes
+  shabadoo todo [--mine]          every open item, grouped by who is blocked
+  shabadoo mission [show|init]    this folder's card, as the fleet reads it
+  shabadoo rules                  which guidance is in effect, and from where
+  shabadoo dash [NAME]            open the dashboard in this host's browser
+  shabadoo hold [on|off] [NAME]   ask sessions to report rather than act
+
   shabadoo attach [--dir D]       start/attach this folder's session (local)
   shabadoo win <cmd> [args]       local windows: list open close reopen clear
   shabadoo boot [--dry-run]       open one window per folder in the boot list
@@ -252,6 +260,7 @@ usage:
   shabadoo doctor                 report what setup would change (no writes)
   shabadoo uninstall [--all]      remove the services setup installed
   shabadoo version                print this binary's build stamp
+  shabadoo update [--check]       replace this binary from a GitHub release
   shabadoo help                   this message
 
 Run 'shabadoo <command> -h' for a command's flags.
