@@ -3,9 +3,12 @@ status: active
 updated: 2026-09-14
 
 ## Now
-Nothing in flight. v0.4.85 is on both nodes and public: a deliver-but-don't-act
-hold, and fixes for four defects that were all on this card — three of whose
-diagnoses this card had wrong.
+Nothing in flight. v0.4.87 is public, on the hub and on wsl: scoped broadcast,
+plus the human-plane broadcast handler that had never once delivered a message.
+Verified against the deployed hub rather than the deploy — it answered
+`recipients: 1`, the first delivery in that endpoint's existence. The mac was
+away for the whole release; its darwin/arm64 set is published, so bringing it
+current is one `upgrade --all`.
 
 ## Waiting on
 - you: four decisions out of the 08-29 retro — ElevenLabs key, 5.5GB of home audio, two unrouted meetings, one mis-addressed send · CARRIED, NOT RE-VERIFIED since 08-30 · risk: a leaked key keeps billing and the audio keeps growing · cost: one conversation
@@ -13,6 +16,18 @@ diagnoses this card had wrong.
 - nobody: `shaba todo` hides 26 rows behind its six-row cap — Alex considered and declined raising it; the cap keeps a card readable, and this is the stated cost of that
 
 ## Log
+- 2026-09-14 `shabadoo publish` took 2 of 4 platforms: the darwin pair was refused
+  because `go` was not on PATH for the `go version -m` fallback, and the exit
+  status was still 0. Caught by reading the output rather than trusting the rc.
+  Unnoticed it would have left the mac unable to upgrade at all, while the release
+  read as complete
+- 2026-09-14 `upgrade --all` printed the node it upgraded and said NOTHING about
+  the one it skipped, so "all" covered one of two nodes silently. This project's
+  own empty-vs-unknown failure, now in its own release tooling
+- 2026-09-14 v0.4.87 shipped and was verified through the consumer's interface:
+  POST /api/message/broadcast answered `recipients: 1` against the deployed hub.
+  The agent restarted (NRestarts 3->4) while the tmux server kept pid 2383 — both
+  halves measured, because either alone proves nothing about KillMode=process
 - 2026-09-14 broadcast had never delivered a message by EITHER plane, for two
   different reasons. The agent path fanned out to an empty `subscriptions` table;
   the human path resolved a `to_session` that a broadcast never carries and 400'd
