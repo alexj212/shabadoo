@@ -9,10 +9,21 @@ diagnoses this card had wrong.
 
 ## Waiting on
 - you: four decisions out of the 08-29 retro — ElevenLabs key, 5.5GB of home audio, two unrouted meetings, one mis-addressed send · CARRIED, NOT RE-VERIFIED since 08-30 · risk: a leaked key keeps billing and the audio keeps growing · cost: one conversation
-- me: no scoped broadcast — a fleet fan-out costs 25 hand-copied sends · risk: every check-in scales with the fleet, and Alex has hit it · cost: a day, plus a decision about who may address whom
+- me: the `subscriptions` table is empty and `session_subscribe` now has no caller worth having — decide whether the topic path is deleted or kept as dead weight · risk: two ways to address one broadcast, one of which always reaches zero · cost: an hour, once somebody confirms no external client calls it
 - nobody: `shaba todo` hides 26 rows behind its six-row cap — Alex considered and declined raising it; the cap keeps a card readable, and this is the stated cost of that
 
 ## Log
+- 2026-09-14 broadcast had never delivered a message by EITHER plane, for two
+  different reasons. The agent path fanned out to an empty `subscriptions` table;
+  the human path resolved a `to_session` that a broadcast never carries and 400'd
+  three lines before the fan-out. Zero `message.broadcast` audit rows and zero
+  stored messages with a topic, ever. The known failure supplied a ready
+  explanation for the unknown one sharing its surface
+- 2026-09-14 scoped broadcast: recipients computed from the live session list —
+  `all`, `node:`, `project:`, `kind:` — sharing one fan-out with the topic path.
+  Only a core session or a human may address beyond one node, because a broadcast
+  does not nudge and the wake cap therefore cannot bound it. A wider scope is
+  refused and names what it would have reached, never quietly narrowed
 - 2026-09-14 FOUR ROWS ON THIS CARD DESCRIBED WORK ALREADY DONE, and three of them
   had the cause wrong: `shabadoo sessions` 31s blamed a coordinator timeout when it
   was the CLI waiting 30s on an absent node for a `*` marker; the Waiting-on

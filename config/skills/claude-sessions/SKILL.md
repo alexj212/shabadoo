@@ -377,7 +377,7 @@ so a session needs no credential of its own.
 |------|-----|
 | `session_list` | every session in the tenant, with undrained mail and whether its host is online |
 | `session_send` | direct message to one session; nudges it if its host is connected |
-| `session_broadcast` | to a topic — **nothing subscribes by default**, so this reaches zero unless somebody called `session_subscribe`. Almost every message has exactly one right recipient; prefer `session_send` |
+| `session_broadcast` | to a **scope** — `all`, `node:<name>`, `project:<prefix>` (subfolders included), `kind:<claude\|worker\|core>` — resolved against the live session list at send time. It **does not nudge**: each recipient reads it on their next prompt, so it is cheap to send and slow to arrive, and never right for anything urgent. Unless you are a core session you may address only your own node; a wider scope is **refused and names what it would have reached**, never quietly narrowed. The old `topic` form still exists and still reaches zero — nothing has ever subscribed |
 | `session_inbox_drain` | collect and mark delivered, in one transaction. A hook already drains on each prompt, so an empty result usually means it already arrived — not that nothing was sent |
 | `session_status_set` | what you are doing right now, in a few words. **It shows up as `note` in `session_list`**, which is where a peer deciding whether to wait for you will look. Set it when starting something long; empty string clears it; it ages out after 30 minutes |
 | `task_create` | hand work over AND track it. Use instead of `session_send` when asking somebody to DO something: an unanswered task is chased, an unanswered message is forgotten |

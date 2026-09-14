@@ -208,12 +208,30 @@ func (h *Hub) agentBroadcast(w http.ResponseWriter, r *http.Request) {
 	if !h.guardSendRate(w, r, c.tenant, env.FromSession) {
 		return
 	}
-	id, n, err := h.store.Tenant(c.tenant).Broadcast(r.Context(), env, h.now())
+	now := h.now()
+	tn := h.store.Tenant(c.tenant)
+
+	// A scope is resolved against the live session list; a topic against the
+	// subscriptions table, which is empty everywhere. Both end in the same
+	// fan-out. Neither NUDGES, deliberately — a broadcast lands silently and
+	// each session reads it on its next prompt, which is the property that
+	// makes a fleet-wide send safe at all: the thundering herd is what burned
+	// the usage window, and it came from nudging, not from delivering.
+	var (
+		id  string
+		n   int
+		err error
+	)
+	if env.Scope != "" {
+		id, n, err = broadcastScoped(r.Context(), tn, env, now)
+	} else {
+		id, n, err = tn.Broadcast(r.Context(), env, now)
+	}
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	writeJSON(w, map[string]any{"id": id, "recipients": n})
+	writeJSON(w, map[string]any{"id": id, "recipients": n, "scope": env.Scope})
 }
 
 // agentDrain is the durable-consumer pull: it returns a session's undelivered

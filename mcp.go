@@ -262,16 +262,28 @@ func (s *mcpServer) callTool(name string, rawArgs json.RawMessage) map[string]an
 		})
 
 	case "session_broadcast":
-		topic := str("topic")
-		if topic == "" {
-			return toolResult("`topic` is required", true)
+		topic, scope := str("topic"), str("scope")
+		if topic == "" && scope == "" {
+			return toolResult("a broadcast needs a `scope` — all, node:<name>, "+
+				"project:<prefix>, or kind:<claude|worker|core> — or a `topic`. "+
+				"Prefer a scope: nothing has ever subscribed to a topic, so a "+
+				"topic broadcast is stored, reported delivered, and read by nobody.", true)
 		}
-		return s.relay(ctx, "/message/broadcast", map[string]any{
-			"topic":        topic,
+		// Empty keys are omitted rather than sent blank: a coordinator older
+		// than this field decodes with DisallowUnknownFields, and hub-then-nodes
+		// is the standing release order precisely because of that strictness.
+		args := map[string]any{
 			"title":        str("title"),
 			"body":         str("body"),
 			"from_session": s.session,
-		})
+		}
+		if topic != "" {
+			args["topic"] = topic
+		}
+		if scope != "" {
+			args["scope"] = scope
+		}
+		return s.relay(ctx, "/message/broadcast", args)
 
 	case "session_inbox_drain":
 		if s.session == "" {
@@ -439,14 +451,21 @@ func mcpTools() []mcpTool {
 		},
 		{
 			Name: "session_broadcast",
-			Description: "Send to every session subscribed to a topic. Use for announcements " +
-				"that are not addressed to anyone in particular; prefer session_send when you " +
-				"know who needs it.",
+			Description: "Announce something to a SET of sessions at once, chosen by `scope`. " +
+				"Use it when the same thing is true for many sessions and you do not know, or " +
+				"do not want to list, which; prefer session_send when one session needs it. " +
+				"It does not wake anybody: each recipient reads it on its next prompt, so it " +
+				"is cheap to send and slow to arrive — never use it for anything urgent. " +
+				"Unless you are a core session, you may only address your own node.",
 			InputSchema: obj(map[string]any{
-				"topic": strProp("topic name"),
+				"scope": strProp("who to reach: \"all\", \"node:mac\", \"project:shabadoo\" " +
+					"(matches subfolders too), or \"kind:core\". Only a core session may " +
+					"address beyond its own node"),
 				"title": strProp("one-line subject"),
 				"body":  strProp("the message"),
-			}, "topic", "body"),
+				"topic": strProp("legacy: fans out to topic subscribers, of which there are " +
+					"none on any deployment. Use scope instead"),
+			}, "body"),
 		},
 		{
 			Name: "session_inbox_drain",

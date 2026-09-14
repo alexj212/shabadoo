@@ -764,3 +764,31 @@ and it is easy to miss because the adjacent artefact is genuinely evidence of
 work — just not of the work that was asked for. Name the deliverable, then ask
 what a reader actually receives: the served page, the installed file, the parsed
 card. Not the commit that was supposed to produce it.
+
+**A known failure is an alibi for an unknown one on the same surface.**
+
+Broadcast had never delivered a message on this fleet, by either plane, for two
+entirely unrelated reasons. The agent path fanned out to a `subscriptions` table
+that is empty because nothing has ever subscribed — a failure so well known it
+was written into the core file's own table of *empty rendered as delivered*. The
+human path never executed at all: it resolved a recipient field that a broadcast
+does not carry, and returned 400 three lines before reaching the fan-out.
+Measured on the live database: **zero `message.broadcast` audit rows and zero
+stored messages carrying a topic, ever.**
+
+The first bug explained every symptom of the second. *Broadcast reaches nobody*
+was true, documented, and accepted — so any report of a broadcast not arriving
+already had a cause, and nobody looked past it. The handler defect was found only
+by reading the code while building something adjacent, not by anybody
+investigating a complaint.
+
+The general form is the useful part: **an accepted failure stops a surface
+generating investigations.** A second defect behind it is not merely unnoticed,
+it is actively explained away — and the *better documented* the first one is, the
+stronger the alibi. Two nothings sharing one name look exactly like one nothing.
+
+So when you finally fix a known failure, do not assume you now understand the
+surface. Re-derive what it actually does from the code and from counts of what it
+has *really* done — audit rows, stored rows, delivery rows — rather than from its
+reputation. And when a component has a standing excuse, that is the one place
+worth auditing even though nobody has complained, precisely because nobody can.

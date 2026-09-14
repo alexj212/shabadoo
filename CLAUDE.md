@@ -755,6 +755,65 @@ stored, acknowledged with an id and delivered, so a sender believed it had hande
 off work while the recipient got a notification containing nothing. It succeeded
 at every layer, which is what made it invisible.
 
+### Scoped broadcast — addressed against the fleet, not against a topic
+
+Broadcast had never delivered a message, by either plane, **for two different
+reasons** — and only one of them was known.
+
+The **agent plane** worked mechanically and reached zero: `Broadcast` fans out to
+`SELECT session_id FROM subscriptions WHERE topic = ?`, and that table is empty
+on the live database because nothing has ever called `session_subscribe`. That is
+this file's own first example of empty-rendered-as-delivered, and it had been
+sitting in the table of instances as history while still being live.
+
+The **human plane** never ran at all. `broadcastMessage` resolved
+`env.ToSession` before fanning out — a line copied from `sendMessage`, where it
+is exactly right — but a broadcast carries a topic or a scope and no recipient,
+and `ResolveSession` returns `ErrNoRecipient` on empty input. So every call 400'd
+three lines before reaching the fan-out. Measured: **zero `message.broadcast`
+rows in the audit table and zero stored messages carrying a topic, ever.**
+
+Worth separating, because the two hid each other. One failure was known and
+tolerated, which supplied a ready explanation for any report of the other.
+
+**The fan-out machinery was always sound; the addressing model was wrong.** So
+`scope` computes recipients from the thing that is never empty — the sessions the
+agents are reporting right now — and `BroadcastTo` shares `fanOut` with the topic
+path, because how a broadcast is addressed differs and how it is delivered must
+not.
+
+| Scope | Reaches |
+|---|---|
+| `all` | every session but the sender |
+| `node:<name>` | one machine |
+| `project:<prefix>` | a project *and its subfolders*, so `project:shabadoo` includes a session scoped into `shabadoo/hub` |
+| `kind:<claude\|worker\|core>` | every core session, say |
+
+**Its zero is a MEASURED zero**, which is the whole point: the recipients came
+from live sessions, so "nothing matched" is a fact about the fleet. The topic
+path's zero is not, and its doc comment now says so.
+
+**Only a core session or a human may address beyond one node.** A selector that
+reaches two dozen sessions in one call is the same primitive that caused the
+incident `--session-cap` exists for — and **the cap cannot help here, because a
+broadcast does not nudge.** `h.nudge` has three callers and none of them is this
+one. That is also what makes the feature safe to have at all: a fan-out to 24
+costs 24 delivery rows and wakes nobody, and each recipient reads it on the
+prompt it was going to take anyway. The bound has to live in the addressing or
+it does not exist.
+
+**A wider scope is refused and NAMES what it would have reached**, never quietly
+narrowed. A wsl session naming `project:minutes`, where minutes also runs on the
+Mac, is told which session it missed — because telling it that it reached
+`minutes` when it reached one of two is the same silent-partial-view failure in
+new clothes. It fails **closed**, unlike the wake cap, and the asymmetry is the
+reason: the cost of a wrong refusal is one bounced broadcast the sender can hand
+to a core session, while the cost of a wrong allow is a fleet fan-out nobody
+authorised.
+
+`docs/direction.md` rejects a default `fleet` topic and still does. That
+rejection turns on **standing auto-subscription plus a wake**; this has neither.
+
 ## Delegated work (`tasks`)
 
 Handing work to a peer was mail: acknowledged when drained, and after that the
@@ -1808,7 +1867,7 @@ tenant's inbox because it cannot name one.
 | Endpoint | Replaces |
 |---|---|
 | `POST /agent/message/send` | `claude.inbox.<session>` — also nudges the recipient if its agent is connected, and **only into an empty composer**: see The nudge |
-| `POST /agent/message/broadcast` | `claude.broadcast.<topic>` |
+| `POST /agent/message/broadcast` | `claude.broadcast.<topic>` — and now a `scope` addressed against the live session list instead, since nothing has ever subscribed to a topic: see Scoped broadcast |
 | `POST /agent/message/drain` | the durable-consumer pull; returns and marks delivered in one transaction |
 | `POST /agent/subscribe\|unsubscribe` | topic subscriptions |
 | `GET /agent/peers` | the `CLAUDE_PRESENCE` KV: every session in the tenant, with undrained mail count and whether its agent is online |
@@ -2997,9 +3056,9 @@ session may ever change the ethos it obeys. None should be answered by whoever
 happens to pick the work up.
 
 Also open, and smaller: the cross-host `CLAUDE_PRESENCE` view the retired
-`claude-sessions` script showed (`/agent/peers` covers the connected case),
-scoped broadcast, and spawn-with-inheritance — mentioned three times, designed
-zero.
+`claude-sessions` script showed (`/agent/peers` covers the connected case), and
+spawn-with-inheritance — mentioned three times, designed zero. **Scoped
+broadcast shipped** — see above.
 
 The reviewed gap list and the earlier feature backlog live in the task list.
 Closed since: `hub.db` backup (the move to dm put it under borg), device-token

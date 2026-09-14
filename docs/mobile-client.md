@@ -853,7 +853,7 @@ part of driving its panes when the coordinator is gone.
 |---|---|
 | `GET /api/messages?limit=&session=` | the durable inbox: last 24h across the tenant, or one session's thread. **Read-only — looking never consumes it** |
 | `POST /api/message/send` | `{to_session, title, body}` |
-| `POST /api/message/broadcast` | `{topic, title, body}` |
+| `POST /api/message/broadcast` | `{scope, title, body}` → `{id, recipients}`. `scope` picks the recipients from the **live session list** at send time: `all`, `node:<name>`, `project:<prefix>` (subfolders included), `kind:<claude\|worker\|core>`. `recipients` is then a *measured* count — zero means no session matched, not "could not tell". A legacy `{topic}` form fans out to topic subscribers instead, of which there are none on any deployment; prefer `scope`. A broadcast never nudges, so recipients read it on their next prompt |
 | `GET /api/hold` | `{enabled, holding[], consulted, held}` — whether sessions have been asked to report rather than act. **Readable under read scope**, deliberately: "nothing is happening" is exactly the question a phone would be asking, and a held fleet and an idle one are otherwise indistinguishable |
 | `POST /api/hold` | `{holding: ["all"]}` or `{holding: []}` to release. Operator-grade — it changes how every session treats its mail. Replaces rather than adds, so the list is always the whole statement |
 

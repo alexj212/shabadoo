@@ -420,11 +420,18 @@ type Envelope struct {
 	FromSession string `json:"from_session,omitempty"`
 	ToSession   string `json:"to_session,omitempty"`
 	Topic       string `json:"topic,omitempty"`
-	Title       string `json:"title,omitempty"`
-	Body        string `json:"body"`
-	Type        string `json:"type,omitempty"`
-	Tag         string `json:"tag,omitempty"`
-	CreatedAt   int64  `json:"created_at"`
+
+	// Scope addresses a broadcast to a set of sessions computed at send time
+	// from the live session list — `all`, `node:<name>`, `project:<prefix>`,
+	// `kind:<k>`. It is the alternative to Topic, which fans out to the
+	// subscriptions table and therefore to nobody: see scope.go.
+	Scope string `json:"scope,omitempty"`
+
+	Title     string `json:"title,omitempty"`
+	Body      string `json:"body"`
+	Type      string `json:"type,omitempty"`
+	Tag       string `json:"tag,omitempty"`
+	CreatedAt int64  `json:"created_at"`
 
 	// Delivery state, filled in by the READ paths only (Replay, Conversation)
 	// and absent everywhere else — Send ignores them, so a client cannot claim
@@ -637,6 +644,12 @@ func (t *Tenant) Send(ctx context.Context, env Envelope, now time.Time) (string,
 // that subscribes later does not receive earlier broadcasts. That matches the
 // core-NATS semantics the bridge had, and keeps a new session from waking up to
 // a day of backlog.
+//
+// **A zero here is not a measured zero.** The subscriptions table is empty on
+// every deployment measured — nothing has ever called Subscribe — so this path
+// stores a message, reaches nobody, and returns success. That is the failure
+// this codebase names first and oftenest, and it is why BroadcastTo exists:
+// prefer a scope, which is computed from sessions that actually exist.
 func (t *Tenant) Broadcast(ctx context.Context, env Envelope, now time.Time) (string, int, error) {
 	if env.Topic == "" {
 		return "", 0, ErrNoRecipient
@@ -669,17 +682,54 @@ func (t *Tenant) Broadcast(ctx context.Context, env Envelope, now time.Time) (st
 		return "", 0, err
 	}
 
-	for _, sid := range subs {
+	if err := t.fanOut(ctx, id, subs, now); err != nil {
+		return "", 0, err
+	}
+	return id, len(subs), nil
+}
+
+// fanOut inserts one delivery row per recipient for an already-stored message.
+//
+// Shared by the topic and scope paths so the two cannot drift: how a broadcast
+// is ADDRESSED differs between them, how it is delivered must not.
+func (t *Tenant) fanOut(ctx context.Context, id string, to []string, now time.Time) error {
+	for _, sid := range to {
 		if _, err := t.s.db.ExecContext(ctx,
 			`INSERT OR IGNORE INTO deliveries (tenant, message_id, to_session) VALUES (?, ?, ?)`,
 			t.id, id, sid); err != nil {
-			return "", 0, err
+			return err
 		}
 		if err := t.trim(ctx, sid, now); err != nil {
-			return "", 0, err
+			return err
 		}
 	}
-	return id, len(subs), nil
+	return nil
+}
+
+// BroadcastTo stores one message and fans it out to an explicit recipient set
+// the caller computed from the live session list.
+//
+// **Its zero IS a measured zero**, which is the whole reason it exists. The
+// recipients came from sessions the agents are reporting right now, so "no
+// session matched that scope" is a fact about the fleet and a caller may act on
+// it. Contrast Broadcast above, where zero means the subscriptions table is
+// empty — unknown wearing a measurement's clothes.
+//
+// One message row, N delivery rows: the fan-out machinery was always sound, it
+// was the addressing model that reached nobody.
+func (t *Tenant) BroadcastTo(ctx context.Context, env Envelope, to []string, now time.Time) (string, int, error) {
+	if strings.TrimSpace(env.Body) == "" {
+		return "", 0, ErrEmptyMessage
+	}
+	env.ToSession = ""
+	id, err := t.insertMessage(ctx, env, now)
+	if err != nil {
+		return "", 0, err
+	}
+	if err := t.fanOut(ctx, id, to, now); err != nil {
+		return "", 0, err
+	}
+	return id, len(to), nil
 }
 
 func (t *Tenant) insertMessage(ctx context.Context, env Envelope, now time.Time) (string, error) {

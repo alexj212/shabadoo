@@ -219,8 +219,12 @@ The four that matter, and why:
   unanswered task is chased; an unanswered message is forgotten.
 - **`session_status_set`** when starting something long — it is where a peer
   deciding whether to wait for you will look.
-- **`session_broadcast` reaches nobody by default.** Nothing subscribes. Almost
-  every message has exactly one right recipient.
+- **`session_broadcast` takes a SCOPE**, resolved against the live session list
+  as you send: `all`, `node:<name>`, `project:<prefix>`, `kind:<k>`. It **wakes
+  nobody** — each recipient reads it on their next prompt — so it is never right
+  for anything urgent, and unless you are a core session you may address only
+  your own node. Most messages still have exactly one right recipient; prefer
+  `session_send`. The old `topic` form reaches zero: nothing has ever subscribed.
 
 **Delivered is not read, and `pending: 0` cannot tell you which** — it is the
 same value for *delivered and read*, *never sent*, and *consumed and lost*. A

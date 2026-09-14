@@ -530,6 +530,23 @@ stale tool surface is reported as `tools_stale` and visible through
 `session_list`, so the fact is reachable by anything that looks. Directed mail
 carries the things that need doing; nothing needed a broadcast.
 
+**A scoped broadcast was later built, and it does not reopen this.** The
+distinction is the mechanism this rejection turns on. What was rejected is a
+*standing auto-subscription*: a channel every session belongs to, where each
+message costs every session a turn. What exists now is a *per-send selector* —
+`all`, `node:<name>`, `project:<prefix>`, `kind:<k>` — resolved against the live
+session list at send time, with no membership, nothing to join, and **no nudge**.
+A broadcast wakes nobody; each recipient reads it on its next prompt, which it
+was going to take anyway. The amplifier this paragraph refuses is the wake, and
+there is none.
+
+What changed to justify it was measured rather than argued: a fleet fan-out cost
+**25 hand-copied sends**, and every check-in scaled with the fleet. "Nothing
+needed a broadcast" was true when written and stopped being true; the sentence
+above is kept because its *reasoning* is still what bounds the feature.
+
+It is still not a channel, and a default `fleet` topic is still refused.
+
 ## Still open
 
 The structural questions in this document are answered and built. What is open

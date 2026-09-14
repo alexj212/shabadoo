@@ -817,16 +817,28 @@ func (h *humanAPI) broadcastMessage(w http.ResponseWriter, r *http.Request) {
 	now := h.now()
 	env.FromSession = "human:" + actor(r.Context())
 
-	// Same resolution as the agent plane: a person typing a project name into
-	// the dashboard should reach that session, and a typo should bounce.
-	to, err := h.scope(r.Context()).ResolveSession(r.Context(), env.ToSession, now)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
+	// A broadcast carries a scope or a topic. It never carries a to_session.
+	//
+	// This handler used to resolve env.ToSession first — copied from
+	// sendMessage, where it is exactly right — and ResolveSession returns
+	// ErrNoRecipient on empty input. So every broadcast 400'd before reaching
+	// the fan-out, and **this endpoint has never delivered a message**:
+	// measured on the live deployment as zero `message.broadcast` audit rows
+	// and zero stored messages carrying a topic, ever.
+	//
+	// Worth stating rather than quietly deleting, because the two planes failed
+	// differently and only one was known: the agent plane reached nobody
+	// because nothing subscribes, this one never ran at all.
+	var (
+		id  string
+		n   int
+		err error
+	)
+	if env.Scope != "" {
+		id, n, err = broadcastScoped(r.Context(), h.scope(r.Context()), env, now)
+	} else {
+		id, n, err = h.scope(r.Context()).Broadcast(r.Context(), env, now)
 	}
-	env.ToSession = to
-
-	id, n, err := h.scope(r.Context()).Broadcast(r.Context(), env, now)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
