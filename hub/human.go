@@ -836,6 +836,36 @@ func (h *humanAPI) messages(w http.ResponseWriter, r *http.Request) {
 		err  error
 	)
 	if sess := q.Get("session"); sess != "" {
+		// A name, not only an id — and an unrecognised one SAYS so.
+		//
+		// This took the string literally, so `?session=adept-package-manager`
+		// matched no rows, returned `[]`, and the caller could not tell "no mail"
+		// from "I did not know that name". Reading a stopped project's queue —
+		// the case this most exists for — therefore required knowing a
+		// hash-suffixed id, which is precisely the friction addressing-by-name
+		// exists to remove.
+		//
+		// Resolution order, and each step earns its place: a RUNNING session
+		// first; then a STOPPED project, whose would-be session id is the one its
+		// mail is already queued against; then a literal id passed through, since
+		// a historical session whose window is long gone must still be readable.
+		// Only then is it refused.
+		if id, rerr := h.scope(r.Context()).ResolveSession(r.Context(), sess, h.now()); rerr == nil {
+			sess = id
+		} else if p, ok := h.hub.findStoppedProject(r.Context(), tenantOf(r.Context()), sess); ok {
+			// Costs a round trip to every connected node, paid only when the name
+			// did not resolve — rare, and cheaper than the session start it saves.
+			sess = p.SessionID
+		} else if !strings.HasPrefix(sess, "claude-") && !strings.HasPrefix(sess, "human:") {
+			// Deliberately a PREFIX test, not "contains a dash". The name that
+			// prompted this — `adept-package-manager` — is full of dashes, so a
+			// dash test would pass it through to an empty result and print
+			// nothing: the exact silence being fixed, reintroduced inside the fix.
+			http.Error(w, fmt.Sprintf("no session, project or stopped folder matches %q — "+
+				"`shabadoo sessions` lists what is running and `shabadoo folders` what could start",
+				sess), http.StatusBadRequest)
+			return
+		}
 		msgs, err = h.scope(r.Context()).Conversation(r.Context(), sess, limit)
 	} else {
 		msgs, err = h.scope(r.Context()).Replay(r.Context(), limit, h.now().Add(-24*time.Hour))

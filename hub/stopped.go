@@ -156,10 +156,28 @@ func (h *Hub) askCoreToStart(ctx context.Context, tenant string, p stoppedProjec
 	if env.Tag != "" {
 		body += "Tag: " + env.Tag + "\n"
 	}
+	// THREE moves, not two. This warning used to end at "start it, or leave it",
+	// and a core session reading it reasonably concluded those were the only
+	// options — to the point of writing itself a rule that asking the SENDER was
+	// the only way to learn what was queued without starting a machine.
+	//
+	// It is not: the queue is readable, drains nothing and wakes nothing, and
+	// the coordinator is holding the session id at the very moment it warns. So
+	// the id is substituted here rather than described, because a reader who has
+	// to go and find it will decide on the subject line instead.
+	//
+	// Reading and asking are still different jobs and both are offered. Twice in
+	// twelve hours, asking a sender made the sender change their mind — one split
+	// a message and re-routed the urgent half, another withdrew theirs and filed
+	// a mission row instead. Neither outcome exists anywhere in the queue's text.
 	body += "\n" + h.queuedLine(ctx, tenant, p) +
 		"\n\nThe message is already stored and will be delivered when that session starts; " +
-		"nothing is lost if you decide it can wait. Start it if the work is worth waking, " +
-		"using the open command for that folder."
+		"nothing is lost if you decide it can wait.\n\n" +
+		"Read the whole queue WITHOUT starting it:\n" +
+		"  shabadoo mail --session " + p.SessionID + "\n" +
+		"That drains nothing and wakes nothing. You can also ask the sender what they " +
+		"need — senders often revise or withdraw once asked.\n\n" +
+		"Start it if the work is worth waking, using the open command for that folder."
 	if p.Deactivated {
 		body += "\n\nNote: this project was closed deliberately, so somebody chose to stop it. " +
 			"Weigh that before restarting it."

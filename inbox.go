@@ -162,28 +162,52 @@ flags:
 // that demonstrably works — and until then the delivery row stays undrained, so
 // `pending` remains honest and the coordinator's stuck-mail watcher can still
 // see it. Losing the count was what blinded every other mechanism.
+// peerRow is one entry of the coordinator's presence view.
+type peerRow struct {
+	SessionID string `json:"session_id"`
+	Pending   int    `json:"pending"`
+	Held      bool   `json:"held"`
+}
+
+// findPeer looks one session up in the presence view, reporting whether it was
+// there at all.
+//
+// `found` is the whole point and is why this is a function rather than a loop
+// inline. The peer list enumerates sessions the agents are currently REPORTING,
+// so a stopped session — or one that started moments ago, before the next
+// five-second report — is absent from it entirely, not present with an empty
+// inbox. Returning only the count made those two states identical, and a reader
+// was told "no pending messages" about a queue that in fact held three.
+func findPeer(peers []peerRow, session string) (n int, held, found bool) {
+	for _, p := range peers {
+		if p.SessionID == session {
+			return p.Pending, p.Held, true
+		}
+	}
+	return 0, false, false
+}
+
 func peekInbox(ctx context.Context, session string, quit func(string)) {
 	raw, err := node.NewLocalClient().Do(ctx, "GET", "/peers", nil)
 	if err != nil {
 		quit(err.Error())
 	}
 	var out struct {
-		Peers []struct {
-			SessionID string `json:"session_id"`
-			Pending   int    `json:"pending"`
-			Held      bool   `json:"held"`
-		} `json:"peers"`
+		Peers []peerRow `json:"peers"`
 	}
 	if err := json.Unmarshal(raw, &out); err != nil {
 		quit("could not decode the reply: " + err.Error())
 	}
-	n, held := 0, false
-	for _, p := range out.Peers {
-		if p.SessionID == session {
-			n, held = p.Pending, p.Held
-			break
-		}
-	}
+	// found matters as much as the count, and conflating them is a bug this
+	// file otherwise argues against everywhere.
+	//
+	// The peer list enumerates sessions the agents are currently REPORTING, so a
+	// stopped session is absent from it entirely — not present with zero mail.
+	// Without this flag the loop leaves n at 0 and the reader is told "no
+	// pending messages" about a queue it never looked at. Reported from the
+	// field: `mail --session <id>` printed three waiting messages for a session
+	// this had just called empty.
+	n, held, found := findPeer(out.Peers, session)
 	if held {
 		// Said at SessionStart too. Announcing waiting mail with no hint the
 		// fleet is held is the wrong first impression: the session reads "work
@@ -191,6 +215,16 @@ func peekInbox(ctx context.Context, session string, quit func(string)) {
 		fmt.Printf("This session is ON HOLD: mail is delivered but work is not to be " +
 			"carried out. Read it with `shabadoo inbox`, then reply with what you " +
 			"WOULD do and wait.\n")
+	}
+	if !found {
+		// Silent for hooks like every other outcome here, but the REASON is now
+		// true. At SessionStart this is also the ordinary case — the agent
+		// reports every five seconds, so a session can easily peek before the
+		// coordinator has heard of it — which is exactly why it must not be
+		// reported as an empty inbox.
+		quit("this session is not in the coordinator's peer list, so waiting mail " +
+			"could not be established (it is not the same as none). Read the durable " +
+			"queue with: shabadoo mail --session " + session)
 	}
 	if n == 0 {
 		quit("no pending messages")
