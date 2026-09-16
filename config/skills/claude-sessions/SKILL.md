@@ -35,6 +35,7 @@ has to travel in the message.
 | **unblock one** | `shabadoo keys --pane <name> Enter` | it is sitting on a dialog; `tail` first and read the question |
 | **start it clean** | `shabadoo command --pane <name> /clear` | a folder with history RESUMES on open. Escape dismisses the prompt but the context still loads |
 | **kill** | `shabadoo win close <name>` | `reopen` rebuilds it in the same directory |
+| **save this desktop** | `shaba boot snapshot [--dry-run]` | records the folders open right now as the ones to reopen at boot. Additive — it never removes a line somebody wrote a reason beside |
 
 **A handoff names a session; it never quotes a window index.** An index is the
 least stable identifier here — positional, not what the coordinator addresses

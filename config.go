@@ -19,6 +19,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -359,6 +360,124 @@ func runBootRemove(args []string) {
 		fmt.Printf("removed %s\n", removed)
 		fmt.Println("  (any window already open stays open; this only affects the next boot)")
 	}
+}
+
+// runBootSnapshot records the folders open right now as the ones to reopen at
+// boot — "come back to this desktop": snapshot, close what you like, reboot.
+//
+// Three properties, and each is the answer to a failure this repo has already
+// paid for.
+//
+// **It only ever ADDS.** The boot list holds decisions with the reasons written
+// beside them, so a command that regenerated it from a parsed set would delete
+// every one of those the first time it ran. That is why `config` and `boot add`
+// edit surgically, and this is the same file. A folder that is listed but not
+// open right now is REPORTED, never dropped: usually somebody closed it for the
+// afternoon, and un-listing it silently would discard a decision.
+//
+// **It clears deactivation for everything it records**, which is what makes the
+// workflow work at all rather than a subtlety. `win close` marks a folder "do
+// not start this on your own" and `boot` honours that over the list — so
+// snapshot-then-close would otherwise write a list whose every entry is held,
+// and a boot that opens nothing while looking perfectly configured. That has
+// happened here at fleet scale: nineteen folders listed, two opened, each skip
+// announced on one line in a cron log nobody tails.
+//
+// **Snapshotting nothing is refused, not reported as success.** With no tmux
+// server the open set is empty and an additive snapshot is a silent no-op —
+// which is indistinguishable from a desktop that was saved.
+func runBootSnapshot(args []string) {
+	fset := flag.NewFlagSet("boot snapshot", flag.ExitOnError)
+	path := fset.String("list", bootListPath(), "folder list")
+	dry := fset.Bool("dry-run", false, "report what would change; write nothing")
+	fset.Parse(args)
+
+	open := openFolders()
+	if len(open) == 0 {
+		fatalf("no open sessions to snapshot — `shabadoo win list` shows what is running.\n" +
+			"Refusing rather than writing nothing: an empty snapshot is indistinguishable " +
+			"from a saved one, and you would find out at the next boot.")
+	}
+	openList := make([]string, 0, len(open))
+	for p := range open {
+		openList = append(openList, p)
+	}
+	sort.Strings(openList)
+
+	folders, err := readBootList(*path)
+	if err != nil {
+		fatalf("%v", err)
+	}
+	add, extra := snapshotPlan(open, folders)
+
+	verb := "recording"
+	if *dry {
+		verb = "would record"
+	}
+	fmt.Printf("%s %d open folder%s into %s\n\n", verb, len(open), plural(len(open)), *path)
+
+	for _, d := range add {
+		if !*dry {
+			if err := appendBootList(*path, d); err != nil {
+				fatalf("%v", err)
+			}
+		}
+		fmt.Printf("  + %s\n", d)
+	}
+	if len(add) == 0 {
+		fmt.Println("  (every open folder was already listed)")
+	}
+
+	// Every open folder, not only the newly added ones: a folder can be listed
+	// AND deactivated, which is the contradiction `boot list` marks with an `x`.
+	// It is open, so it is plainly meant to run.
+	if !*dry {
+		for _, p := range openList {
+			undeactivate(p)
+		}
+	}
+
+	if len(extra) > 0 {
+		fmt.Printf("\n%d listed folder%s not open right now, left alone:\n", len(extra), plural(len(extra)))
+		for _, f := range extra {
+			fmt.Printf("  · %s\n", f)
+		}
+		fmt.Println("  this command never removes; drop one with: shabadoo boot remove <dir>")
+	}
+	if *dry {
+		fmt.Println("\n(--dry-run: nothing was written)")
+	}
+}
+
+// snapshotPlan decides what a snapshot changes: which open folders are not yet
+// listed, and which listed folders are not currently open.
+//
+// Pure, so the decision is testable without a tmux server — the writing itself
+// is `appendBootList`, already exercised by `boot add`.
+//
+// Both halves are returned because they are different answers and only one is
+// an action. `add` gets written; `extra` is reported for a human to judge.
+// Collapsing them — reading "not open" as "remove" — is exactly the destructive
+// interpretation this command refuses.
+func snapshotPlan(open map[string]bool, listed []string) (add, extra []string) {
+	inList := make(map[string]bool, len(listed))
+	for _, f := range listed {
+		inList[resolve(f)] = true
+	}
+	for p := range open {
+		if !inList[p] {
+			add = append(add, p)
+		}
+	}
+	sort.Strings(add)
+	// Compared through symlinks in both directions, because the list holds the
+	// path somebody typed while tmux reports a resolved one.
+	for _, f := range listed {
+		if !open[resolve(f)] {
+			extra = append(extra, f)
+		}
+	}
+	return add, extra
 }
 
 // readBootList returns the folders, without comments or blanks. A missing file

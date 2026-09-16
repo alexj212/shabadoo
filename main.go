@@ -135,6 +135,9 @@ func main() {
 			case "remove", "rm":
 				runBootRemove(rest[1:])
 				return
+			case "snapshot", "save":
+				runBootSnapshot(rest[1:])
+				return
 			}
 		}
 		runBoot(rest)
@@ -254,6 +257,7 @@ usage:
   shabadoo win <cmd> [args]       local windows: list open close reopen clear
   shabadoo boot [--dry-run]       open one window per folder in the boot list
   shabadoo boot list|add|remove   which folders autostart
+  shabadoo boot snapshot          record the open folders as the boot list
   shabadoo config [set|unset]     launcher settings (host label, claude flags)
 
   shabadoo setup [flags]          install the toolchain onto this machine
