@@ -36,6 +36,17 @@ has to travel in the message.
 | **start it clean** | `shabadoo command --pane <name> /clear` | a folder with history RESUMES on open. Escape dismisses the prompt but the context still loads |
 | **kill** | `shabadoo win close <name>` | `reopen` rebuilds it in the same directory |
 
+**A handoff names a session; it never quotes a window index.** An index is the
+least stable identifier here — positional, not what the coordinator addresses
+anything by, and true when written while false when read. A session that told a
+peer *"close this session, window `claude:17`"* was off by one, and window 17
+was holding a maintenance window. Nothing was lost only because the recipient
+resolved by name out of habit.
+
+And the number would not have done what either of them expected: these commands
+have **no index form at all**, so a bare number is now refused outright. Say
+`shabadoo win close patching-wsl-bf0281e2`, or the friendly `patching`.
+
 **Before accepting a task, ask what state would CLOSE it.** If no value is
 honest, it is a role rather than a task — and that is the moment it becomes
 unclosable, not later when somebody notices.

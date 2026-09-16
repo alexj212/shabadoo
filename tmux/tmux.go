@@ -62,7 +62,11 @@ type Window struct {
 // names (e.g. "homelab-wsl-4b602ded"). Stripping it yields the friendly alias.
 var hashSuffix = regexp.MustCompile(`-[0-9a-f]{8}$`)
 
-func friendly(name string) string {
+// Friendly strips the hash suffix. Exported because the launcher's window
+// resolver needs the same answer: computing it a second way there would let the
+// two drift, and the drift would be invisible until a pattern matched in one
+// and not the other.
+func Friendly(name string) string {
 	return hashSuffix.ReplaceAllString(name, "")
 }
 
@@ -174,7 +178,7 @@ func parseWindows(out string) ([]Window, error) {
 			Session:      f[0],
 			Index:        atoi(f[1]),
 			Name:         f[2],
-			FriendlyName: friendly(f[2]),
+			FriendlyName: Friendly(f[2]),
 			Active:       f[3] == "1",
 			Panes:        atoi(f[4]),
 			Activity:     atoi64(f[5]),

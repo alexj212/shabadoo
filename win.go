@@ -136,6 +136,13 @@ func winOpen(ctx context.Context, c launchConfig, path string) {
 
 func winClose(ctx context.Context, c launchConfig, pattern string) {
 	name := mustResolve(ctx, c, pattern)
+	// Name the folder BEFORE killing it, not after. A pattern can resolve to a
+	// window the person did not have in mind, and the directory is what makes
+	// that legible — "closed window %q" after the fact tells them what died,
+	// which is too late to be of any use.
+	if cwd, err := c.windowCWD(ctx, name); err == nil && cwd != "" {
+		fmt.Printf("closing %q (%s)\n", name, cwd)
+	}
 	if err := tmux.KillWindowByName(ctx, c.SessionName, name); err != nil {
 		fatalf("%v", err)
 	}

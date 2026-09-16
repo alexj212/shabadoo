@@ -28,6 +28,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"shabadoo/tmux"
 )
 
 // launchConfig is the per-host launcher configuration — the same knobs
@@ -301,16 +303,11 @@ func (c launchConfig) applyDisplay(ctx context.Context) {
 	).Run()
 }
 
-// resolveWindow maps a pattern to exactly one window. An exact name wins
-// outright; otherwise a substring must match uniquely. An ambiguous pattern is
-// an error listing the candidates, never a guess — picking one eventually
-// kills the wrong session.
+// resolveWindow maps a pattern to exactly one window. It asks tmux for the live
+// list; the decision itself is matchWindow, which is pure so it can be tested
+// without a tmux server — and this is a decision worth testing, because getting
+// it wrong kills somebody's session.
 func (c launchConfig) resolveWindow(ctx context.Context, pattern string) (string, error) {
-	// Defence in depth for the caller-side guard: "" matches every name, so an
-	// empty pattern would resolve uniquely against a single window and kill it.
-	if strings.TrimSpace(pattern) == "" {
-		return "", fmt.Errorf("empty window pattern")
-	}
 	names, err := c.windowNames(ctx)
 	if err != nil {
 		return "", err
@@ -318,20 +315,77 @@ func (c launchConfig) resolveWindow(ctx context.Context, pattern string) (string
 	if len(names) == 0 {
 		return "", fmt.Errorf("session %q has no windows", c.SessionName)
 	}
+	return matchWindow(names, pattern)
+}
+
+func isAllDigits(s string) bool {
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return s != ""
+}
+
+// matchWindow picks exactly one window name. An exact name wins outright;
+// otherwise a substring must uniquely match the FRIENDLY part of a name. An
+// ambiguous pattern is an error listing the candidates, never a guess.
+//
+// Two rules here exist because of a near-miss reported from the field, and both
+// are less obvious than they look.
+//
+// **The substring is matched against the friendly name, never the hash.** The
+// trailing "-<8 hex>" is an implementation detail of the naming formula and
+// nobody addresses a session by it — but it is eight characters of arbitrary
+// hex, so a short pattern collides with it constantly. Against one real live
+// window list, "17" matched exactly ONE name: not window 17, but `homelife`,
+// whose hash contains "170". A unique match means the ambiguity guard stays
+// silent, so it would have killed an unrelated project and printed a cheerful
+// confirmation naming a window nobody mentioned. "18", "19", "16" and "23" all
+// did the same thing, and two of those numbered windows did not exist at all.
+//
+// **A bare number is refused rather than matched.** These commands have never
+// had an index path, so a number cannot mean what the person typing it thinks
+// it means; before this it silently meant "any name containing this digit
+// string". Refusing is safe because an exact name is checked first, so a folder
+// that genuinely is called "17" stays addressable.
+//
+// It fails CLOSED — an unresolvable pattern refuses rather than guessing —
+// because the cost of a wrong refusal is retyping a name, and the cost of a
+// wrong match is a session killed mid-work with no way to tell afterwards which
+// one you meant.
+func matchWindow(names []string, pattern string) (string, error) {
+	// "" is a substring of every name, so an empty pattern would resolve
+	// uniquely against a single window and kill it.
+	pattern = strings.TrimSpace(pattern)
+	if pattern == "" {
+		return "", fmt.Errorf("empty window pattern: name the window to act on")
+	}
+	if len(names) == 0 {
+		return "", fmt.Errorf("no windows to match against")
+	}
+
+	// Before every other rule, so nothing that worked by full name stops.
 	for _, n := range names {
 		if n == pattern {
 			return n, nil
 		}
 	}
+
+	if isAllDigits(pattern) {
+		return "", fmt.Errorf("%q is a number, and this takes a window NAME, not an index — "+
+			"there is no index form. Run `shabadoo win list` and use the name", pattern)
+	}
+
 	var matches []string
 	for _, n := range names {
-		if strings.Contains(n, pattern) {
+		if strings.Contains(tmux.Friendly(n), pattern) {
 			matches = append(matches, n)
 		}
 	}
 	switch len(matches) {
 	case 0:
-		return "", fmt.Errorf("no window matches %q", pattern)
+		return "", fmt.Errorf("no window matches %q by name", pattern)
 	case 1:
 		return matches[0], nil
 	default:
