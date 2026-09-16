@@ -52,6 +52,18 @@ gone two days and silent on a capability the shipped app had. The fix was a
 check that **fetches the published page** rather than reading the source. Name
 what a reader actually receives, and check that.
 
+**And when a tool rejects your work, establish which of you is wrong BEFORE you
+change anything.** An artifact usually has several consumers and only some of
+them can speak — so the one that reports is not thereby the correct one, it is
+merely the one with output, and it gets treated as the spec for exactly that
+reason. Paid for twice on one file, failing in OPPOSITE directions: once a
+session edited a card to satisfy a checker that had been right all along, while
+the tool that rendered the complaint was the broken reader; once four sessions
+changed their markup to satisfy a checker that was itself wrong, while the
+parser the whole fleet actually reads had always accepted it. Name every
+consumer, find the broken one, fix that. Editing the artifact to silence the
+loudest reader makes the workaround permanent and the defect invisible.
+
 **4. Document as you go, locally and globally.** Two destinations, and the
 routing matters more than the writing — see *Where a learning goes*. A learning
 that is true on any machine belongs in the payload where every session reads it;

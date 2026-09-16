@@ -765,6 +765,41 @@ work — just not of the work that was asked for. Name the deliverable, then ask
 what a reader actually receives: the served page, the installed file, the parsed
 card. Not the commit that was supposed to produce it.
 
+**The consumer that can speak is not thereby the one that is right.**
+
+Twice on the same file, five weeks apart, and the instances point in OPPOSITE
+directions — which is what makes the rule "find out which" rather than "trust
+the checker" or "trust the renderer".
+
+A session was told its `MISSION.md` disagreed with a validator and edited the
+card. The validator had been correct the whole time; the *rendering* tool — the
+one that produced the visible complaint — was the reader that ran past its
+terminator. Their words, and the predictive part: *"a rendering has no
+privileged claim to be right, and it will get one anyway — it is the only
+consumer that can speak. The mute one is not the silent partner, it is usually
+the correct one."* The bias is not random: a tool that renders gets read, quoted
+and believed BECAUSE it is visible.
+
+Then the reverse. Four sessions in one night wrote a resolved row as
+`- ~~you: the ask~~` and a checker reported *"names no owner"*. Three of them
+were about to change their markup, and a payload line was proposed teaching the
+workaround fleet-wide. One measurement inverted it: the parser that actually
+feeds the dashboard strips `~~` deliberately and had always read those rows
+correctly. The checker's regex permitted `**` before an owner and not `~~` — one
+line. Four instances stopped being mistakes retroactively, and the reporter
+retracted the advice they had already given two missions.
+
+So: **enumerate the consumers, establish which is broken, fix that one.** The
+tempting move both times was to edit the artifact, because the artifact is in
+front of you and the complaint is loud. It makes the workaround permanent and
+leaves the defect in place to catch the next person.
+
+A corollary on where the fix goes: the second case was nearly written into the
+payload, which installs on every node. It failed the routing test — *would an
+agent on a different machine, in a different repo hit this?* Only somebody
+running that one estate's script. A convention taught fleet-wide to work around
+a one-line bug in one repo is a permanent tax to avoid a temporary fix.
+
 **A known failure is an alibi for an unknown one on the same surface.**
 
 Broadcast had never delivered a message on this fleet, by either plane, for two
