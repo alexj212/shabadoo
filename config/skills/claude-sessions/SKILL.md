@@ -36,6 +36,20 @@ has to travel in the message.
 | **start it clean** | `shabadoo command --pane <name> /clear` | a folder with history RESUMES on open. Escape dismisses the prompt but the context still loads |
 | **kill** | `shabadoo win close <name>` | `reopen` rebuilds it in the same directory |
 | **save this desktop** | `shaba boot snapshot [--dry-run]` | records the folders open right now as the ones to reopen at boot. Additive — it never removes a line somebody wrote a reason beside |
+| **restart one** | `shabadoo restart <name>` | same folder, conversation resumed (`--continue`). Refuses a pane at a prompt or holding a half-typed message; `--force` overrides and loses it |
+| **restart everything idle** | `shabadoo restart --all-idle` | one at a time, and **every skip is named with its reason**. Skips core sessions, offline nodes, and the session running the command |
+
+**To pick up a `✔ Update installed · Restart to update` notice, restart — do not
+exit.** Exiting is the trap: the agent's window diff sees a window that was
+there and is now gone, records "closed on purpose", and `boot` then skips that
+folder indefinitely. At the exit, restarting and closing for the day are
+indistinguishable.
+
+**A session cannot restart itself with `win reopen`.** That kills the window and
+then relaunches *from the same process*, so run inside the pane it kills you get
+a closed session, not a restarted one. `shabadoo restart` goes through the
+coordinator, and the agent lives outside every pane — which is what makes asking
+for your own restart work.
 
 **A handoff names a session; it never quotes a window index.** An index is the
 least stable identifier here — positional, not what the coordinator addresses

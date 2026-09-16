@@ -448,6 +448,14 @@ type cliSession struct {
 	Asking         string    `json:"asking"`
 	ToolsStale     bool      `json:"tools_stale"`
 
+	// SessionID, Kind and Name are what a sweep needs and a listing does not.
+	// Name is the RAW tmux window name, which is the unambiguous thing to hand
+	// back as a target — an alias resolves by substring and a window index is
+	// positional, and both have killed the wrong session here.
+	SessionID string `json:"session_id"`
+	Kind      string `json:"kind"`
+	Name      string `json:"name"`
+
 	TmuxSession string `json:"tmux_session"`
 	Index       int    `json:"index"`
 }
@@ -1489,6 +1497,219 @@ func runKill(args []string) {
 		fatalf("kill: %v", err)
 	}
 	fmt.Printf("killed %s\n", p)
+}
+
+// runRestart restarts a session in place: same folder, conversation resumed.
+//
+// It goes through the COORDINATOR rather than the local launcher, and that is
+// the whole point rather than an implementation detail. `shabadoo win reopen`
+// kills the window and then relaunches from the same process, so running it
+// inside the pane it kills leaves a closed session instead of a restarted one —
+// a session cannot restart itself that way. The agent is a separate process
+// outside every pane, so the kill is survivable and a session CAN ask for its
+// own restart.
+func runRestart(args []string) {
+	fset := flag.NewFlagSet("restart", flag.ExitOnError)
+	coord := fset.String("coord", "", "coordinator base URL")
+	node := fset.String("node", "", "node owning the pane")
+	allIdle := fset.Bool("all-idle", false, "restart every session that is not mid-work")
+	force := fset.Bool("force", false, "restart even when a pane is busy or at a prompt")
+	includeCore := fset.Bool("include-core", false, "also restart each node's core session")
+	yes := fset.Bool("yes", false, "skip the confirmation")
+	name := nameAndFlags(fset, args)
+
+	c, err := newClient(*coord)
+	if err != nil {
+		fatalf("%v", err)
+	}
+	if *allIdle {
+		restartAllIdle(c, *node, *force, *includeCore, *yes)
+		return
+	}
+	if name == "" {
+		fatalf("usage: shabadoo restart <name>   |   shabadoo restart --all-idle")
+	}
+	nodes, err := fetchSessions(c)
+	if err != nil {
+		fatalf("%v", err)
+	}
+	target, raw, err := restartTarget(nodes, *node, name)
+	if err != nil {
+		fatalf("%v", err)
+	}
+	restarted, reason, err := restartOne(c, target, raw, *force)
+	if err != nil {
+		fatalf("restart: %v", err)
+	}
+	if restarted {
+		fmt.Printf("restarted %s\n", raw)
+		return
+	}
+	fmt.Printf("skipped %s: %s\n", raw, reason)
+	fmt.Println("  --force restarts anyway; anything not yet submitted is lost")
+}
+
+// restartTarget resolves a name to (node, raw window name).
+//
+// It reuses matchPane rather than matching again, because a second copy of the
+// resolution rule is a second thing that can disagree — and then hands back the
+// RAW window name rather than the alias: the agent resolves what it is given,
+// and an alias resolves by substring while a raw name matches exactly.
+func restartTarget(nodes []cliNode, nodeFlag, name string) (string, string, error) {
+	p, err := matchPane(nodes, nodeFlag, name)
+	if err != nil {
+		return "", "", err
+	}
+	for _, n := range nodes {
+		if n.Node != p.node {
+			continue
+		}
+		for _, s := range n.Sessions {
+			if s.Index == p.window && s.TmuxSession == p.session {
+				return p.node, s.Name, nil
+			}
+		}
+	}
+	return "", "", fmt.Errorf("resolved %s but its window name is not in the listing", p)
+}
+
+func restartOne(c *client, node, raw string, force bool) (bool, string, error) {
+	body := map[string]any{"node": node, "name": raw}
+	if force {
+		body["force"] = true
+	}
+	out, err := c.do("POST", "/api/restart", body)
+	if err != nil {
+		return false, "", err
+	}
+	var r struct {
+		Restarted bool   `json:"restarted"`
+		Reason    string `json:"reason"`
+	}
+	// A response this cannot decode is reported as such, never as a success:
+	// the whole value of a guard is that a refusal is visible.
+	if json.Unmarshal(out, &r) != nil {
+		return false, "could not read the agent's answer", nil
+	}
+	return r.Restarted, r.Reason, nil
+}
+
+// restartAllIdle restarts every session that is not mid-work, one at a time.
+//
+// **Every skip is named, with its reason.** A sweep that silently covered a
+// subset would be this project's own recurring failure in new clothes — the
+// last release's `upgrade --all` printed the node it upgraded and said nothing
+// about the one it skipped, so "all" meant one of two and nobody could tell.
+//
+// Three exclusions, and each is a decision rather than a filter:
+//
+//   - **The session running the command.** Restarting it kills this process
+//     partway through the sweep, so the sessions after it are never touched and
+//     nothing reports why. It is skipped and named, to be restarted separately.
+//   - **Core sessions**, unless --include-core. A node's core session is the
+//     only thing permitted to start sessions there; restarting it is safe but
+//     it is also the thing you would use to fix a bad sweep.
+//   - **Offline nodes**, as whole nodes. Their sessions are not reachable and a
+//     per-session skip line for each would bury the one fact that matters.
+//
+// The dialog pre-filter here is a courtesy, not the guard. It reads the last
+// agent report, which is up to five seconds old; the agent re-captures every
+// pane at the moment it acts, and that is what actually decides.
+func restartAllIdle(c *client, nodeFlag string, force, includeCore, yes bool) {
+	nodes, err := fetchSessions(c)
+	if err != nil {
+		fatalf("%v", err)
+	}
+	self := os.Getenv("CLAUDE_SESSION_ID")
+
+	var todo, skipped []restartSkip
+
+	for _, n := range nodes {
+		if nodeFlag != "" && n.Node != nodeFlag {
+			continue
+		}
+		if !n.Online {
+			skipped = append(skipped, restartSkip{node: n.Node, alias: n.Node + " (whole node)",
+				why: "node is offline — its sessions cannot be reached"})
+			continue
+		}
+		for _, s := range n.Sessions {
+			t := restartSkip{node: n.Node, raw: s.Name, alias: s.Alias}
+			switch {
+			case s.Name == "":
+				t.why = "no window name in the listing"
+			case self != "" && s.SessionID == self:
+				t.why = "this is the session running the command — restart it on its own"
+			case s.Kind == "core" && !includeCore:
+				t.why = "core session — pass --include-core to include it"
+			case s.InputState == "dialog":
+				t.why = "waiting on a prompt"
+			default:
+				todo = append(todo, t)
+				continue
+			}
+			skipped = append(skipped, t)
+		}
+	}
+
+	if len(todo) == 0 {
+		fmt.Println("nothing to restart.")
+		reportSkips(skipped)
+		return
+	}
+
+	fmt.Printf("will restart %d session%s, one at a time:\n", len(todo), plural(len(todo)))
+	for _, t := range todo {
+		fmt.Printf("  %s%s\n", t.alias, nodeSuffix(t.node))
+	}
+	// BEFORE the prompt, not after the run. What is being left out is part of
+	// the decision being asked for — printing it afterwards means somebody who
+	// declines never learns what was excluded, and somebody who accepts reads
+	// it too late to object.
+	reportSkips(skipped)
+	if !yes {
+		fmt.Print("proceed? [y/N] ")
+		var answer string
+		fmt.Scanln(&answer)
+		if !strings.HasPrefix(strings.ToLower(answer), "y") {
+			fmt.Println("cancelled")
+			return
+		}
+	}
+
+	var done, held int
+	for _, t := range todo {
+		restarted, reason, err := restartOne(c, t.node, t.raw, force)
+		switch {
+		case err != nil:
+			fmt.Printf("  ! %s: %v\n", t.alias, err)
+			held++
+		case restarted:
+			fmt.Printf("  ✓ %s\n", t.alias)
+			done++
+		default:
+			fmt.Printf("  · %s skipped: %s\n", t.alias, reason)
+			held++
+		}
+	}
+	fmt.Printf("\nrestarted %d, left alone %d\n", done, held)
+}
+
+// restartSkip is one session the sweep did not restart, and why.
+//
+// The reason travels with the name because a bare count invites the reader to
+// assume it was covered. "left alone 3" and "left alone 3: two at a prompt, one
+// is you" are different answers, and only the second one can be acted on.
+type restartSkip struct{ node, raw, alias, why string }
+
+func reportSkips(skipped []restartSkip) {
+	if len(skipped) == 0 {
+		return
+	}
+	fmt.Printf("\nnot considered (%d):\n", len(skipped))
+	for _, s := range skipped {
+		fmt.Printf("  · %s%s — %s\n", s.alias, nodeSuffix(s.node), s.why)
+	}
 }
 
 // shortSession drops the `claude-` prefix and the trailing 8-hex from a session

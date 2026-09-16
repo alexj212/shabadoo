@@ -93,6 +93,13 @@ func HumanRoutes(mux *http.ServeMux, hub *Hub, store *Store, devices *DeviceStor
 	mux.HandleFunc("POST /api/keys", requireWrite(h.write("keys")))
 	mux.HandleFunc("POST /api/kill", requireWrite(h.write("kill")))
 	mux.HandleFunc("POST /api/reopen", requireWrite(h.write("reopen")))
+	// Restart is reopen with a guard the agent applies against a FRESH capture
+	// of every pane: it refuses a window at a dialog or holding a half-typed
+	// prompt. It is separate from reopen rather than a flag on it because the
+	// two answer different questions — reopen is an operator acting on a row
+	// they are looking at, restart is a session asking for itself or a sweep
+	// touching many, where nobody is looking at any individual pane.
+	mux.HandleFunc("POST /api/restart", requireWrite(h.write("restart")))
 	mux.HandleFunc("POST /api/open", requireWrite(h.write("open")))
 
 	mux.HandleFunc("POST /api/message/send", requireWrite(h.sendMessage))

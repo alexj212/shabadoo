@@ -99,6 +99,8 @@ func main() {
 		runCommand(args[1:])
 	case "kill":
 		runKill(args[1:])
+	case "restart":
+		runRestart(args[1:])
 	case "audit":
 		runAudit(args[1:])
 	case "mail":
@@ -258,6 +260,8 @@ usage:
   shabadoo boot [--dry-run]       open one window per folder in the boot list
   shabadoo boot list|add|remove   which folders autostart
   shabadoo boot snapshot          record the open folders as the boot list
+  shabadoo restart <name>         restart a session in place (context resumes)
+  shabadoo restart --all-idle     restart every session that is not mid-work
   shabadoo config [set|unset]     launcher settings (host label, claude flags)
 
   shabadoo setup [flags]          install the toolchain onto this machine

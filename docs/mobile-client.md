@@ -872,6 +872,7 @@ part of driving its panes when the coordinator is gone.
 | `GET /api/folders?node=` | startable folders, each flagged `open` |
 | `POST /api/open` | `{node, path}` — start a session |
 | `POST /api/reopen` | `{node, name}` — **raw** window name |
+| `POST /api/restart` | `{node, name, force?}` — reopen with a guard. The agent re-captures **every pane** of that window and refuses if any is at a dialog or holds a half-typed prompt, so a restart cannot discard an unanswered question or an unsent draft. Answers `{name, restarted, reason}`: `restarted:false` with a `reason` is a refusal, not an error, and is the normal outcome on a busy pane. `force:true` overrides and loses whatever was unsent. Context survives either way — the session relaunches with `--continue`. **This is the only way a session can restart itself**, since the local launcher would kill the process doing the relaunching |
 | `POST /api/kill` | `{node, session, window}` |
 | `POST /api/select` | `{node, session, window}` — make a pane the active one in tmux |
 | `GET /api/input-state` | one pane's state; for the instant after answering, when waiting 5s for the next report is too slow |

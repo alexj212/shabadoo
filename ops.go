@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -54,6 +55,11 @@ type opArgs struct {
 	// Project names which root a file request is confined to. A path alone
 	// would be a filesystem read; a path INSIDE a named project is enumerable.
 	Project string `json:"project,omitempty"`
+
+	// Force overrides the restart guard. Absent means "respect it", which is
+	// the safe reading of silence: a caller that never heard of the guard must
+	// not bypass it.
+	Force bool `json:"force,omitempty"`
 }
 
 // pane is the addressed pane, or -1 for "whichever is active".
@@ -136,6 +142,12 @@ func handleOp(ctx context.Context, op string, payload json.RawMessage) (any, err
 			return nil, fmt.Errorf("reopen: name required")
 		}
 		return opReopen(ctx, a.Name)
+
+	case "restart":
+		if a.Name == "" {
+			return nil, fmt.Errorf("restart: name required")
+		}
+		return opRestart(ctx, a.Name, a.Force)
 
 	case "open":
 		if a.Path == "" {
@@ -705,6 +717,126 @@ func opReopen(ctx context.Context, pattern string) (any, error) {
 		return nil, err
 	}
 	return map[string]string{"output": fmt.Sprintf("reopened %q in %s\n", name, cwd)}, nil
+}
+
+// restartDecision answers whether one captured pane may be restarted, and says
+// why not when it may not.
+//
+// A restart kills the process and relaunches it, and `CLAUDE_RESUME=--continue`
+// means the conversation resumes — so the cost is not the context, it is
+// whatever had not been submitted yet. The two states that must never be
+// silently overridden are therefore exactly the two the NUDGE already refuses,
+// for the same reasons and through the same predicates:
+//
+//   - a DIALOG is a question waiting on a human. Restarting does not answer it,
+//     it discards it — the session comes back never having been asked, and the
+//     person who was about to answer has nothing to answer.
+//   - a BUSY COMPOSER is a half-typed prompt. `ComposerBusy` answers busy when
+//     it cannot tell, and that default is right here for the same reason it is
+//     right there: a false busy delays a restart nobody was waiting on, while a
+//     false idle destroys something somebody wrote and cannot recover.
+//
+// It deliberately does NOT consult `Session.Status`. That is tmux's
+// selected-window flag — "this is the window you are looking at" — and two
+// sessions on this fleet have already reported it as an activity measurement.
+// Gating on it would restart against whichever pane somebody last clicked.
+func restartDecision(pane string) (ok bool, reason string) {
+	if tmux.InputState(pane) == "dialog" {
+		return false, "waiting on a prompt — a restart discards the question rather than answering it"
+	}
+	if tmux.ComposerBusy(pane) {
+		return false, "composer is not empty, or could not be read — a half-typed prompt would be lost"
+	}
+	return true, ""
+}
+
+// windowPanes lists the pane indexes of one window, by name.
+func windowPanes(ctx context.Context, session, name string) ([]string, error) {
+	out, err := exec.CommandContext(ctx, "tmux", "list-panes",
+		"-t", session+":"+name, "-F", "#{pane_index}").Output()
+	if err != nil {
+		return nil, fmt.Errorf("list panes of %q: %w", name, err)
+	}
+	var idx []string
+	for _, l := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if l != "" {
+			idx = append(idx, l)
+		}
+	}
+	return idx, nil
+}
+
+// opRestart restarts one window in place: same folder, conversation resumed.
+//
+// It exists rather than being `reopen` with a flag because the two answer
+// different questions. `reopen` is an operator acting on a row they are looking
+// at; this is a session asking for itself, or a sweep touching many at once,
+// where nobody is looking at any individual pane.
+//
+// **This is also the only way a session can restart ITSELF.** The local
+// `win reopen` kills the window and then relaunches from the same process, so
+// running it inside the pane it kills leaves a closed session rather than a
+// restarted one. The agent is a separate process outside every pane, which is
+// what makes the kill survivable.
+//
+// **Every pane is checked, not just the active one.** A restart kills the whole
+// window, but `session:name` resolves to whichever pane is ACTIVE — so on a
+// split window the obvious implementation inspects one pane and destroys two.
+// Any busy pane refuses the whole window.
+func opRestart(ctx context.Context, pattern string, force bool) (any, error) {
+	c := loadLaunchConfig()
+	if !c.sessionExists(ctx) {
+		return nil, fmt.Errorf("no tmux session %q — nothing running", c.SessionName)
+	}
+	name, err := c.resolveWindow(ctx, pattern)
+	if err != nil {
+		return nil, err
+	}
+
+	if !force {
+		panes, err := windowPanes(ctx, c.SessionName, name)
+		if err != nil {
+			return nil, err
+		}
+		// No panes listed is not "nothing is busy" — it is "I could not see",
+		// and the two must not collapse into the permissive one.
+		if len(panes) == 0 {
+			return map[string]any{
+				"name": name, "restarted": false,
+				"reason": "could not read any pane of this window",
+			}, nil
+		}
+		for _, p := range panes {
+			out, err := exec.CommandContext(ctx, "tmux", "capture-pane",
+				"-p", "-t", c.SessionName+":"+name+"."+p).Output()
+			if err != nil {
+				return map[string]any{
+					"name": name, "restarted": false,
+					"reason": fmt.Sprintf("could not capture pane %s: %v", p, err),
+				}, nil
+			}
+			if ok, reason := restartDecision(string(out)); !ok {
+				return map[string]any{
+					"name": name, "restarted": false, "reason": reason,
+				}, nil
+			}
+		}
+	}
+
+	cwd, err := c.windowCWD(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+	if err := tmux.KillWindowByName(ctx, c.SessionName, name); err != nil {
+		return nil, err
+	}
+	if _, err := c.launch(ctx, cwd, false); err != nil {
+		return nil, err
+	}
+	return map[string]any{
+		"name": name, "restarted": true, "cwd": cwd,
+		"output": fmt.Sprintf("restarted %q in %s\n", name, cwd),
+	}, nil
 }
 
 func opOpen(ctx context.Context, path string) (any, error) {
