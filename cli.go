@@ -1537,16 +1537,20 @@ func runRestart(args []string) {
 	if err != nil {
 		fatalf("%v", err)
 	}
-	restarted, reason, err := restartOne(c, target, raw, *force)
+	status, reason, err := restartOne(c, target, raw, *force)
 	if err != nil {
 		fatalf("restart: %v", err)
 	}
-	if restarted {
+	switch status {
+	case restartDone:
 		fmt.Printf("restarted %s\n", raw)
-		return
+	case restartSkipped:
+		fmt.Printf("skipped %s: %s\n", raw, reason)
+		fmt.Println("  --force restarts anyway; anything not yet submitted is lost")
+	default:
+		// Never claim an outcome here. It may well have restarted.
+		fmt.Printf("%s: %s\n", raw, reason)
 	}
-	fmt.Printf("skipped %s: %s\n", raw, reason)
-	fmt.Println("  --force restarts anyway; anything not yet submitted is lost")
 }
 
 // restartTarget resolves a name to (node, raw window name).
@@ -1573,25 +1577,54 @@ func restartTarget(nodes []cliNode, nodeFlag, name string) (string, string, erro
 	return "", "", fmt.Errorf("resolved %s but its window name is not in the listing", p)
 }
 
-func restartOne(c *client, node, raw string, force bool) (bool, string, error) {
+// Restart outcomes. Three, not two, and the third is the point.
+const (
+	restartDone    = "restarted"
+	restartSkipped = "skipped"
+	restartUnknown = "unknown"
+)
+
+func restartOne(c *client, node, raw string, force bool) (string, string, error) {
 	body := map[string]any{"node": node, "name": raw}
 	if force {
 		body["force"] = true
 	}
 	out, err := c.do("POST", "/api/restart", body)
 	if err != nil {
-		return false, "", err
+		return restartUnknown, "", err
 	}
+	return decodeRestart(out)
+}
+
+// decodeRestart reads the agent's answer, and refuses to invent one.
+//
+// The first version collapsed an unreadable reply into "skipped", and that was
+// wrong in the most expensive direction available: the coordinator's generic
+// write proxy discarded the agent's result and answered 204, so EVERY restart
+// came back undecodable — and the CLI reported a session as skipped seconds
+// after successfully restarting it. `--all-idle` would have restarted the whole
+// fleet while printing "skipped" for every one.
+//
+// Measured, not reasoned: the restarted pane's process was 20 seconds old
+// against its neighbour's 119,482.
+//
+// So an unreadable answer is UNKNOWN. It is the same rule this codebase applies
+// to broadcast recipients, tool staleness and payload drift — a component that
+// could not see must not report what it would have seen.
+func decodeRestart(out []byte) (string, string, error) {
 	var r struct {
-		Restarted bool   `json:"restarted"`
+		Restarted *bool  `json:"restarted"`
 		Reason    string `json:"reason"`
 	}
-	// A response this cannot decode is reported as such, never as a success:
-	// the whole value of a guard is that a refusal is visible.
-	if json.Unmarshal(out, &r) != nil {
-		return false, "could not read the agent's answer", nil
+	// A pointer, so "field absent" and "field false" stay distinguishable. A
+	// plain bool decodes an empty body to false, which reads as a refusal.
+	if len(out) == 0 || json.Unmarshal(out, &r) != nil || r.Restarted == nil {
+		return restartUnknown, "the coordinator gave no readable answer — check `shabadoo sessions`", nil
 	}
-	return r.Restarted, r.Reason, nil
+	if *r.Restarted {
+		return restartDone, "", nil
+	}
+	return restartSkipped, r.Reason, nil
 }
 
 // restartAllIdle restarts every session that is not mid-work, one at a time.
@@ -1677,22 +1710,31 @@ func restartAllIdle(c *client, nodeFlag string, force, includeCore, yes bool) {
 		}
 	}
 
-	var done, held int
+	var done, held, unknown int
 	for _, t := range todo {
-		restarted, reason, err := restartOne(c, t.node, t.raw, force)
+		status, reason, err := restartOne(c, t.node, t.raw, force)
 		switch {
 		case err != nil:
 			fmt.Printf("  ! %s: %v\n", t.alias, err)
-			held++
-		case restarted:
+			unknown++
+		case status == restartDone:
 			fmt.Printf("  ✓ %s\n", t.alias)
 			done++
-		default:
+		case status == restartSkipped:
 			fmt.Printf("  · %s skipped: %s\n", t.alias, reason)
 			held++
+		default:
+			fmt.Printf("  ? %s: %s\n", t.alias, reason)
+			unknown++
 		}
 	}
-	fmt.Printf("\nrestarted %d, left alone %d\n", done, held)
+	// Unknowns are counted separately and never folded into either side. A
+	// sweep that could not tell must not round toward the reassuring answer.
+	fmt.Printf("\nrestarted %d, left alone %d", done, held)
+	if unknown > 0 {
+		fmt.Printf(", %d could not be confirmed either way", unknown)
+	}
+	fmt.Println()
 }
 
 // restartSkip is one session the sweep did not restart, and why.

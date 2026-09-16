@@ -67,6 +67,42 @@ func TestRestartRefusesAPaneAtAPrompt(t *testing.T) {
 	}
 }
 
+// A refusal and an unreadable answer are DIFFERENT, and collapsing them is the
+// defect that shipped.
+//
+// The coordinator's generic write proxy discards the agent's result and answers
+// 204, so every restart came back with an empty body. Decoding that into a
+// plain bool yielded `restarted:false`, which the CLI printed as "skipped" —
+// seconds after the session had in fact restarted. Measured at the time: the
+// restarted pane's process was 20 seconds old against its neighbour's 119,482.
+//
+// The axis is what the coordinator said; the fixture is the same call in every
+// arm. The pair matters because a decoder that answered "unknown" to everything
+// would satisfy the empty-body case perfectly while destroying the feature.
+func TestAnUnreadableAnswerIsUnknownNotSkipped(t *testing.T) {
+	for _, body := range []string{"", "   ", "<!DOCTYPE html>", `{"ok":true}`} {
+		got, reason, _ := decodeRestart([]byte(body))
+		if got != restartUnknown {
+			t.Errorf("decodeRestart(%q) = %q, want %q — an answer nobody could read "+
+				"must not be reported as a refusal", body, got, restartUnknown)
+		}
+		if reason == "" {
+			t.Errorf("decodeRestart(%q) gave no reason to act on", body)
+		}
+	}
+
+	// Both controls, on the same decoder: a real refusal still reads as one,
+	// and a real success still reads as one.
+	if got, reason, _ := decodeRestart([]byte(`{"restarted":false,"reason":"waiting on a prompt"}`)); got != restartSkipped {
+		t.Errorf("an explicit refusal decoded as %q (%s), want %q", got, reason, restartSkipped)
+	} else if reason != "waiting on a prompt" {
+		t.Errorf("the refusal lost its reason: %q", reason)
+	}
+	if got, _, _ := decodeRestart([]byte(`{"restarted":true,"name":"x"}`)); got != restartDone {
+		t.Errorf("a success decoded as %q, want %q", got, restartDone)
+	}
+}
+
 // Fails CLOSED, and this is the case no fixture of a working pane covers.
 //
 // An unreadable pane — mid-redraw, a pager, an overlay, anything whose input row

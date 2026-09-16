@@ -99,7 +99,7 @@ func HumanRoutes(mux *http.ServeMux, hub *Hub, store *Store, devices *DeviceStor
 	// two answer different questions — reopen is an operator acting on a row
 	// they are looking at, restart is a session asking for itself or a sweep
 	// touching many, where nobody is looking at any individual pane.
-	mux.HandleFunc("POST /api/restart", requireWrite(h.write("restart")))
+	mux.HandleFunc("POST /api/restart", requireWrite(h.restart))
 	mux.HandleFunc("POST /api/open", requireWrite(h.write("open")))
 
 	mux.HandleFunc("POST /api/message/send", requireWrite(h.sendMessage))
@@ -603,6 +603,11 @@ type writeReq struct {
 	// means. Three clients inventing three fuzzy-match rules is how the same
 	// phrase types into the wrong project.
 	To string `json:"to,omitempty"`
+
+	// Force overrides the restart guard. The generic write proxy below does not
+	// forward it — it builds a fixed payload — which is why restart has its own
+	// handler: routed through write(), --force was accepted and silently inert.
+	Force bool `json:"force,omitempty"`
 }
 
 // write returns a handler that proxies one mutating op to its agent and
@@ -669,6 +674,65 @@ func (h *humanAPI) write(op string) http.HandlerFunc {
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}
+}
+
+// restart proxies to the agent AND RETURNS ITS ANSWER, which is the whole
+// reason it is not routed through write() above.
+//
+// Every other write here is fire-and-forget: a keystroke either reached the
+// pane or the call failed, so write() discards the agent's result and replies
+// 204. A restart is different — it can legitimately REFUSE, because the pane is
+// at a prompt or holds a half-typed message, and that refusal is the feature.
+// Behind a 204 it is invisible: the caller cannot tell a guarded refusal from a
+// completed restart, and the first version of the CLI duly reported sessions as
+// skipped moments after restarting them.
+//
+// write() also builds a fixed payload with no `force` key, so the override was
+// accepted by the flag parser and silently dropped before it reached the agent.
+// Two failures from one shortcut, and both were invisible from the client.
+func (h *humanAPI) restart(w http.ResponseWriter, r *http.Request) {
+	var req writeReq
+	if !readJSON(w, r, &req) {
+		return
+	}
+	// Same name resolution as write(), so `restart homelab` means what it means
+	// everywhere else. Three clients inventing three matching rules is how one
+	// phrase reaches the wrong project.
+	if req.To != "" {
+		pane, err := h.scope(r.Context()).ResolvePane(r.Context(), req.To, h.now())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		req.Node = pane.Agent
+		if req.Name == "" {
+			req.Name = pane.Name
+		}
+	}
+	if req.Name == "" {
+		http.Error(w, "restart needs a window name (or `to`)", http.StatusBadRequest)
+		return
+	}
+
+	res, err := h.hub.Call(r.Context(), tenantOf(r.Context()), req.Node, "restart",
+		map[string]any{"name": req.Name, "force": req.Force})
+
+	entry := AuditEntry{Actor: actor(r.Context()), Action: "restart",
+		Target: req.Node + ":" + req.Name}
+	if req.Force {
+		entry.Detail = "force"
+	}
+	if err != nil {
+		entry.Detail = strings.TrimSpace(entry.Detail + " [failed: " + err.Error() + "]")
+	}
+	h.scope(r.Context()).Audit(r.Context(), entry, h.now())
+
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(res)
 }
 
 func (h *humanAPI) audit(w http.ResponseWriter, r *http.Request) {
