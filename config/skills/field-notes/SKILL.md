@@ -765,6 +765,43 @@ work — just not of the work that was asked for. Name the deliverable, then ask
 what a reader actually receives: the served page, the installed file, the parsed
 card. Not the commit that was supposed to produce it.
 
+**`2>/dev/null` converts "that option does not exist" into "that value is
+empty."**
+
+Measured on two hosts, same command:
+
+	el7, systemd 219:  systemctl show sshd -p MainPID --value  -> unrecognized option
+	                   ...the same, with 2>/dev/null           -> []   <- what a script sees
+	                   systemctl show sshd -p MainPID          -> MainPID=878
+	el9, systemd 252:  systemctl show sshd -p MainPID --value  -> 827
+
+`--value` does not exist on 219. Which release introduced it was NOT
+established — only that 219 rejects it and 252 accepts it.
+
+The trap is the redirect, not the flag. The command fails, the error is
+discarded, and the caller receives an empty string indistinguishable from a
+legitimately absent value: a unit with no MainPID, a service not running, a
+property genuinely unset. **Every check keyed on that flag therefore reads as
+ABSENT on every older host** — ten of them on one estate, four in production —
+and reads as data rather than as a failure.
+
+Two people hit it the same day and neither drew the lesson at the time. One had
+stderr visible, saw `unrecognized option`, worked around it in ten seconds and
+moved on without noticing the fleet-wide implication. The other had stderr
+suppressed, got `[]`, and wrote a blank PID into a verification table — caught
+only because *"service active with no PID"* is incoherent. **The contradiction
+saved them, not the check.**
+
+Neither was careless: the failure is silent by construction. With stderr shown
+it is obvious; with stderr suppressed — which is what every sweep script does, to
+keep noise out of a forty-host loop — it is a clean-looking empty value.
+
+Two fixes, the second more general than the tool: **prefer the portable form over
+the convenience flag** (`-p MainPID` returns `MainPID=827` on both and costs one
+`cut`), and **if you suppress stderr, check the exit status**, or you have built a
+machine for turning failures into measurements. Any tool that gained a flag has a
+version that rejects it.
+
 **The consumer that can speak is not thereby the one that is right.**
 
 Twice on the same file, five weeks apart, and the instances point in OPPOSITE

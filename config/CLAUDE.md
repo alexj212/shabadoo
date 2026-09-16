@@ -464,6 +464,7 @@ Collected instances, each found by somebody else after it had cost something:
 | a diagnostic counter absent | never measured, not never happened |
 | nothing listed | nothing was *visible to me* |
 | `systemctl show -p Result` → `success` | ran and succeeded, **or** never ran, **or** the unit is not installed |
+| a command's output is empty under `2>/dev/null` | it produced nothing, **or** it failed and you threw the reason away |
 
 That last row is worth the extra sentence because the fix is not obvious and the
 default reading is the wrong one. `Result` is systemd's value for a unit with no
@@ -484,6 +485,18 @@ distribution's quirk.
 **And the move that actually settles it is the one this section keeps arguing
 for: verify the outcome, not the unit.** List the backup repository, read `dnf
 history`. The host's own exit status is the component reporting on itself.
+
+**And suppressing stderr MANUFACTURES that ambiguity, wherever you do it.**
+`2>/dev/null` turns *"this option does not exist"* into *"this value is empty"*,
+and nothing downstream can tell that from a property genuinely unset. Measured:
+`systemctl show X -p MainPID --value` is rejected by systemd 219 and accepted by
+252, so with stderr discarded every check keyed on that flag reads ABSENT on
+every older host — silently, because a blank field looks like data. Two people
+hit it the same day; the one who caught it did so because *"active service with
+no PID"* is incoherent, not because the check said anything. **If you suppress
+stderr, check the exit status** — otherwise you have built a machine for turning
+failures into measurements. And prefer the portable form over the convenience
+flag: any tool that gained a flag has a version that rejects it.
 
 So **distinguish the two at the point of measurement, not in the caller**. Where
 a value can be unknown, carry a companion that says whether it was established —
