@@ -341,6 +341,18 @@ func (m *Mission) addWaiting(line string) {
 		if o, ok := ownerToken(line[:i]); ok {
 			w.Owner = o
 			w.Item = strings.TrimSpace(line[i+1:])
+			// A resolved row is often struck through as a WHOLE:
+			//
+			//	- ~~you: the gitlab1 admin bit~~ **RESOLVED 2026-09-15**
+			//
+			// ownerToken strips the opening `~~` off the owner, which leaves its
+			// closing partner orphaned in the item — rendering as a stray `~~`
+			// in every surface that shows the row. Unwrap as a whole what was
+			// wrapped as a whole, and only then: a balanced `~~…~~` the author
+			// wrote INSIDE the item is theirs and is left exactly as it is.
+			if strings.HasPrefix(strings.TrimSpace(line[:i]), "~~") {
+				w.Item = strings.TrimSpace(strings.Replace(w.Item, "~~", "", 1))
+			}
 		}
 	}
 	full := w.Item
