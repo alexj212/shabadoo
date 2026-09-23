@@ -156,7 +156,8 @@ appear in the thing you fear, the clean result is an artefact of the query.
 zsh since Catalina, and it diverges from bash SILENTLY: `read -p` means *read
 from the coprocess*, so the prompt never appears while the read still happens —
 somebody types a secret blind at a blank line; a glob matching nothing **aborts
-the script**; arrays are 1-based, returning the neighbouring element; and an
+the rest of the script**; arrays are 1-based, returning the neighbouring
+element; and an
 unquoted `$var` does not word-split. BSD is not GNU either — `stat -c`, `date
 -d`, `base64 -w0` and `cat -A` are rejected, `timeout` is absent, and `sed -i`
 needs an explicit `''` it otherwise reports as a *file* error. `#!/bin/bash` is

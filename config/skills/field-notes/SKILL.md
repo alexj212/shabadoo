@@ -817,7 +817,7 @@ bash at all. Measured under stock zsh 5.9, stock bash 3.2.57 and Homebrew bash
 | | zsh | bash | how it presents |
 |---|---|---|---|
 | `read -s -p "Tok: " V` | `read:6: -p: no coprocess` | works | zsh's `-p` means **read from the coprocess**, not "prompt". It errors on stderr **and the read still happens** — variable set, script continues, prompt never appears. On a tty somebody types a secret blind at a blank line |
-| `for f in *.nomatch` | **aborts the script** | iterates once on the literal | zsh prints `no matches found` and nothing after that line runs. bash's behaviour is its own bug, but it continues |
+| `for f in *.nomatch` | **aborts the rest of the script** | iterates once on the literal | zsh prints `no matches found` and nothing after that line runs; bash calls the loop body on the literal pattern. **Neither is simply worse — see the exception below** |
 | `arr=(x y z); ${arr[1]}` | `x` (1-based) | `y` (0-based) | no error, no warning, **the neighbouring element** |
 | `v="a b c"; set -- $v; echo $#` | `1` | `3` | unquoted `$var` does not word-split in zsh. Wrong answer, no complaint, and it cuts both ways |
 
@@ -826,6 +826,29 @@ The portable prompt, verified identical on all three shells:
 	printf 'Token: ' >&2
 	read -r -s VAR
 	printf '\n' >&2
+
+**The glob row has a measured exception, and the hazard is the abort's BLAST
+RADIUS rather than the abort itself.** Glob expansion happens once, before the
+first iteration, so a loop either runs over a known list or never starts — there
+is no partial state in either shell. On an all-or-nothing recipe that makes zsh
+the SAFER of the two. Measured against a SOPS re-key
+(`for f in *.sops.yaml; do sops updatekeys -y "$f"; done`) with no matches: zsh
+never enters the body and has zero side effects, while bash iterates once and
+calls `sops updatekeys -y "*.sops.yaml"` on a nonsense path. `setopt nullglob`
+would turn an all-or-nothing abort into an all-or-nothing no-op — the same
+outcome with more noise in a security-critical recipe — so it was deliberately
+left unguarded.
+
+Where it IS a genuine hazard, and this should not be softened: a glob **inside a
+longer script**, where the abort kills every subsequent step. That is the shape
+that looks like success. Fix the blast radius, not the abort.
+
+**Unmeasured, stated rather than left to inference:** whether a real INTERACTIVE
+zsh survives a no-match and accepts the next command is not established. It was
+attempted — `zsh -i` without a tty emits `stty: stdin isn't a terminal`, and a
+piped interactive attempt hung and had to be killed — and the measurer believed
+it survives but declined to assert it. The all-or-nothing property above holds
+regardless of interactivity.
 
 **Measured and NOT divergent, so nobody re-measures or adds a workaround:**
 `[[ ]]`, `${UNSET:-}` under `set -u`, `echo -e`, `echo -n`, `read VAR`,
