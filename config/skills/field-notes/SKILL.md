@@ -796,16 +796,55 @@ diagnosed as "works for me".
 `grep -P` as WORKING, then caught it — `type grep` returned **`grep is a
 function`**, injected by tooling rather than a binary. The measurement was of
 the harness, not the machine, inside a deliberate verification pass. *Nothing
-verifies itself*, one layer up from the thing being verified. **`type -a` the
-command before you measure what it does**; shabadoo was checked and ships no
-such function, so on that box it came from somewhere else.
+verifies itself*, one layer up from the thing being verified.
 
-**Provenance, which limits every row above.** The measuring machine was NOT a
-fresh Mac: Homebrew `coreutils`, `gnu-sed`, `grep`, `bash` and `python` were
-installed and the login shell had been changed to bash, where macOS has shipped
-**zsh since Catalina**. Rows above were run against `/usr/bin` or `/bin`
-explicitly for that reason. **zsh is entirely untested here.** Treat this as a
-bash-on-darwin result, not a macOS result.
+The blast radius was then measured rather than assumed, and it is narrower than
+either side feared: the function does **not** survive into a child shell —
+`zsh -c`, `bash -c` and `zsh -f -c` all resolve `grep` to `/usr/bin/grep`. So
+every script any session runs gets the real binary, and nothing shipped is
+affected. What is suspect is only a probe **typed directly into the harness
+shell**. The rule that survives is therefore about measurement hygiene, not
+about code: **run a probe in a clean child shell and `type -a` it first** — a
+probe typed into the harness measures the harness. shabadoo was checked and
+ships no such function; the only thing it writes to a shell rc is a single
+marked `PATH` export.
+
+**And zsh matters more than any of the above, because it is what a Mac runs.**
+macOS has defaulted to zsh since Catalina, so a stock machine is not running
+bash at all. Measured under stock zsh 5.9, stock bash 3.2.57 and Homebrew bash
+5.3.15, all in clean child shells:
+
+| | zsh | bash | how it presents |
+|---|---|---|---|
+| `read -s -p "Tok: " V` | `read:6: -p: no coprocess` | works | zsh's `-p` means **read from the coprocess**, not "prompt". It errors on stderr **and the read still happens** — variable set, script continues, prompt never appears. On a tty somebody types a secret blind at a blank line |
+| `for f in *.nomatch` | **aborts the script** | iterates once on the literal | zsh prints `no matches found` and nothing after that line runs. bash's behaviour is its own bug, but it continues |
+| `arr=(x y z); ${arr[1]}` | `x` (1-based) | `y` (0-based) | no error, no warning, **the neighbouring element** |
+| `v="a b c"; set -- $v; echo $#` | `1` | `3` | unquoted `$var` does not word-split in zsh. Wrong answer, no complaint, and it cuts both ways |
+
+The portable prompt, verified identical on all three shells:
+
+	printf 'Token: ' >&2
+	read -r -s VAR
+	printf '\n' >&2
+
+**Measured and NOT divergent, so nobody re-measures or adds a workaround:**
+`[[ ]]`, `${UNSET:-}` under `set -u`, `echo -e`, `echo -n`, `read VAR`,
+`read -r VAR`, `read -s VAR` and `read -r -s VAR` are identical across all
+three. The break is `-p` alone.
+
+**Provenance and limits, which bound every row above.** The BSD rows were run on
+a machine that was NOT a fresh Mac — Homebrew `coreutils`, `gnu-sed`, `grep`,
+`bash` and `python`, and a login shell changed to bash — which is why they were
+run against `/usr/bin` or `/bin` explicitly. For the zsh table: every `read` was
+fed by a here-string, so **`-s` suppressing terminal echo is unproven on a real
+tty**, which is the half that actually matters for a secret prompt. zsh rc
+processing was default, so a real user's `/etc/zshrc` plus Oh-My-Zsh could change
+the glob and splitting rows via `setopt`. `emulate sh` is untested.
+
+**The payload was swept for both footguns and is clean**: no `read -p`, no bare
+glob loop, no numeric array index, and no bash-4 feature anywhere — the shipped
+scripts use no arrays at all, so `/bin/bash` 3.2 costs them nothing. The only
+`for … in …*` hits are Python `.glob()` calls, which are not shell.
 
 **`2>/dev/null` converts "that option does not exist" into "that value is
 empty."**

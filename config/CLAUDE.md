@@ -152,15 +152,18 @@ have looked like in THIS system**; if the thing you are matching on could not
 appear in the thing you fear, the clean result is an artefact of the query.
 
 
-**And shell you write may run on the Mac.** BSD is not GNU — `stat -c`, `date
--d`, `base64 -w0` and `cat -A` are rejected outright, `timeout` does not exist,
-and `sed -i` needs an explicit `''` that it otherwise reports as a *file* error.
-`#!/bin/bash` gets **3.2** on every Mac (no associative arrays, no `mapfile`, no
-`${var^^}`) while an interactive `bash` may be 5.x, so `./script.sh` and `bash
-script.sh` differ on one machine. **And before measuring what a command does,
-`type -a` it** — a session measured `grep -P` as working and was measuring a
-shell *function* injected by tooling, not the binary. The measured table is in
-`field-notes`.
+**And shell you write may run on the Mac, under zsh.** macOS has defaulted to
+zsh since Catalina, and it diverges from bash SILENTLY: `read -p` means *read
+from the coprocess*, so the prompt never appears while the read still happens —
+somebody types a secret blind at a blank line; a glob matching nothing **aborts
+the script**; arrays are 1-based, returning the neighbouring element; and an
+unquoted `$var` does not word-split. BSD is not GNU either — `stat -c`, `date
+-d`, `base64 -w0` and `cat -A` are rejected, `timeout` is absent, and `sed -i`
+needs an explicit `''` it otherwise reports as a *file* error. `#!/bin/bash` is
+**3.2** there, whatever an interactive `bash` says. **And run a probe in a clean
+child shell, `type -a` first** — a session measured `grep -P` as working and was
+measuring a shell function its own harness had injected. The measured tables,
+and what was checked and is NOT divergent, are in `field-notes`.
 
 ## Problem-Solving Philosophy
 
