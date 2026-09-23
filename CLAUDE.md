@@ -1134,6 +1134,34 @@ from `InputState` and deliberately so. There a false dialog refuses real
 messages; here a false idle destroys a draft, while a false busy costs only the
 promptness of mail that was waiting anyway.
 
+**That default has a measured, LATENT cost, and it was left in place on
+purpose.** A darwin pane was captured idle while holding a line in its composer
+row — byte-identical across two captures 90 seconds apart, surviving a
+busy→idle transition. `ComposerBusy` is `draft != ""`, so that session reads
+busy permanently and every nudge to it is skipped indefinitely. The detector was
+CONTROLLED before the claim was made: the same code returns busy on the
+known-busy captures and idle on the idle ones, so this is a measurement rather
+than a pattern that could not fire. Latent rather than an outage — no mail was
+queued behind it — and `stuck.go` is the layer that catches it, retrying at two
+minutes and escalating at five.
+
+**Do not "fix" it with the obvious heuristic.** Idle plus byte-identical across
+captures does not mean "not a draft": it fires identically on somebody who typed
+half a prompt and walked away, which is precisely the person the guard exists to
+protect. The asymmetry has not changed — a false idle destroys work, a false
+busy delays mail that was already waiting.
+
+**And cursor position does not discriminate, which is a measured negative
+recorded so nobody re-tries it.** The honest fix would be a pane signal
+separating an unsent draft from a submitted line still rendered. `cursor_x` is
+not it: it equals the drawn display width both on an unknown row (13 == 13) and
+on a pane holding a provably genuine unsent draft (32 == 32). Two things remain
+**not established** and are not asserted here: whether that captured row was a
+draft or a submitted line — a capture cannot tell — and whether it suppresses a
+nudge in flight. The second was deliberately not tested, because the only
+experiment is mailing a session and watching it go unread, which CAUSES the harm
+it would measure.
+
 ## Telling somebody the build is broken (`--ci-repo`)
 
 The coordinator notifies when a *session* is blocked and said nothing when its
