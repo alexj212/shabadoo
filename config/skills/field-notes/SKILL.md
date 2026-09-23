@@ -765,6 +765,48 @@ work — just not of the work that was asked for. Name the deliverable, then ask
 what a reader actually receives: the served page, the installed file, the parsed
 card. Not the commit that was supposed to produce it.
 
+**BSD is not GNU, and the Mac's `#!/bin/bash` is 3.2.**
+
+Measured on darwin with stock binaries, rc observed, after an age key that
+passed every check on its artefact could not decrypt:
+
+| command | how it presents |
+|---|---|
+| `sed -i 's/a/b/' f` | `sed: 1: "f.txt ...` — reads as a FILE error, not a flag error. BSD needs `sed -i '' …`. The most misleading of the set |
+| `stat -c %s f` | `illegal option -- c`. BSD: `stat -f %z` |
+| `date -d "2026-01-01"` | `illegal option -- d` |
+| `base64 -w0 f` | `invalid argument`. Plain `base64` works; darwin wraps by default |
+| `cat -A f` | `illegal option -- A`. Use `cat -v` |
+| `/usr/bin/grep -P` | fails. Homebrew ships GNU grep as **`ggrep`**, not `grep` |
+| `cut -c1-160` on UTF-8 | `cut: stdin: Illegal byte sequence` on box-drawing characters. Needs `LC_ALL`. **Presents as corrupt input, not as a locale problem** |
+| `timeout 1 true` | **absent on stock macOS** — any `timeout` in a script is `command not found` on a fresh Mac |
+
+Checked and NOT traps, so nobody carries them: `readlink -f` and `realpath` both
+work on stock macOS 26.
+
+The silent one is the shell itself. `/bin/bash` is **3.2.57** — what every
+`#!/bin/bash` gets — while `/opt/homebrew/bin/bash` may be 5.x, which is what an
+interactive `bash` gets. No associative arrays, no `${var^^}`, no `mapfile`, no
+`&>>` under 3.2, and it does not warn: it fails at the line using the feature,
+often with a syntax error pointing somewhere unhelpful. **`bash script.sh` and
+`./script.sh` behave differently on the same machine**, which is how this gets
+diagnosed as "works for me".
+
+**The sharpest part is not in the table.** The same pass first measured
+`grep -P` as WORKING, then caught it — `type grep` returned **`grep is a
+function`**, injected by tooling rather than a binary. The measurement was of
+the harness, not the machine, inside a deliberate verification pass. *Nothing
+verifies itself*, one layer up from the thing being verified. **`type -a` the
+command before you measure what it does**; shabadoo was checked and ships no
+such function, so on that box it came from somewhere else.
+
+**Provenance, which limits every row above.** The measuring machine was NOT a
+fresh Mac: Homebrew `coreutils`, `gnu-sed`, `grep`, `bash` and `python` were
+installed and the login shell had been changed to bash, where macOS has shipped
+**zsh since Catalina**. Rows above were run against `/usr/bin` or `/bin`
+explicitly for that reason. **zsh is entirely untested here.** Treat this as a
+bash-on-darwin result, not a macOS result.
+
 **`2>/dev/null` converts "that option does not exist" into "that value is
 empty."**
 

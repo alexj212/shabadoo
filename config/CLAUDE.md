@@ -152,6 +152,16 @@ have looked like in THIS system**; if the thing you are matching on could not
 appear in the thing you fear, the clean result is an artefact of the query.
 
 
+**And shell you write may run on the Mac.** BSD is not GNU — `stat -c`, `date
+-d`, `base64 -w0` and `cat -A` are rejected outright, `timeout` does not exist,
+and `sed -i` needs an explicit `''` that it otherwise reports as a *file* error.
+`#!/bin/bash` gets **3.2** on every Mac (no associative arrays, no `mapfile`, no
+`${var^^}`) while an interactive `bash` may be 5.x, so `./script.sh` and `bash
+script.sh` differ on one machine. **And before measuring what a command does,
+`type -a` it** — a session measured `grep -P` as working and was measuring a
+shell *function* injected by tooling, not the binary. The measured table is in
+`field-notes`.
+
 ## Problem-Solving Philosophy
 
 **Propose the best, implement the least.** Recommend the optimal, most modern approach *in prose* and flag suboptimal setups — but implement only the minimal change requested (see Behavioral Guidelines §2–3).
