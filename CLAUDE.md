@@ -2349,11 +2349,36 @@ documentation, and a scanner that cries wolf gets ignored.
   invention is at least suspect. Ask for the hexdump.
 
   **Assert the bytes, because a glyph cannot be reviewed.** U+00A0 and U+0020 are
-  the same picture. `TestCapturedFixturesKeepTheNonBreakingSpace` checks the
-  separator as bytes on every fixture, which is the one thing the file could not
-  otherwise see: the parser stays correct, the pairing assertion stays green, and
-  the evidence quietly stops exercising the byte that disabled every nudge on the
-  fleet for ten hours.
+  the same picture. `TestCapturedFixturesKeepTheirSeparatorBytes` checks the
+  separator as bytes, which is the one thing the file could not otherwise see:
+  the parser stays correct, the pairing assertion stays green, and the evidence
+  quietly stops exercising the byte that disabled every nudge on the fleet for
+  ten hours.
+
+  **But assert the byte the fixture was CAPTURED with, never one byte for
+  everybody.** That check demanded U+00A0 on every fixture and failed on U+0020
+  anywhere, which took a property of one BUILD and pinned it as an invariant.
+  Measured on one machine at one moment: the pane still running an older build
+  rendered U+00A0 and a restarted pane beside it, on 2.1.281, rendered U+0020 —
+  so it tracks the build, not the platform, and the measurement that made it a
+  rule came from the one pane that had not restarted.
+
+  The cost was not a green test hiding a bug. It was that the **real current
+  rendering could not be added as a fixture at all**, failing both halves of the
+  byte check — so the file would have gone on insisting on a shape the fleet was
+  leaving, and the missing coverage would have looked like rigour. Each fixture
+  declares its own separator now, and **the set is required to cover both**: a
+  per-fixture check alone passes a file that has quietly lost every plain-space
+  case, which is the same defect one level up. Reported by the node that went
+  looking for the byte rather than trusting the glyph — and it found the premise
+  wrong, which is what a hexdump is for.
+
+  Incidentally structural, and the reason the separator is asserted on the typed
+  pane only: **tmux trims a trailing U+0020 and does not trim a trailing
+  U+00A0.** An empty composer therefore captures as `❯` in one build and
+  `❯<U+00A0>` in the other — the two do not produce the same shape for an empty
+  row, so there is no separator byte in the space variant's empty capture to
+  assert.
 
   **An exemption costs a sentence, never a flag.** That check first carried
   `captured bool`, which was an opt-out from the property it enforced — adding a

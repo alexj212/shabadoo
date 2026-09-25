@@ -482,9 +482,18 @@ func composerDraft(line string) (string, bool) {
 		return "", false
 	}
 	rest = rest[len(marker):]
-	// The marker must be followed by WHITESPACE — and not necessarily a plain
-	// space. Claude Code separates the prompt from the draft with U+00A0, a
-	// NON-BREAKING space, which `strings.HasPrefix(rest, " ")` rejects.
+	// The marker must be followed by WHITESPACE — and which whitespace is not
+	// stable. Some Claude Code builds separate the prompt from the draft with
+	// U+00A0, a NON-BREAKING space, which `strings.HasPrefix(rest, " ")`
+	// rejects; 2.1.281 uses a plain U+0020. Measured on one machine at one
+	// moment: a pane running the older build rendered U+00A0 while a restarted
+	// pane beside it rendered U+0020, so this tracks the BUILD and never the
+	// platform — it was documented as a darwin trait for a fortnight on the
+	// strength of a measurement taken from the one pane that had not restarted.
+	//
+	// Accepting both is why that change was not an outage. Being permissive
+	// here costs nothing and the alternative is a parser pinned to whichever
+	// build its author happened to be running.
 	//
 	// That single byte pair disabled every nudge on the fleet for ten hours.
 	// No input row matched, ComposerBusy fell through to "cannot tell", the

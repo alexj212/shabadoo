@@ -20,6 +20,15 @@ var composerRenderings = []struct {
 	name  string
 	empty string
 	busy  string
+	// sep is the separator this pane was CAPTURED with, as bytes. It is not a
+	// property of the platform: Claude Code changed it between builds, and two
+	// panes on one machine at one moment were measured rendering
+	// "\u276f\u00a0" and "\u276f " respectively — the long-lived pane keeping
+	// U+00A0 and the restarted one on 2.1.281 giving U+0020. So a fixture
+	// declares which build it came from rather than the file asserting one
+	// answer for everybody.
+	sep string
+
 	// notCaptured is a REASON, not a flag, and empty is the default on
 	// purpose: every fixture is asserted at the byte level below unless it
 	// carries a written justification for why it cannot be a capture.
@@ -43,6 +52,7 @@ var composerRenderings = []struct {
 		// hypothetical: it happened for ten hours and was found by a human
 		// asking a session how it was doing.
 		name: "unboxed heavy angle, non-breaking space (linux)",
+		sep:  "\u00a0",
 		empty: "  \u23f5\u23f5 bypass permissions on (shift+tab to cycle)\n" +
 			"\u276f\u00a0\n" +
 			"\u2500\u2500\u2500\u2500\u2500\u2500 homelab-wsl \u2500\n",
@@ -66,6 +76,7 @@ var composerRenderings = []struct {
 		// So a description of a capture is not a capture. The bytes came back
 		// as `e2 9d af c2 a0` on both panes, which is what is encoded now.
 		name: "unboxed heavy angle, non-breaking space (darwin)",
+		sep:  "\u00a0",
 		empty: "\u2500\u2500\u2500\u2500 mac \u2500\n" +
 			"\u276f\u00a0\n" +
 			"\u2500\u2500\u2500\u2500\u2500\n" +
@@ -74,6 +85,32 @@ var composerRenderings = []struct {
 			"\u276f\u00a0delete the two test runs\n" +
 			"\u2500\u2500\u2500\u2500\u2500\n" +
 			"   mac  Opus 5\n",
+	},
+	{
+		// CAPTURED on darwin from Claude Code 2.1.281, reported with a hexdump
+		// by the node that ran it. The separator is a PLAIN SPACE, U+0020 —
+		// and that is not a degraded capture, it is what that build draws.
+		//
+		// This case exists because the file previously asserted U+00A0 as an
+		// invariant on every fixture, which made the real 2.1.281 rendering
+		// impossible to add: it failed both halves of the byte check. The
+		// assertion was pinning a build artefact, taken from a 2026-09-11
+		// measurement of the one pane on that machine that had not restarted.
+		//
+		// The EMPTY pane is the structurally interesting half: tmux trims a
+		// trailing U+0020 and does NOT trim a trailing U+00A0, so an empty
+		// composer captures as "\u276f\n" here and "\u276f\u00a0\n" in the
+		// NBSP variant. The two builds do not even produce the same shape for
+		// an empty row, which is why the separator assertion below cannot be
+		// applied to the empty state.
+		name: "unboxed heavy angle, plain space (claude 2.1.281)",
+		sep:  " ",
+		empty: "  \u23f5\u23f5 bypass permissions on (shift+tab to cycle)\n" +
+			"\u276f\n" +
+			"\u2500\u2500\u2500\u2500\u2500\u2500 minutes-mac \u2500\n",
+		busy: "  \u23f5\u23f5 bypass permissions on (shift+tab to cycle)\n" +
+			"\u276f prune last week's runs\n" +
+			"\u2500\u2500\u2500\u2500\u2500\u2500 minutes-mac \u2500\n",
 	},
 	{
 		// A boxed ASCII composer, kept because older builds drew one and the
@@ -94,7 +131,7 @@ var composerRenderings = []struct {
 // A captured fixture must still CONTAIN what was captured. The renderings above
 // are the evidence this whole file rests on, and they are the one thing here
 // that can rot without any test noticing: the parser stays correct, the pairing
-// assertion stays green, and the fixtures quietly stop exercising the byte that
+// assertion stays green, and the fixtures quietly stop exercising the bytes that
 // actually broke the fleet.
 //
 // That is not a hypothetical failure mode, it is what happened. The darwin pair
@@ -106,33 +143,68 @@ var composerRenderings = []struct {
 // So the separator is asserted as BYTES rather than trusted to look right. A
 // glyph cannot be reviewed: U+00A0 and U+0020 are the same picture.
 //
-// This runs on EVERY fixture. Exempting one costs a written reason in
-// notCaptured, which is a thing a reviewer can weigh — where a boolean was
-// something to forget.
-func TestCapturedFixturesKeepTheNonBreakingSpace(t *testing.T) {
+// WHAT CHANGED, and it is the more interesting half: this used to assert U+00A0
+// on every fixture and fail on U+0020 anywhere. That was wrong, and wrong in the
+// way this file keeps warning about — it took a property of one BUILD and pinned
+// it as an invariant of the world. Two panes on one machine were measured at one
+// moment rendering different separators: the pane still running the 2026-09-08
+// build gave U+00A0, the restarted one on 2.1.281 gave U+0020. The original
+// measurement that put U+00A0 here came from the pane that had not restarted.
+//
+// The consequence was not a passing test hiding a bug; it was worse in a quieter
+// way. The real current rendering could not be ADDED as a fixture at all, because
+// it failed both halves of the byte check — so the file would have kept insisting
+// on a shape the fleet was moving away from, and the coverage gap would have
+// looked like rigour.
+//
+// So each fixture declares the separator it was captured with, and the set is
+// required to cover BOTH. A per-fixture assertion alone would pass a file that
+// had quietly lost every plain-space case, which is the same defect pointed one
+// level up.
+func TestCapturedFixturesKeepTheirSeparatorBytes(t *testing.T) {
+	seen := map[string]string{}
 	for _, r := range composerRenderings {
 		if r.notCaptured != "" {
 			continue
 		}
+		if r.sep == "" {
+			t.Errorf("%s: captured fixture declares no separator", r.name)
+			continue
+		}
+		seen[r.sep] = r.name
 		t.Run(r.name, func(t *testing.T) {
-			for _, state := range []struct{ name, pane string }{
-				{"empty", r.empty},
-				{"busy", r.busy},
-			} {
-				if !strings.Contains(state.pane, "\u276f\u00a0") {
-					t.Errorf("%s: no \u276f followed by U+00A0 — a captured "+
-						"fixture must carry the bytes it was captured with",
-						state.name)
-				}
-				if strings.Contains(state.pane, "\u276f ") {
-					t.Errorf("%s: the separator has degraded to U+0020. This "+
-						"renders identically and parses fine, so nothing else "+
-						"here will fail — and the fixture has stopped covering "+
-						"the byte that disabled every nudge on the fleet",
-						state.name)
-				}
+			other := "\u00a0"
+			if r.sep == "\u00a0" {
+				other = " "
+			}
+			// Asserted on the BUSY pane only. tmux trims a trailing U+0020 and
+			// does not trim a trailing U+00A0, so the plain-space build's empty
+			// row carries no separator byte at all — there is nothing there to
+			// assert, and demanding one would make the honest capture unusable.
+			// The empty state is covered by the pairing tests, which require it
+			// to read as an input row holding nothing.
+			if !strings.Contains(r.busy, "\u276f"+r.sep) {
+				t.Errorf("busy: no \u276f followed by the declared separator %q — "+
+					"a captured fixture must carry the bytes it was captured with",
+					r.sep)
+			}
+			if strings.Contains(r.busy, "\u276f"+other) {
+				t.Errorf("busy: separator has become %q, not the declared %q. Both "+
+					"render identically and both parse, so nothing else here will "+
+					"fail — and the fixture has stopped covering the build it was "+
+					"added for", other, r.sep)
 			}
 		})
+	}
+
+	// Both separators must still be represented. Losing one is invisible from
+	// any per-fixture check: every remaining fixture would agree with its own
+	// declaration and the file would pass while testing half the space.
+	for sep, label := range map[string]string{"\u00a0": "U+00A0 (builds up to ~2026-09)", " ": "U+0020 (2.1.281 and later)"} {
+		if _, ok := seen[sep]; !ok {
+			t.Errorf("no captured fixture uses the %s separator — the parser accepts "+
+				"both and only one is now exercised", label)
+		}
 	}
 }
 
