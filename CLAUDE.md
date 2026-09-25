@@ -914,15 +914,15 @@ additive, because the receiver is strict on purpose.
 
 ## A node can carry new config it has not installed
 
-`upgrade` replaces the binary and **never runs the config step**. So a node can
-hold a new skill inside its own binary while the old one sits in `~/.claude` —
-indefinitely, with nothing reporting the difference.
-
-Not theoretical: every payload release is followed by asking each machine to run
-`setup` by hand. Forgetting once leaves that node reading stale guidance and
-looking completely healthy, which is the same failure family as `tools_stale`.
-It was found the same way, too — a peer ran the right command out of `CLAUDE.md`
-and never opened the skill, an hour after the skill was rewritten.
+A node can hold a new skill inside its own binary while the old one sits in
+`~/.claude`. That was once indefinite, with nothing reporting the difference:
+every payload release was followed by asking each machine to run `setup` by
+hand, and forgetting once left that node reading stale guidance and looking
+completely healthy — the same failure family as `tools_stale`, found the same
+way, by a peer running the right command out of `CLAUDE.md` and never opening
+the skill an hour after it was rewritten. **The node installs its own payload at
+startup now** (below), so an upgrade closes it; the detector stays because it
+still catches a hand edit and a node that has not restarted.
 
 **And it NAMES the files, not just the count** — `payload_drift`, up to six,
 sorted, with `payload_pending` staying the authoritative total. This is Phase
@@ -950,6 +950,23 @@ install drift apart, which is precisely what it exists to detect.
 capabilities, and the pair is pinned by a test that installs the payload, checks
 for zero, then edits **one** file and requires the count to move — otherwise the
 first assertion passes for a scanner that always answers zero.
+
+**But `payload_pending` is scoped to the binary, and the scope is the whole
+answer.** It compares this node's disk against the payload *this build carries* —
+never against the checkout — so a zero means *my disk matches my own snapshot*,
+which is not *my guidance is current*. Measured on two nodes the day a
+payload-only commit landed: the node whose disk had it reported
+`payload_pending: 2` naming both changed files, and the node that had never seen
+it reported nothing at all. **The stale node is the one that reads clean**, and
+it reads clean correctly — the comparison it can make came out equal. Anyone
+scanning the two would have investigated the healthy one.
+
+Which is this file's own rule arriving one layer down: name a figure's scope in
+the same breath as the figure. It is a drift count against a snapshot, and no
+surface here compares a running build's payload against the repository — that
+question belongs to whoever publishes, and `upgrade` cannot answer it: it moves
+**published releases**, so a commit that was never published is `already
+current` by every honest reading the coordinator has.
 
 **The payload is a SNAPSHOT, and it can be older than the disk.** `make vendor`
 copies the live `~/.claude` into the overlay by hand, so a file edited *after*
