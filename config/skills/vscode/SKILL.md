@@ -41,7 +41,7 @@ Nothing found:
 | Want | Command |
 |---|---|
 | a file | `code -r "<abs path>"` |
-| a file at a line (and column) | `code -r -g "<abs path>:<line>[:<col>]"` |
+| a file at a line (and column) | `code -r -g "<abs path>:<line>[:<col>]"` (on WSL, see below) |
 | a folder / project | `code -r "<abs dir>"` (`-n` for a new window instead) |
 | two files side by side | `code -d "<left>" "<right>"` |
 | several files | `code -r "<a>" "<b>" …` |
@@ -50,10 +50,25 @@ Nothing found:
 time. Always quote paths — paths under a Windows home or `Program Files` routinely contain
 spaces.
 
-**WSL:** `code` is the Windows install's shim. Run from WSL it opens VS Code on
-the Windows desktop, attached to this distro through the WSL extension, so
-Linux paths work unchanged — pass the Linux path, never hand-translate it to
-`C:\...`.
+**WSL: always pass `wslpath -w`, never the Linux path.**
+
+```bash
+code -r -g "$(wslpath -w "<abs path>"):<line>"
+```
+
+`code` there is the Windows install's shell shim, and it decides whether it is
+in WSL by `$WSL_DISTRO_NAME` alone — its fallback matches only WSL1 kernel
+names, never `…-microsoft-standard-WSL2`. A session under tmux started by a
+systemd service does not inherit that variable, so the shim concludes it is
+*not* in WSL and hands the raw path to Windows: `/c/projects/x.md` opens as
+`C:\c\projects\x.md` and VS Code shows *"the file was not found"*. `code`
+still exits 0.
+
+`wslpath -w` sidesteps the detection entirely: a drive mount becomes
+`C:\projects\x.md` and opens natively; a file on the Linux filesystem becomes
+`\\wsl.localhost\<distro>\…`, which VS Code also opens. Do it yourself rather
+than trusting the shim, because whether the variable is set depends on how the
+session was launched, not on the machine.
 
 ## 4. Report honestly
 
