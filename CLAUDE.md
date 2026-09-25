@@ -1179,6 +1179,87 @@ nudge in flight. The second was deliberately not tested, because the only
 experiment is mailing a session and watching it go unread, which CAUSES the harm
 it would measure.
 
+## The Enter must not arrive in the same read as the text
+
+Reported from a terminal: `check inbox` sitting in a composer, typed and never
+entered, *sometimes*. Sometimes is the tell.
+
+`SendText` and `SendCommand` fire three `send-keys` calls back to back, which
+looks like three keystrokes and is not. tmux writes into a **pty**, and what the
+program on the other end sees depends on when it next reads. Measured against a
+probe that does nothing but read, the three arrive as three chunks 6ms apart.
+Against the same probe made to spend 50ms between reads — what the app does on
+every render — the text and the carriage return arrive as **one**:
+
+| Consumer's work between reads | What arrives |
+|---|---|
+| none | `b'\x15'` · `b'check inbox'` · `b'\r'` |
+| 50ms | `b'\x15'` · **`b'check inbox\r'`** |
+| 200ms | `b'\x15'` · **`b'check inbox\r'`** |
+
+The 0ms row is what makes the other two evidence rather than an artefact of how
+somebody looked: the same probe *can* report separation.
+
+A TUI reading a multi-byte chunk as a paste inserts that newline as a line break
+instead of submitting. **Invisible from here** — tmux accepted every key, so the
+send reports success and the coordinator audits the nudge as delivered. 166
+nudges recorded delivered in 400 audit rows, 2 skipped, while a human was
+walking up to panes and finding the line unsent. `stuck.go` cannot help: it
+retries the nudge and the retry hits the identical race, and an operator send has
+no retry at all.
+
+So `awaitComposer` waits for the text to appear before submitting it — reading
+the effect back through the interface the consumer uses rather than trusting the
+call. A fixed delay was the other option and is a guess: the real bound is
+whatever a render costs on a loaded pane, and no constant knows that. One
+`capture-pane`, below timer resolution on this host.
+
+It **fails open** — timeout, capture error, unparseable input row all send the
+Enter anyway, restoring exactly the old behaviour. Failing closed would be a send
+this program refuses to complete because it could not read a pane, turning a race
+into an outage. The predicate keeps cannot-tell *out* of that decision: an
+unreadable row is "not settled", so the caller keeps looking until its deadline.
+Leaking fail-open down into `composerHolds` would make the fix inert on precisely
+the panes it was written for — darwin parsed to cannot-tell for a day.
+
+**The fix landed in one of the two functions and looked complete.** `SendCommand`
+got the wait; `SendText` — the path every operator send takes, the dashboard box,
+the CLI, the voice client — did not. An A/B through the deployed agent then showed
+6 of 6 sends still coalescing, because `send` dispatches to `SendText` and never
+called the function carrying the change:
+
+| Arm | Result |
+|---|---|
+| old agent | `b'probe-N\r'` — 6/6 coalesced |
+| wait in `SendCommand` only | `b'after-N\r'` — 6/6 coalesced |
+| wait in `SendText` too | `b'fixed-N'` · `b'\r'` — 6/6 separated |
+| the `SendCommand` path | `b'/cmdprobe-N'` · `b'\r'` — 3/3 separated |
+
+**That is worth more than the fix: a negative result that lands on the wrong path
+is indistinguishable from a fix that does not work.** It was one step from being
+reported as the approach disproven, on a measurement of a function the change had
+never touched. What caught it was asking which function the command actually
+reaches *before* believing the result.
+
+So the property is asserted over the **source**, not over a list somebody keeps:
+every func in `tmux.go` containing a `"Enter"` send-keys literal must also call
+`awaitComposer`, or name itself in `waitExempt` with a written reason —
+`SendRawKeys` is the one exemption, since the keys *are* the message and a dialog
+has no composer row to read. Same reasoning as `serve_test.go` reading its
+endpoints out of `index.html`: a hand-kept list agrees with whatever its author
+last assumed, and what was assumed here was that there was one such function.
+
+It matches the **quoted literal**, never the bare word, which appears in the prose
+explaining the wait — asserting a directive by substring is how a test passes
+against a file with the directive deleted and only its comment left.
+
+**Verified on linux, handed to darwin rather than assumed.** `awaitComposer`
+depends on `ComposerDraft` parsing the pane, and that parser has failed on darwin
+before; when it fails the wait fails open and the fix is inert while every surface
+reads healthy. That is unfalsifiable from the machine it was written on, which is
+this file's own rule about platform-specific code, so the Mac was given the
+harness and told a failing answer was the more useful one.
+
 ## Telling somebody the build is broken (`--ci-repo`)
 
 The coordinator notifies when a *session* is blocked and said nothing when its
