@@ -637,6 +637,20 @@ func SendText(ctx context.Context, session string, window, pane int, text string
 		}
 	}
 	if enter {
+		// Same submit race as SendCommand, and this is the path every operator
+		// send takes — the dashboard's box, `shabadoo send`, the voice client.
+		// It was missed the first time round because the nudge was the reported
+		// symptom and `deliver` reaches SendCommand, so fixing that one felt
+		// like fixing the mechanism. It was not: an A/B through the deployed
+		// agent showed 6 of 6 sends still coalescing after the "fix", because
+		// `send` never called the function that carried it.
+		//
+		// Which is the lesson rather than the bug: the experiment measured a
+		// function the change had never touched, and a negative that lands on
+		// the wrong path is indistinguishable from a fix that does not work.
+		if text != "" {
+			awaitComposer(ctx, session, window, pane, text)
+		}
 		if out, err := run(ctx, "send-keys", "-t", t, "Enter"); err != nil {
 			return fmt.Errorf("send-keys Enter: %s", firstLine(out))
 		}
