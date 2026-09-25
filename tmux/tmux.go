@@ -3,14 +3,15 @@
 package tmux
 
 import (
-	"unicode"
-	"unicode/utf8"
 	"context"
 	"fmt"
 	"os/exec"
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
+	"unicode"
+	"unicode/utf8"
 )
 
 // FieldSep delimits the fields of a tmux -F format.
@@ -660,10 +661,101 @@ func SendCommand(ctx context.Context, session string, window, pane int, cmd stri
 	if out, err := run(ctx, "send-keys", "-t", t, "-l", "--", cmd); err != nil {
 		return fmt.Errorf("send-keys: %s", firstLine(out))
 	}
+	// The Enter must not arrive in the same read() as the text.
+	//
+	// These are three separate send-keys calls, which looks like three
+	// keystrokes and is not. tmux writes into a pty; what the program on the
+	// other end sees depends on when it next reads. Measured against a probe
+	// that does nothing but read, the three arrive as three chunks 6ms apart —
+	// and against the same probe made to spend 50ms between reads, as the app
+	// on the other end does on every render, the text and the carriage return
+	// arrive as ONE chunk: "check inbox\r". A TUI that reads a multi-byte chunk
+	// as a paste inserts that newline as a line break instead of submitting, so
+	// the line sits in the composer looking typed and never sent.
+	//
+	// That is invisible from here. tmux accepted every key, so the send reports
+	// success, the coordinator audits the nudge as delivered, and the only
+	// symptom is a human walking up to a pane and finding `check inbox` sitting
+	// in it. Reported that way, by somebody who saw it "sometimes" — which is
+	// the tell: it depends on whether the pane happened to be mid-render.
+	//
+	// So wait for the text to appear before submitting it, which is reading the
+	// effect back through the interface the consumer uses rather than trusting
+	// the call. A fixed delay was the other option and is a guess: the real
+	// bound is whatever a render costs on a loaded pane, and no constant knows
+	// that.
+	awaitComposer(ctx, session, window, pane, cmd)
 	if out, err := run(ctx, "send-keys", "-t", t, "Enter"); err != nil {
 		return fmt.Errorf("send-keys Enter: %s", firstLine(out))
 	}
 	return nil
+}
+
+const (
+	// settleTimeout bounds the wait, and settlePoll is how often it looks.
+	settleTimeout = 500 * time.Millisecond
+	settlePoll    = 25 * time.Millisecond
+
+	// settleProbeRunes is how much of the command to look for. Matching the
+	// whole thing is wrong: a long one wraps, so only its head is on the input
+	// row, and requiring all of it would never settle and always pay the full
+	// timeout.
+	settleProbeRunes = 16
+)
+
+// awaitComposer waits until a pane's input row shows what was just typed there.
+//
+// It FAILS OPEN, and the asymmetry is the reason: on a timeout, a capture
+// error, or an input row it cannot parse, the Enter goes anyway. That restores
+// exactly today's behaviour, which is a submit that may not take — while
+// failing closed would mean a send this program refuses to complete because it
+// could not read a pane, turning a race into an outage. The looseness is
+// chosen; anyone tightening it should know that.
+func awaitComposer(ctx context.Context, session string, window, pane int, cmd string) {
+	probe := settleProbe(cmd)
+	if probe == "" {
+		return
+	}
+	deadline := time.Now().Add(settleTimeout)
+	for {
+		if out, err := Capture(ctx, session, window, pane, 0, false); err != nil {
+			return // cannot look: no better answer than today's
+		} else if composerHolds(out, probe) {
+			return
+		}
+		if time.Now().After(deadline) {
+			return
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(settlePoll):
+		}
+	}
+}
+
+// settleProbe is the leading fragment of cmd that awaitComposer looks for.
+func settleProbe(cmd string) string {
+	r := []rune(strings.TrimSpace(cmd))
+	if len(r) > settleProbeRunes {
+		r = r[:settleProbeRunes]
+	}
+	return string(r)
+}
+
+// composerHolds reports whether a captured pane's input row already shows probe.
+//
+// An unreadable input row is reported as NOT holding it, so the caller keeps
+// looking until its deadline rather than treating "cannot tell" as "done" —
+// the same direction ComposerBusy takes, for the same reason: here the cost of
+// a wrong "yes" is the defect this exists to fix, and the cost of a wrong "no"
+// is a bounded wait.
+func composerHolds(pane, probe string) bool {
+	draft, ok := ComposerDraft(pane)
+	if !ok {
+		return false
+	}
+	return strings.Contains(draft, probe)
 }
 
 // Capture returns the pane's buffer: the visible screen plus up to `history`
