@@ -284,6 +284,17 @@ genuinely is the useful thing, **stamp it**, so a reader sees a sample rather
 than a constant. That is what `updated:` is for on a mission card, and why a
 `status:` line is honest while the same words in prose are not.
 
+**And closing a question is TWO acts: record the answer, and go back to everywhere
+it was ASKED.** The answer alone is inert if the documents people actually read still
+pose it. Paid for: an estimated-tax question was settled in one file — governing test,
+arithmetic shown, *"pay it and stop"* — while a larger, more prominent file covering
+the prior year was edited afterwards, never referenced it, and kept the question
+framed as open. The status card copied that framing forward, and six weeks later a
+session re-derived the identical number from scratch. **Grep for the question's own
+phrasing**, not the answer's, because the resolution rarely reuses the words. And
+when two documents overlap, **say which governs** — one line prevents the next reader
+adjudicating from scratch or trusting the longer of the two.
+
 **Closing a row ends the watching, not just the work.** While a task is open
 something is chasing it; the moment it is `done`, every transient claim in its
 note becomes unverified — and a check that stopped running looks exactly like a
@@ -461,6 +472,25 @@ Two rules follow:
 - **The boundary is enforced, not trusted.** `make vendor-check` fails if a work-specific token reaches the
   embedded payload (`.vendor-deny`). If a note you called global trips it, it was not global.
 
+## Two numbers that disagree are not always one error
+
+Before deciding which of two conflicting values is wrong, **try to make them both
+true.** Ask what each would have to be measuring for there to be no conflict — a
+subset and its superset, gross and net, one entity and the group, one period and
+another — and test that first. It is the cheaper hypothesis because it predicts an
+exact arithmetic relationship you can check in one line.
+
+Paid for over six weeks and three sessions: a finance file gave two figures for the
+same quantity, a small one and a large one, and flagged itself *"one of them is wrong
+and nobody has checked which."* Both were right — one covered a single participant,
+the other the whole group, and the parts summed to the larger figure exactly. The
+label carried both scopes and neither line said which. The gap decided whether a
+shortfall was trivial or five figures, so it blocked real work.
+
+So **name a figure's scope in the same breath as the figure** — "this person's
+withholding", never "withholding"; "per shard", never "throughput". The ambiguity is
+free to prevent and expensive to discover. Receipts in `field-notes`.
+
 ## Empty and unknown are different answers
 
 A component that cannot see the whole picture must not present its partial view
@@ -622,6 +652,15 @@ they were hoping you had done.
 
 So **promote it**: raise it as a ❓ DECISION with the options, a genuine pro and con on each, and
 your recommendation. Then the row in the table is the one-line pointer, not the whole ask.
+
+**Quote what a number is WORTH, not what volume it unlocks.** State the delta the
+reader will actually feel — the tax paid, the hours saved, the requests served — and
+mention the volume it acts on only as context. A benefit quoted in the units of the
+thing it touches is inflated by the ratio between them. Measured: a ~$32,700 capital
+loss was reported as *"offsets roughly $356,000 sold tax-free — effectively the
+entire position"*, every word true, and it was worth **$4,900**. Forced to restate
+it as value, the same comparison exposed the better finding the volume framing had
+hidden.
 
 **Recommend even when you are unsure — especially then.** "I don't have enough to say" is a
 non-answer the reader cannot act on; *"I'd do B, and here is the one fact that would change my

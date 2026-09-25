@@ -968,3 +968,95 @@ surface. Re-derive what it actually does from the code and from counts of what i
 has *really* done — audit rows, stored rows, delivery rows — rather than from its
 reputation. And when a component has a standing excuse, that is the one place
 worth auditing even though nobody has complained, precisely because nobody can.
+
+## Two numbers that disagree are not always one error
+
+A finance file gave two figures for the same withholding quantity — a large one in
+one place, a much smaller one in another — and flagged itself: *"one of them is wrong
+and nobody has checked which."* Three sessions carried that framing forward. The gap
+decided whether a shortfall was negligible or five figures, so it was treated as
+urgent and blocking.
+
+Both were right. **The small figure covered one participant; the large one covered
+the whole group** — the parts summed to it exactly. Neither line said which it
+measured, and the label carried both.
+
+The reflex that cost the time was reading *disagreement* as *error*. Once a
+contradiction is named, the search narrows to "which one is false," and the
+possibility that both are true of different things stops being considered — even
+though it is the cheaper hypothesis to test, because it predicts an exact
+arithmetic relationship between the numbers. Adding the two parts and comparing to
+the whole took one line and would have ended it at any point.
+
+**So before adjudicating between two conflicting values, try to make them
+consistent.** Ask what each one would have to be measuring for both to be true,
+and test that first: a subset and its superset, gross and net, one period and
+another, one entity and the group. A relationship that resolves exactly is
+evidence; a claim that one source is unreliable is not.
+
+And when you write a figure down, **name its scope in the same breath** — "this
+person's federal withholding," not "withholding." The ambiguity is free to prevent
+and expensive to discover.
+
+## Say what a number is WORTH, not what volume it unlocks
+
+A capital loss of ~$32,700 was reported to a user as *"offsets roughly $356,000 of
+ETH sold tax-free — effectively the entire position."* Every word arithmetically
+true. The user reasonably read it as the session's biggest find.
+
+It was worth about **$4,900** — a loss is worth the tax rate applied to it, not the
+size of the transaction it shelters. The $356,000 could have been sold anyway; the
+loss changed the bill on it, not the possibility of it.
+
+The error has a shape worth recognising, because it is easy to commit while being
+scrupulously accurate: **describing the largest number the fact touches rather than
+the smallest number it changes.** "Unlocks $356K" and "saves $4.9K" are both true,
+one is a headline and the other is the decision input, and the headline crowds out
+the input.
+
+The correction paid for itself immediately. Forced to state the value rather than
+the volume, the same comparison exposed the better finding: the position everyone
+assumed was tax-locked had a **9.2% embedded gain and could be exited entirely for
+~$4,255**, while a smaller position carried **91.5%** and cost ~$27,600. The
+concentration that looked frightening was the cheap one; the reassuring one was
+trapped. That ranking was invisible while the framing was volume.
+
+**So state the delta the reader will actually experience — the tax paid, the hours
+saved, the requests served — and mention the enabled volume only as context, if at
+all.** A benefit quoted in the units of the thing it acts on is almost always
+inflated by the ratio between them.
+
+## A question answered in one file and left open in another gets asked again
+
+A household's estimated-tax position was worked out in August and written up
+plainly: the governing test is *90% of current-year tax ≈ $21,600*, already
+covered, **"pay the scheduled $3,600 and stop there."** Settled, with the
+arithmetic shown.
+
+Six weeks later a session spent a substantial part of an evening deriving the same
+number from scratch — reading W-2s, projecting income, computing both safe-harbour
+tests — and landed on ~$18–22K. The right answer, obtained twice.
+
+The cause was not that anyone forgot. **A second, larger document covering the
+prior tax year was edited after the resolution and never referenced it.** It still
+carried the original framing — *"the safe-harbour question is still open and this
+file contradicts itself on the one input that settles it"* — and because that file
+was the more prominent one, the project's status card copied the framing forward as
+a live blocker. Every later reader inherited an open question that had been closed
+in a file they had no reason to open.
+
+**Closing a question is two acts, not one: record the answer, and go back to
+everywhere the question was ASKED.** The answer alone is inert if the places people
+actually read still pose it. That means the tracker row, the status card, and any
+analysis document that raised it — and it is worth grepping for the question's own
+distinctive phrasing to find them, because the resolution rarely uses the same
+words.
+
+**And when two documents overlap, say which governs.** *"If these disagree, the
+2026 file wins; it was written against actual income"* costs one line and prevents
+the next reader from adjudicating from scratch or, worse, trusting the longer and
+more confident of the two.
+
+The tell that this has happened: you derive something effortfully and it matches an
+existing figure suspiciously well. That is not confirmation — it is a signal to
+search for where the number already lives before doing any more work.
