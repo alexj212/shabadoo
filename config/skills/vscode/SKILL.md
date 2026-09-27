@@ -41,7 +41,7 @@ Nothing found:
 | Want | Command |
 |---|---|
 | a file | `code -r "<abs path>"` |
-| a file at a line (and column) | `code -r -g "<abs path>:<line>[:<col>]"` (on WSL, see below) |
+| a file at a line (and column) | `code -r -g "<abs path>:<line>[:<col>]"` (on WSL use the `cmd.exe` form below — for every row) |
 | a folder / project | `code -r "<abs dir>"` (`-n` for a new window instead) |
 | two files side by side | `code -d "<left>" "<right>"` |
 | several files | `code -r "<a>" "<b>" …` |
@@ -50,25 +50,41 @@ Nothing found:
 time. Always quote paths — paths under a Windows home or `Program Files` routinely contain
 spaces.
 
-**WSL: always pass `wslpath -w`, never the Linux path.**
+**WSL: bypass the shell shim — call Windows' own `code` through `cmd.exe`.**
 
 ```bash
-code -r -g "$(wslpath -w "<abs path>"):<line>"
+(cd "$(wslpath -u 'C:\')" && cmd.exe /c code -r -g "$(wslpath -w "<abs path>"):<line>")
 ```
 
-`code` there is the Windows install's shell shim, and it decides whether it is
-in WSL by `$WSL_DISTRO_NAME` alone — its fallback matches only WSL1 kernel
-names, never `…-microsoft-standard-WSL2`. A session under tmux started by a
-systemd service does not inherit that variable, so the shim concludes it is
-*not* in WSL and hands the raw path to Windows: `/c/projects/x.md` opens as
-`C:\c\projects\x.md` and VS Code shows *"the file was not found"*. `code`
-still exits 0.
+`wslpath -w` gives the Windows path; `cmd.exe /c code` runs `code.cmd`, which
+hands the file to the running editor and returns in about a second. The `cd` is
+only there because `cmd.exe` started from a Linux-filesystem directory prints a
+"UNC paths are not supported" warning (harmless, but noise). Paths containing
+`&`, `^` or `%` are unsafe through `cmd.exe`; ask before opening one.
 
-`wslpath -w` sidesteps the detection entirely: a drive mount becomes
-`C:\projects\x.md` and opens natively; a file on the Linux filesystem becomes
-`\\wsl.localhost\<distro>\…`, which VS Code also opens. Do it yourself rather
-than trusting the shim, because whether the variable is set depends on how the
-session was launched, not on the machine.
+**Why not the `code` on `PATH`.** Inside WSL that is a bash shim that picks a
+route by `$WSL_DISTRO_NAME` alone (its fallback matches only WSL1 kernels), and
+all three variants seen on this fleet misbehaved while exiting 0 or never
+exiting at all:
+
+- **Variable unset** (sessions under a tmux server started by a systemd
+  service) with a Linux path — handed to Windows verbatim: `/c/projects/x.md`
+  opens as `C:\c\projects\x.md`, "file not found".
+- **Variable set** with a Linux path — routed through the Remote-WSL extension,
+  which on a host with a non-default `[automount] root` (drives at `/c`)
+  reported a doubled drive, `c:\c:\Users\…`. Which component doubles it is not
+  established.
+- **Variable unset** with a Windows path — the shim runs
+  `ELECTRON_RUN_AS_NODE=1 Code.exe cli.js`, but only its WSL branch adds that
+  variable to `WSLENV`, so Windows never sees it and `Code.exe` starts as a
+  full Electron main process. It worked once where an instance was already
+  running and **hung for 120s** in another session, printing main-process
+  startup logs.
+
+`cmd.exe` sidesteps all of it: the variable is set on the Windows side, by
+Windows' own script. A file on the Linux filesystem becomes
+`\\wsl.localhost\<distro>\…` — untested; Windows may ask to allow that host
+first.
 
 ## 4. Report honestly
 
