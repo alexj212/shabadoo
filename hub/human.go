@@ -231,10 +231,32 @@ func (h *humanAPI) upgradeNode(w http.ResponseWriter, r *http.Request) {
 	// Another tool is INSTALLED, not swapped under a running process, so it
 	// takes the simpler path and never borrows the restart dance.
 	if req.Tool != "" {
-		set, err := h.hub.UpgradeNodeTool(r.Context(), tenant, req.Node, req.Tool, req.Version)
+		set, raw, err := h.hub.UpgradeNodeTool(r.Context(), tenant, req.Node, req.Tool, req.Version)
+
+		// What the node says it replaced, and which way that moved. Read out
+		// here so the AUDIT carries it too: "installed X" in a log nobody can
+		// compare against is what let a node sit 37 commits behind for five
+		// days, and the row is what somebody reconstructing it later reads.
+		var rep struct {
+			Version        string `json:"version"`
+			Previous       string `json:"previous"`
+			PreviousKnown  bool   `json:"previous_known"`
+			Direction      string `json:"direction"`
+			DirectionKnown bool   `json:"direction_known"`
+		}
+		if len(raw) > 0 {
+			_ = json.Unmarshal(raw, &rep)
+		}
+
 		detail := req.Tool
 		if len(set) > 0 {
 			detail = fmt.Sprintf("%s %s (%d components)", req.Tool, set[0].Version, len(set))
+		}
+		switch {
+		case rep.PreviousKnown && rep.DirectionKnown:
+			detail += fmt.Sprintf(" replacing %s [%s]", rep.Previous, rep.Direction)
+		case rep.PreviousKnown:
+			detail += fmt.Sprintf(" replacing %s [direction unestablished]", rep.Previous)
 		}
 		if err != nil {
 			detail += " — " + err.Error()
@@ -247,7 +269,14 @@ func (h *humanAPI) upgradeNode(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		writeJSON(w, map[string]any{"tool": req.Tool, "components": len(set), "version": set[0].Version})
+		writeJSON(w, map[string]any{
+			"tool": req.Tool, "components": len(set), "version": set[0].Version,
+			"installed":       rep.Version,
+			"previous":        rep.Previous,
+			"previous_known":  rep.PreviousKnown,
+			"direction":       rep.Direction,
+			"direction_known": rep.DirectionKnown,
+		})
 		return
 	}
 

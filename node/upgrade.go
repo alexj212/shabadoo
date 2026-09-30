@@ -306,6 +306,29 @@ func (c *Client) installTool(ctx context.Context, payload json.RawMessage) (any,
 		}
 	}
 
+	// Ask what is here BEFORE replacing it, because afterwards nobody can.
+	//
+	// `upgrade --tool` resolves "newest published for this platform", which is
+	// not the same as "newer than what you have": a node whose platform has not
+	// been published in a month is not upgraded but REVERTED. That happened —
+	// one node went back 37 commits to a five-week-old build and nothing said
+	// so, because this reported the version it installed and never the version
+	// it replaced. The only symptom was a command printing remedy text its repo
+	// had changed a week earlier, which reads as a bug in the command.
+	//
+	// Read here rather than reported periodically: a node does not otherwise
+	// track installed tool versions, and adding that to the agent report would
+	// be a protocol change for a value needed at exactly one moment.
+	prevVersion, prevBuilt := "", ""
+	for _, comp := range req.Components {
+		if comp.Name != req.Tool {
+			continue
+		}
+		if v, b, err := toolVersion(ctx, filepath.Join(binDir, comp.Name)); err == nil {
+			prevVersion, prevBuilt = v, b
+		}
+	}
+
 	// Every component is present and verified; now move them in. The previous
 	// copy is kept as .prev for the same reason the binary's is — not an
 	// automatic rollback, but one `mv` over SSH instead of a rebuild.
@@ -334,6 +357,11 @@ func (c *Client) installTool(ctx context.Context, payload json.RawMessage) (any,
 	out := map[string]any{
 		"tool": req.Tool, "installed": installed, "dir": binDir,
 		"requested": req.Version,
+		// Absent rather than empty-when-unknown would be the same trap: a
+		// caller cannot tell a tool that had no previous copy from one this
+		// failed to ask. previous_known separates them.
+		"previous":       prevVersion,
+		"previous_known": prevVersion != "",
 	}
 	primary := ""
 	for _, comp := range req.Components {
@@ -347,7 +375,7 @@ func (c *Client) installTool(ctx context.Context, payload json.RawMessage) (any,
 		out["verified"] = false
 		out["note"] = "no component named " + req.Tool + " to ask, so the version is the one requested"
 	default:
-		got, err := toolVersion(ctx, primary)
+		got, gotBuilt, err := toolVersion(ctx, primary)
 		switch {
 		case err != nil:
 			out["version"] = req.Version
@@ -359,25 +387,58 @@ func (c *Client) installTool(ctx context.Context, payload json.RawMessage) (any,
 			if got != req.Version {
 				out["note"] = "DISAGREES with the requested " + req.Version
 			}
+			if dir, known := compareBuilds(prevBuilt, gotBuilt); known {
+				out["direction"] = dir
+				out["direction_known"] = true
+			}
 		}
 	}
 	return out, nil
 }
 
 // toolVersion asks an installed tool what it is, by the same contract this
-// program uses on itself: `version --json` with a `version` field.
-func toolVersion(ctx context.Context, path string) (string, error) {
+// program uses on itself: `version --json` with a `version` and `built` field.
+//
+// `built` is the half that matters for comparing two of them. A `git describe`
+// string cannot be ordered — given v0.1.0-17-gee5ec50 and 17bde87 there is no
+// way to tell which came first — so a downgrade is only detectable against a
+// timestamp. Same limitation, and the same answer, as this program's own
+// downgrade guard.
+func toolVersion(ctx context.Context, path string) (version, built string, err error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	raw, err := exec.CommandContext(ctx, path, "version", "--json").Output()
 	if err != nil {
-		return "", fmt.Errorf("it does not run here: %w", err)
+		return "", "", fmt.Errorf("it does not run here: %w", err)
 	}
 	var got struct {
 		Version string `json:"version"`
+		Built   string `json:"built"`
 	}
 	if err := json.Unmarshal(raw, &got); err != nil || got.Version == "" {
-		return "", fmt.Errorf("no parseable version in its --json output")
+		return "", "", fmt.Errorf("no parseable version in its --json output")
 	}
-	return got.Version, nil
+	return got.Version, got.Built, nil
+}
+
+// compareBuilds orders two builds by their build timestamps.
+//
+// known is false whenever either side cannot be established, and the caller
+// must render that as "could not tell" rather than as "not a downgrade". An
+// unknown direction reported as forward is the defect this whole change exists
+// to remove, reintroduced one layer down.
+func compareBuilds(prev, next string) (direction string, known bool) {
+	p, err1 := time.Parse(time.RFC3339, prev)
+	n, err2 := time.Parse(time.RFC3339, next)
+	if prev == "" || next == "" || err1 != nil || err2 != nil {
+		return "", false
+	}
+	switch {
+	case n.After(p):
+		return "forward", true
+	case n.Before(p):
+		return "backward", true
+	default:
+		return "same", true
+	}
 }

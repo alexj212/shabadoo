@@ -622,18 +622,18 @@ func (s *ReleaseStore) ToolSet(tool, version, platform string) ([]Release, bool)
 // binary is replaced under a running process which then exits for its
 // supervisor; another tool is simply installed, which is strictly simpler and
 // must not borrow the restart dance.
-func (h *Hub) UpgradeNodeTool(ctx context.Context, tenant, node, tool, version string) ([]Release, error) {
+func (h *Hub) UpgradeNodeTool(ctx context.Context, tenant, node, tool, version string) ([]Release, json.RawMessage, error) {
 	if h.releases == nil {
-		return nil, fmt.Errorf("no releases published")
+		return nil, nil, fmt.Errorf("no releases published")
 	}
 	platform := h.NodePlatform(tenant, node)
 	if platform == "" {
-		return nil, fmt.Errorf("%s has not reported a platform — it is either not "+
+		return nil, nil, fmt.Errorf("%s has not reported a platform — it is either not "+
 			"connected, or running a build that predates platform reporting", node)
 	}
 	set, ok := h.releases.ToolSet(tool, version, platform)
 	if !ok {
-		return nil, fmt.Errorf("no %s set published for %s. That is not the same as "+
+		return nil, nil, fmt.Errorf("no %s set published for %s. That is not the same as "+
 			"being behind: not every host can build every set, so somebody with a "+
 			"%s machine has to publish one", tool, platform, platform)
 	}
@@ -647,10 +647,13 @@ func (h *Hub) UpgradeNodeTool(ctx context.Context, tenant, node, tool, version s
 				rel.Tool, rel.Component, rel.Version, platformFile(rel.Platform)),
 		})
 	}
-	_, err := h.Call(ctx, tenant, node, "install_tool", map[string]any{
+	// The node's reply is passed back rather than discarded. It carries what the
+	// install REPLACED and which direction that moved — facts only the node can
+	// establish, and the caller is what turns them into something a person sees.
+	raw, err := h.Call(ctx, tenant, node, "install_tool", map[string]any{
 		"tool":       tool,
 		"version":    set[0].Version,
 		"components": components,
 	})
-	return set, err
+	return set, raw, err
 }

@@ -1511,6 +1511,17 @@ one. `upgrade --tool` **skips** a node with no set rather than failing, because
 different answers: a node told the wrong one either installs nothing forever or
 chases a version that cannot exist for it.
 
+**An install reports what it REPLACED, and which way that moved.** "Newest
+published for this platform" is not "newer than what you have": a node whose
+platform had not been published in a month was reverted 37 commits to a
+five-week-old build, and nothing said so, because the install reported the
+version it put in and never the one it took out. The node now asks the existing
+binary for `version --json` before replacing it, and orders the two by their
+`built` timestamps (`compareBuilds`), since `git describe` strings cannot be
+ordered. The result (`previous`, `direction`, each with a `_known` companion,
+so "could not tell" never reads as "forward") goes into the `/api/upgrade`
+response and the audit row's detail. The CLI does not print it yet.
+
 **The manifest is the tool's own `version --json`.** Reading what a tool says
 about itself beats inventing a second format that has to be kept in step with
 it, and a component the tool marks `present: false` is refused rather than

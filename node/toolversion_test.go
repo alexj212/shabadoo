@@ -30,18 +30,21 @@ func TestToolVersionReportsWhatTheBinarySaysOrFails(t *testing.T) {
 
 	t.Run("it reports what the binary says", func(t *testing.T) {
 		p := write("good", `echo '{"version":"v0.1.0-17-gee5ec50","built":"2026-09-11T00:00:00Z"}'`)
-		got, err := toolVersion(context.Background(), p)
+		got, built, err := toolVersion(context.Background(), p)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		if got != "v0.1.0-17-gee5ec50" {
 			t.Errorf("reported %q, want the version the binary printed", got)
 		}
+		if built != "2026-09-11T00:00:00Z" {
+			t.Errorf("built = %q, want the timestamp the binary printed", built)
+		}
 	})
 
 	t.Run("unparseable output is an error, never a guess", func(t *testing.T) {
 		p := write("garbage", `echo 'not json at all'`)
-		if got, err := toolVersion(context.Background(), p); err == nil {
+		if got, _, err := toolVersion(context.Background(), p); err == nil {
 			t.Errorf("returned %q for unparseable output; an unverified install "+
 				"must not render as a verified one", got)
 		}
@@ -49,13 +52,13 @@ func TestToolVersionReportsWhatTheBinarySaysOrFails(t *testing.T) {
 
 	t.Run("a version-less manifest is an error too", func(t *testing.T) {
 		p := write("noversion", `echo '{"built":"2026-09-11T00:00:00Z"}'`)
-		if got, err := toolVersion(context.Background(), p); err == nil {
+		if got, _, err := toolVersion(context.Background(), p); err == nil {
 			t.Errorf("returned %q with no version field", got)
 		}
 	})
 
 	t.Run("a binary that will not run is an error", func(t *testing.T) {
-		if _, err := toolVersion(context.Background(), filepath.Join(dir, "absent")); err == nil {
+		if _, _, err := toolVersion(context.Background(), filepath.Join(dir, "absent")); err == nil {
 			t.Error("no error for a binary that does not exist")
 		}
 	})
