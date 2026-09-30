@@ -28,6 +28,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"shabadoo/tmux"
 )
@@ -265,14 +266,98 @@ func (c launchConfig) launch(ctx context.Context, cwd string, background bool) (
 		args = append(args, "-t", c.SessionName, "-n", name, "-c", cwd)
 		args = append(args, c.envArgs(cwd)...)
 	}
-	args = append(args, cmd)
+	// Keep the pane if claude exits, so awaitStarted can read why. Chained in
+	// the same tmux invocation because a separate call would race the exit:
+	// claude can refuse to start in well under a second. The server runs both
+	// commands before it handles the child exiting.
+	target := c.SessionName + ":" + name
+	args = append(args, cmd, ";", "set-option", "-w", "-t", target, "remain-on-exit", "on")
 
 	if out, err := exec.CommandContext(ctx, "tmux", args...).CombinedOutput(); err != nil {
 		return "", fmt.Errorf("tmux: %s", strings.TrimSpace(string(out)))
 	}
 	c.refreshSessionEnv(ctx)
 	c.applyDisplay(ctx)
+	if err := c.awaitStarted(ctx, target, name); err != nil {
+		return "", err
+	}
 	return name, nil
+}
+
+// launchSettle is how long a new window must survive before launch calls it
+// started.
+const launchSettle = 4 * time.Second
+
+// awaitStarted reports a claude that exited straight after launch, with what it
+// printed.
+//
+// Without it an immediate exit was invisible from every side: tmux accepted the
+// command, the window closed before anybody looked, and its one line of
+// explanation went with it. Found through `claude --continue` refusing a
+// conversation that a background session already held. It printed the reason,
+// exited 0, and `attach` handed the operator a terminal that closed at once.
+//
+// Fails OPEN. If the pane state cannot be read, this returns success, which is
+// the old behaviour. Refusing a launch because a read failed would make a
+// working window look broken.
+func (c launchConfig) awaitStarted(ctx context.Context, target, name string) error {
+	deadline := time.Now().Add(launchSettle)
+	for {
+		out, err := exec.CommandContext(ctx, "tmux", "display-message", "-p", "-t", target,
+			"#{pane_dead} #{pane_dead_status}").Output()
+		if err != nil {
+			// remain-on-exit should keep the window. If it is gone anyway, say so;
+			// if we cannot even list windows, we cannot tell.
+			names, lerr := c.windowNames(ctx)
+			if lerr != nil {
+				return nil
+			}
+			for _, n := range names {
+				if n == name {
+					return nil
+				}
+			}
+			return fmt.Errorf("window %q exited straight after launch, leaving nothing to show why", name)
+		}
+		if f := strings.Fields(string(out)); len(f) > 0 && f[0] == "1" {
+			status := "unknown"
+			if len(f) > 1 {
+				status = f[1]
+			}
+			text, _ := exec.CommandContext(ctx, "tmux", "capture-pane", "-p", "-S", "-50", "-t", target).Output()
+			_ = exec.CommandContext(ctx, "tmux", "kill-window", "-t", target).Run()
+			return fmt.Errorf("claude exited within %s of starting (status %s); it said:\n%s",
+				launchSettle, status, lastLines(string(text), 15))
+		}
+		if !time.Now().Before(deadline) {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-time.After(250 * time.Millisecond):
+		}
+	}
+	// Survived. A later, ordinary exit should close the window as it always has.
+	_ = exec.CommandContext(ctx, "tmux", "set-option", "-w", "-t", target, "remain-on-exit", "off").Run()
+	return nil
+}
+
+// lastLines returns up to n trailing non-blank lines of a pane capture.
+func lastLines(s string, n int) string {
+	var keep []string
+	for _, l := range strings.Split(s, "\n") {
+		if strings.TrimSpace(l) != "" {
+			keep = append(keep, "  "+strings.TrimRight(l, " "))
+		}
+	}
+	if len(keep) > n {
+		keep = keep[len(keep)-n:]
+	}
+	if len(keep) == 0 {
+		return "  (nothing)"
+	}
+	return strings.Join(keep, "\n")
 }
 
 // refreshSessionEnv updates the session-level environment so windows created

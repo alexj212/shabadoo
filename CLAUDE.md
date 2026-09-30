@@ -365,6 +365,17 @@ decisions with reasons written beside them, and a tool that regenerated either
 from a parsed map would delete every one of those reasons the first time it
 was used.
 
+**A launch waits about four seconds for claude to survive, and reports it if it
+does not.** The window is created with `remain-on-exit` (chained in the same
+tmux call, since claude can exit faster than a second call would arrive). If the
+pane dies, `launch` returns an error carrying claude's last lines and removes
+the window. Otherwise it switches `remain-on-exit` back off, so an ordinary exit
+later closes the window as before. Found when `claude --continue` refused a
+conversation held by a Claude Code background session: it printed one line,
+exited 0, and `attach` opened a terminal that closed at once. Every caller pays
+the four seconds, including the dashboard's open and the core-session restart.
+It fails open: a pane state it cannot read counts as started.
+
 `boot add` refuses a folder that does not exist, because an entry that cannot
 open starts nothing and says nothing — it would sit there looking configured.
 Folders are compared **through symlinks**, so removing by either spelling of
@@ -599,8 +610,16 @@ here solves; it routes and decides, and delegates the doing.
 
 An exit records intent in a file beside the boot list, and `boot` honours it —
 otherwise the watchdog reopens within ten minutes, which defeats closing one to
-free resources. **Opening clears it**: the file says "do not start this on your
-own", never "refuse to start this".
+free resources. **Opening clears it**, by every path: the dashboard's open,
+`attach`, `win open`, `win reopen` and `boot add`. The file says "do not start
+this on your own", never "refuse to start this". Until 2026-09-29 only the
+dashboard and `boot add` cleared it, so a folder brought back with `attach` was
+still skipped by boot the next time its window went away.
+
+A window seen in only **one** agent report is not recorded as closed. That is a
+launch that died, not a decision, and recording it would stop boot from ever
+retrying it. The cost is the safe direction: closing a window within about five
+seconds of opening it is not remembered.
 
 Mail to a closed project no longer bounces. Every startable folder carries the
 session id it *would* have, so the message is stored against it and drains when

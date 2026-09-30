@@ -24,10 +24,11 @@ import (
 // windowWatcher remembers the previous report so the next one can be a diff.
 type windowWatcher struct {
 	prev map[string]hub.Session
+	seen map[string]int // consecutive reports each session has appeared in
 }
 
 func newWindowWatcher() *windowWatcher {
-	return &windowWatcher{}
+	return &windowWatcher{seen: map[string]int{}}
 }
 
 // observe records the current view and returns the sessions that have gone
@@ -49,6 +50,13 @@ func newWindowWatcher() *windowWatcher {
 // open, where a missed detection restores the old behaviour and a false one
 // causes damage.
 //
+// A window seen in only ONE report is not recorded either. That is a launch
+// that died, not a decision: `launch` holds a failed window for a few seconds
+// to read why claude exited, and one report can land inside that. Recording it
+// would turn "claude refused to start" into "closed on purpose", and boot would
+// then never retry it. The cost is the same safe direction: closing a window
+// within about five seconds of opening it is not remembered.
+//
 // The first report after the agent starts is likewise not a diff. There is no
 // previous view to compare against, and inventing one would deactivate every
 // session on the host every time the agent restarted.
@@ -60,6 +68,12 @@ func (w *windowWatcher) observe(current []hub.Session) []hub.Session {
 
 	prev := w.prev
 	w.prev = now
+	seen := make(map[string]int, len(now))
+	for id := range now {
+		seen[id] = w.seen[id] + 1
+	}
+	lastSeen := w.seen
+	w.seen = seen
 
 	switch {
 	case prev == nil:
@@ -70,7 +84,7 @@ func (w *windowWatcher) observe(current []hub.Session) []hub.Session {
 
 	var gone []hub.Session
 	for id, s := range prev {
-		if _, still := now[id]; !still {
+		if _, still := now[id]; !still && lastSeen[id] >= 2 {
 			gone = append(gone, s)
 		}
 	}

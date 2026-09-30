@@ -113,6 +113,8 @@ func winOpen(ctx context.Context, c launchConfig, path string) {
 	if err != nil {
 		fatalf("%v", err)
 	}
+	// An explicit open, the same as the dashboard's: see clearDeactivated.
+	clearDeactivated(cwd)
 	name := c.windowName(cwd)
 	if c.sessionExists(ctx) {
 		names, err := c.windowNames(ctx)
@@ -159,6 +161,7 @@ func winReopen(ctx context.Context, c launchConfig, pattern string) {
 	if err := tmux.KillWindowByName(ctx, c.SessionName, name); err != nil {
 		fatalf("%v", err)
 	}
+	clearDeactivated(cwd)
 	if _, err := c.launch(ctx, cwd, false); err != nil {
 		fatalf("%v", err)
 	}
@@ -231,6 +234,11 @@ func runAttach(args []string) {
 	if err != nil {
 		fatalf("%v", err)
 	}
+
+	// Attaching is asking for this folder to run, so it forgets an earlier
+	// close-on-purpose. Otherwise a window brought back by `attach` is still
+	// skipped by boot the next time it goes away.
+	clearDeactivated(cwd)
 
 	name := c.windowName(cwd)
 	existing := false

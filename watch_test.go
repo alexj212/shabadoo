@@ -88,3 +88,25 @@ func TestClosingTheLastWindowIsNotReported(t *testing.T) {
 		t.Errorf("closing the last window reported %v — the tmux-loss rule must win here", ids(gone))
 	}
 }
+
+// A launch that dies is not a close. The pair holds everything constant except
+// how many reports the window was seen in, so it pins exactly that rule: one
+// report means a failed start, and must NOT be recorded; two means a session
+// that ran, and must be.
+func TestAWindowSeenOnceIsNotAClose(t *testing.T) {
+	w := newWindowWatcher()
+	w.observe([]hub.Session{sess("a")})
+	w.observe([]hub.Session{sess("a")})
+
+	w.observe([]hub.Session{sess("a"), sess("flash")})
+	if gone := w.observe([]hub.Session{sess("a")}); len(gone) != 0 {
+		t.Fatalf("a window seen in one report was recorded as closed: %v", ids(gone))
+	}
+
+	w.observe([]hub.Session{sess("a"), sess("ran")})
+	w.observe([]hub.Session{sess("a"), sess("ran")})
+	gone := w.observe([]hub.Session{sess("a")})
+	if len(gone) != 1 || gone[0].SessionID != "ran" {
+		t.Fatalf("a window seen in two reports: gone = %v, want [ran]", ids(gone))
+	}
+}
