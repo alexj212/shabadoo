@@ -63,3 +63,38 @@ func TestToolVersionReportsWhatTheBinarySaysOrFails(t *testing.T) {
 		}
 	})
 }
+
+// compareBuilds decides whether an install moved forward or backward, so the
+// case that matters most is the one where it CANNOT tell. A missing or
+// unparseable stamp must come back unknown. Reporting it as "forward" would be
+// the 37-commit silent revert again, one layer down.
+//
+// Forward and backward are a pair over the same two stamps, swapped, so an
+// implementation that ignores the order and always answers one way fails.
+// "same" uses one instant written in two offsets, because the stamps are
+// compared as times, not strings.
+func TestCompareBuildsOrdersByTimeAndAdmitsWhenItCannot(t *testing.T) {
+	const older, newer = "2026-09-01T00:00:00Z", "2026-09-29T20:51:02-04:00"
+
+	for _, c := range []struct {
+		name, prev, next string
+		want             string
+		wantKnown        bool
+	}{
+		{"newer build is forward", older, newer, "forward", true},
+		{"older build is backward", newer, older, "backward", true},
+		{"one instant in two offsets is same", "2026-09-30T00:51:02Z", newer, "same", true},
+		{"no previous stamp is unknown", "", newer, "", false},
+		{"no new stamp is unknown", older, "", "", false},
+		{"an unparseable stamp is unknown", "last tuesday", newer, "", false},
+		{"a date with no time is unknown", "2026-09-01", newer, "", false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			got, known := compareBuilds(c.prev, c.next)
+			if got != c.want || known != c.wantKnown {
+				t.Errorf("compareBuilds(%q, %q) = (%q, %v), want (%q, %v)",
+					c.prev, c.next, got, known, c.want, c.wantKnown)
+			}
+		})
+	}
+}
