@@ -63,8 +63,33 @@ during one wsl wobble the mac agent flapped for an hour. dm is always on. TLS,
 compression on the capture endpoint, a browser secure context (what Web Push
 needs) and nightly borg coverage came along with it.
 
+**A release is a tag push, and dm pulls it.** Pushing a `v*` tag runs
+`.github/workflows/release.yml`, which builds the image with both stamps and
+publishes it to ghcr.io in about eight minutes:
+
 ```bash
-# upgrade: build ON the coordinator from the committed tree, check it, bump the pin
+git tag v0.4.11 && git push origin main --follow-tags   # the step that publishes anything at all
+gh run watch $(gh run list --workflow=release.yml --branch v0.4.11 --limit 1 \
+  --json databaseId -q '.[0].databaseId')   # empty = not started yet; re-run in a few seconds
+ssh user@coordinator "cd /docker/shabadoo && cp .env .env.bak.\$(date +%s) && \
+  sed -i 's/^SHABADOO_IMAGE_TAG=.*/SHABADOO_IMAGE_TAG=0.4.11/' .env && \
+  docker compose pull && docker compose up -d"
+
+make install                   # rebuild the local binary + ~/bin (agents, CLI)
+make dist && shabadoo publish dist/ && shabadoo upgrade --all   # then the nodes
+```
+
+**A local `git tag` publishes nothing.** The pin names an image that does not
+exist until CI has run. `compose pull` then fails rather than quietly keeping
+the old container, so wait for the run to finish before bumping the pin. Filter
+the run by the tag (`--branch v0.4.11`), not just the newest: straight after the
+push, the newest release run is still the previous tag's, already finished.
+
+**Fallback: build on the coordinator.** Use this for an untagged build (a fix
+you have not cut a release for) or a coordinator with no route to ghcr.io:
+
+```bash
+# build ON the coordinator from the committed tree, check it, bump the pin
 # (see deploy/docker-compose.yml)
 V=$(git describe --tags --always --dirty)      # v0.4.10 — refuse a -dirty one, see below
 T=${V#v}                                       # 0.4.10 — the image tag carries no leading v
@@ -80,14 +105,14 @@ make install                   # rebuild the local binary + ~/bin (agents, CLI)
 ssh user@coordinator 'docker logs shabadoo-hub -f'
 ```
 
-**It builds on the coordinator, not here.** The image used to be built on this
+**The fallback builds on the coordinator, not here.** The image used to be built on this
 workstation and copied over with `docker save | ssh … docker load`. That needs a
 local Docker daemon, which is often not running, and moves 27 MB to deliver a
 few hundred KB of source. Building on dm needs neither, and dm is the machine
 that runs it.
 
-Five things in that recipe are load-bearing, and each was wrong here until a
-deploy exercised it:
+Five things in the fallback are load-bearing, and each was wrong here until a
+deploy exercised it (the leading-`v` rule applies to the release pin too):
 
 - **Build from `git archive HEAD`, from a clean tree.** The archive holds the
   commit and nothing else, and the stamp is `git describe` of the working tree.
