@@ -256,13 +256,19 @@ ghcr.io:
 ```bash
 V=$(git describe --tags --always --dirty)      # v0.4.11
 T=${V#v}                                       # 0.4.11 — the image tag carries no leading v
-docker build --load --build-arg VERSION=$V --build-arg BUILT=$(git log -1 --format=%cI) \
-  -t ghcr.io/alexj212/shabadoo:$T .
-docker run --rm ghcr.io/alexj212/shabadoo:$T version --json    # check before shipping it
-docker save ghcr.io/alexj212/shabadoo:$T | gzip -1 | ssh user@coordinator 'gunzip | docker load'
+D=/tmp/shabadoo-build-$T                       # built ON the coordinator, from HEAD
+git archive --format=tar HEAD | ssh user@coordinator "rm -rf $D && mkdir -p $D && \
+  tar -x -C $D && cd $D && docker build --build-arg VERSION=$V \
+  --build-arg BUILT=$(git log -1 --format=%cI) -t ghcr.io/alexj212/shabadoo:$T . && \
+  docker run --rm ghcr.io/alexj212/shabadoo:$T version --json; rm -rf $D"   # check before switching
 ssh user@coordinator "cd /docker/shabadoo && cp .env .env.bak.\$(date +%s) && \
   sed -i 's/^SHABADOO_IMAGE_TAG=.*/SHABADOO_IMAGE_TAG=$T/' .env && docker compose up -d"
 ```
+
+It builds on the coordinator rather than shipping an image, so no local Docker
+daemon is needed, and `git archive HEAD` means the image is exactly the commit.
+Run it from a clean tree: a `-dirty` stamp would claim changes the image does
+not contain.
 
 Three things there are load-bearing and were all wrong until a deploy exercised
 them: the **image name must be what compose resolves**

@@ -64,13 +64,15 @@ compression on the capture endpoint, a browser secure context (what Web Push
 needs) and nightly borg coverage came along with it.
 
 ```bash
-# upgrade: build here, ship the image, bump the pin (see deploy/docker-compose.yml)
-V=$(git describe --tags --always --dirty)      # v0.4.10
+# upgrade: build ON the coordinator from the committed tree, check it, bump the pin
+# (see deploy/docker-compose.yml)
+V=$(git describe --tags --always --dirty)      # v0.4.10 — refuse a -dirty one, see below
 T=${V#v}                                       # 0.4.10 — the image tag carries no leading v
-docker build --load --build-arg VERSION=$V --build-arg BUILT=$(git log -1 --format=%cI) \
-  -t ghcr.io/alexj212/shabadoo:$T .
-docker run --rm ghcr.io/alexj212/shabadoo:$T version --json    # check before shipping it
-docker save ghcr.io/alexj212/shabadoo:$T | gzip -1 | ssh user@coordinator 'gunzip | docker load'
+D=/tmp/shabadoo-build-$T
+git archive --format=tar HEAD | ssh user@coordinator "rm -rf $D && mkdir -p $D && \
+  tar -x -C $D && cd $D && docker build --build-arg VERSION=$V \
+  --build-arg BUILT=$(git log -1 --format=%cI) -t ghcr.io/alexj212/shabadoo:$T . && \
+  docker run --rm ghcr.io/alexj212/shabadoo:$T version --json; rm -rf $D"   # check before switching
 ssh user@coordinator "cd /docker/shabadoo && cp .env .env.bak.\$(date +%s) && \
   sed -i 's/^SHABADOO_IMAGE_TAG=.*/SHABADOO_IMAGE_TAG=$T/' .env && docker compose up -d"
 
@@ -78,8 +80,19 @@ make install                   # rebuild the local binary + ~/bin (agents, CLI)
 ssh user@coordinator 'docker logs shabadoo-hub -f'
 ```
 
-Four things in that recipe are load-bearing, and each was wrong here until a
+**It builds on the coordinator, not here.** The image used to be built on this
+workstation and copied over with `docker save | ssh … docker load`. That needs a
+local Docker daemon, which is often not running, and moves 27 MB to deliver a
+few hundred KB of source. Building on dm needs neither, and dm is the machine
+that runs it.
+
+Five things in that recipe are load-bearing, and each was wrong here until a
 deploy exercised it:
+
+- **Build from `git archive HEAD`, from a clean tree.** The archive holds the
+  commit and nothing else, and the stamp is `git describe` of the working tree.
+  With uncommitted changes, `$V` ends in `-dirty` and claims changes the image
+  does not contain. Commit first; never ship a `-dirty` tag.
 
 - **The image name must be the one compose resolves.** It pulls
   `${SHABADOO_IMAGE:-ghcr.io/alexj212/shabadoo}`, and the live `.env` sets only
@@ -92,9 +105,10 @@ deploy exercised it:
   ships a hub whose `version --json` reports no build time — the field the
   downgrade guard compares, and the one that makes a deployed build orderable
   against a checkout at all.
-- **Verify the image before shipping it.** `docker run --rm … version --json` is
-  cheap and answers "is this the build I think it is" on this side of a 27 MB
-  transfer, rather than after a restart.
+- **Verify the image before switching to it.** `docker run --rm … version --json`
+  is cheap and answers "is this the build I think it is" before the restart,
+  rather than after it. The `.env` bump is a separate command so you can read
+  that output first.
 
 After `compose up -d`, the agents drop and redial: `/healthz` reports
 `agents:2` again within about ten seconds. A count that stays low is the thing
