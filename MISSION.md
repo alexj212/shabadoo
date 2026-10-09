@@ -1,21 +1,29 @@
 # The session framework itself — coordinator, per-host agents, and the payload of skills and conventions they install.
 status: active
-updated: 2026-09-14
+updated: 2026-10-09
 
 ## Now
-Nothing in flight. v0.4.87 is public, on the hub and on wsl: scoped broadcast,
-plus the human-plane broadcast handler that had never once delivered a message.
-Verified against the deployed hub rather than the deploy — it answered
-`recipients: 1`, the first delivery in that endpoint's existence. The mac was
-away for the whole release; its darwin/arm64 set is published, so bringing it
-current is one `upgrade --all`.
+Designing "Hey Shaba": a room voice satellite as a shabadoo client, through Home
+Assistant's conversation stage. Design is in `docs/voice-ha.md`; nothing is
+built. Asked for by Alex via homelab (task 5f813a4f). The fleet is on
+v0.4.95-11-gd0f3d89: hub, wsl and mac.
 
 ## Waiting on
+- you: decide whether the first voice version may send mail to a project ("tell homelab ...") or is read-only · risk: a room has no identity, so anyone who can say the wake word could hand a session an instruction · cost: one answer; read-only ships either way
+- homelab: measure whether the Voice PE offers a pipeline per wake word, and whether Home Assistant's host can reach the coordinator · risk: the two-pipeline split in docs/voice-ha.md rests on the first · cost: two checks on dm
 - you: four decisions out of the 08-29 retro — ElevenLabs key, 5.5GB of home audio, two unrouted meetings, one mis-addressed send · CARRIED, NOT RE-VERIFIED since 08-30 · risk: a leaked key keeps billing and the audio keeps growing · cost: one conversation
 - me: the `subscriptions` table is empty and `session_subscribe` now has no caller worth having — decide whether the topic path is deleted or kept as dead weight · risk: two ways to address one broadcast, one of which always reaches zero · cost: an hour, once somebody confirms no external client calls it
 - nobody: `shaba todo` hides 26 rows behind its six-row cap — Alex considered and declined raising it; the cap keeps a card readable, and this is the stated cost of that
 
 ## Log
+- 2026-10-09 "Hey Shaba" designed (docs/voice-ha.md): a custom Home Assistant
+  conversation agent on its OWN pipeline and wake word, calling a new
+  `POST /api/voice/ask`. Chosen over imitating a chat-model API and over
+  sentence triggers. The house's default pipeline is not touched. Voice gets a
+  `voice` device scope that admits that one endpoint, and never types into a pane
+- 2026-10-01 hub, wsl and mac brought to v0.4.95-11-gd0f3d89. The launcher now
+  reports a claude that exits at launch, and every explicit open clears
+  deactivation
 - 2026-09-14 `shabadoo publish` took 2 of 4 platforms: the darwin pair was refused
   because `go` was not on PATH for the `go version -m` fallback, and the exit
   status was still 0. Caught by reading the output rather than trusting the rc.

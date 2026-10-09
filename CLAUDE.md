@@ -2208,6 +2208,14 @@ on the machine that already holds the key; never the raw body, since an
 unbounded echo of an authenticated response into a log is the same leak
 somewhere quieter.
 
+### A room voice device (designed, not built)
+
+`docs/voice-ha.md` is the design for "Hey Shaba": a voice satellite reaching
+shabadoo through Home Assistant's conversation stage, on its own wake word and
+pipeline, calling a new `POST /api/voice/ask`. It governs that work until it is
+built. The rule it sets is the one above made stricter: a room has no identity,
+so voice gets its own device scope and never types into a pane.
+
 ## The MCP bridge (`shabadoo mcp`)
 
 Each Claude session launches `shabadoo mcp`, which speaks MCP over stdio and
