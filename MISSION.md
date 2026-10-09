@@ -10,12 +10,13 @@ v0.4.95-11-gd0f3d89: hub, wsl and mac.
 
 ## Waiting on
 - you: decide whether the first voice version may send mail to a project ("tell homelab ...") or is read-only · risk: a room has no identity, so anyone who can say the wake word could hand a session an instruction · cost: one answer; read-only ships either way
-- homelab: measure whether the Voice PE offers a pipeline per wake word, and whether Home Assistant's host can reach the coordinator · risk: the two-pipeline split in docs/voice-ha.md rests on the first · cost: two checks on dm
+- homelab: report whether the custom "hey shaba" firmware keeps both wake-word slots and their separate pipelines · risk: the two-pipeline split is only measured on the stock firmware · cost: part of the firmware build they are already doing
 - you: four decisions out of the 08-29 retro — ElevenLabs key, 5.5GB of home audio, two unrouted meetings, one mis-addressed send · CARRIED, NOT RE-VERIFIED since 08-30 · risk: a leaked key keeps billing and the audio keeps growing · cost: one conversation
 - me: the `subscriptions` table is empty and `session_subscribe` now has no caller worth having — decide whether the topic path is deleted or kept as dead weight · risk: two ways to address one broadcast, one of which always reaches zero · cost: an hour, once somebody confirms no external client calls it
 - nobody: `shaba todo` hides 26 rows behind its six-row cap — Alex considered and declined raising it; the cap keeps a card readable, and this is the stated cost of that
 
 ## Log
+- 2026-10-09 homelab measured both things the voice design rested on: the Voice PE has an assistant select per wake-word slot, and Home Assistant reaches the hub (200, valid TLS). Not established: that slot 2 routes to its own assistant, or that the slots survive custom firmware
 - 2026-10-09 "Hey Shaba" designed (docs/voice-ha.md): a custom Home Assistant
   conversation agent on its OWN pipeline and wake word, calling a new
   `POST /api/voice/ask`. Chosen over imitating a chat-model API and over

@@ -52,14 +52,28 @@ would make every shabadoo request first pass through the house's intent
 matcher, where "turn on the office session" is one fuzzy match from a light
 switch. The existing default pipeline is not edited at all.
 
-**Not yet measured, and each could change the above:**
+**Measured 2026-10-09 by the session that owns the device, read-only:**
 
-- Whether this satellite's firmware exposes a pipeline choice per wake word. If
-  it offers one pipeline for both, the fallback is a single shabadoo pipeline
-  that forwards anything it does not recognise to the house agent.
-- Whether Home Assistant on its host can reach the coordinator's URL.
+- **The satellite has a pipeline choice per wake-word slot.** On its stock
+  firmware it exposes two wake-word selects and two assistant selects, and the
+  assistant options are the pipeline names. A second pipeline will appear as an
+  option in both.
+- **Home Assistant reaches the coordinator.** From its host and from inside its
+  container, the coordinator's `/healthz` returned 200 with valid TLS.
+
+**Still not established, and each could change the above:**
+
+- **That slot 2's wake word routes to slot 2's assistant.** The pairing is
+  inferred from the entity names. Slot 2 has never fired, so it needs one
+  behavioural test once a second pipeline exists.
+- **That the two slots survive the custom firmware.** "Hey Shaba" is not a
+  stock wake word, so the device needs a custom build. The per-slot behaviour
+  above belongs to the stock build until the custom one is reported.
 - Latency end to end. A spoken answer that takes more than a few seconds reads
   as a failure.
+
+If either of the first two fails, the fallback is a single shabadoo pipeline
+that forwards anything it does not recognise to the house agent.
 
 ## The coordinator's side: `POST /api/voice/ask`
 
