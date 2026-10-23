@@ -59,14 +59,20 @@ func TestSettleProbeTruncatesSoAWrappedLineStillSettles(t *testing.T) {
 	// The input row shows only what fitted. Reuse the captured linux rendering's
 	// own bytes — including the U+00A0 separator — so this does not quietly
 	// become a hand-written fixture.
-	wrapped := "❯ " + probe + "\n"
+	// Framed as the capture is: the footer above, a labelled rule below. The
+	// input row is only recognised with a rule beside it (see composerRow).
+	frame := func(row string) string {
+		return "  \u23f5\u23f5 bypass permissions on (shift+tab to cycle)\n" + row + "\n" +
+			"\u2500\u2500\u2500\u2500\u2500\u2500 homelab-wsl \u2500\n"
+	}
+	wrapped := frame("❯ " + probe)
 	if !composerHolds(wrapped, probe) {
 		t.Errorf("a pane showing only the wrapped head %q did not settle", probe)
 	}
 
 	// Control: the same row holding a DIFFERENT command must not settle, or the
 	// truncation has made the probe match anything short.
-	other := "❯ push the other branch\n"
+	other := frame("❯ push the other branch")
 	if composerHolds(other, probe) {
 		t.Errorf("an unrelated command settled for probe %q", probe)
 	}

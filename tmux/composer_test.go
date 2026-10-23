@@ -402,3 +402,69 @@ func TestComposerDraftReportsWhenItCannotSee(t *testing.T) {
 		}
 	}
 }
+
+// CAPTURED 2026-10-23 on linux, Claude Code with a four-line status line: the
+// input row sits between two rules and EIGHT lines from the bottom. Every scan
+// used to look at the last six, so this pane read as "cannot tell", therefore
+// busy, and `restart` refused all seven sessions on the node while each showed
+// an empty composer. Project name, branch and figures are replaced; the glyphs,
+// the U+00A0 separator and the powerline separators (U+E0B0) are the capture's.
+func fourLineStatusPane(row string) string {
+	return "assistant: the change is pushed\n" +
+		"\n" +
+		"────────── myproject-wsl ─\n" +
+		row + "\n" +
+		"──────────────\n" +
+		"   myproject  ⎇ main ✓  ✱ Model \n" +
+		"   § 12.3M tokens \n" +
+		"   ☉ $1.00 !100% \n" +
+		"   ◔ 100,000 (10%) \n" +
+		"  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← 1 agent\n"
+}
+
+// The pair that would have caught it: the same tall pane, empty and typed-in,
+// must come back different, and the empty one must be READABLE, not busy.
+func TestFourLineStatusPaneIsReadable(t *testing.T) {
+	empty := fourLineStatusPane("❯ ")
+	typed := fourLineStatusPane("❯ half a question")
+	if d, ok := ComposerDraft(empty); !ok || d != "" {
+		t.Fatalf("empty composer under a four-line status line: draft=%q ok=%v", d, ok)
+	}
+	if d, ok := ComposerDraft(typed); !ok || d != "half a question" {
+		t.Fatalf("typed composer: draft=%q ok=%v", d, ok)
+	}
+	if ComposerBusy(empty) || !ComposerBusy(typed) {
+		t.Fatalf("busy: empty=%v typed=%v, want false/true", ComposerBusy(empty), ComposerBusy(typed))
+	}
+}
+
+// Widening the scan must not let an earlier prompt in the scrollback pass for
+// the input row. This one is EMPTY, which is the dangerous direction: read as
+// the composer, it would report a typed draft below it as an empty, idle pane.
+func TestAnOldPromptInScrollbackIsNotTheInputRow(t *testing.T) {
+	pane := "❯ \n" + // an earlier empty prompt line, unframed
+		"assistant: done\n" +
+		fourLineStatusPane("❯ half a question")
+	if d, ok := ComposerDraft(pane); !ok || d != "half a question" {
+		t.Fatalf("draft=%q ok=%v: the old line was read instead of the live row", d, ok)
+	}
+	if !ComposerBusy(pane) {
+		t.Fatal("a typed draft read as idle because an older empty row was found first")
+	}
+}
+
+// With no input row drawn at all, an old empty prompt within reach must not be
+// taken for one. Unframed, it is conversation, and "empty composer" here would
+// let a restart or a nudge type into whatever now owns the screen.
+func TestNoInputRowMeansCannotTellEvenWithAnOldPromptInReach(t *testing.T) {
+	pane := "❯ \n" +
+		"assistant: running the tests now\n" +
+		"  ⎿  go test ./...\n" +
+		"     ok  shabadoo/tmux\n"
+	if _, ok := ComposerDraft(pane); ok {
+		t.Fatal("an unframed old prompt was read as the input row")
+	}
+	if !ComposerBusy(pane) {
+		t.Fatal("no input row must read as busy, never as an empty composer")
+	}
+}

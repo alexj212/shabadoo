@@ -395,15 +395,49 @@ func InputState(pane string) string {
 // what it falls through to. Two readers of the same row must agree on what a
 // row is.
 func hasComposerRow(lines []string) bool {
-	if n := len(lines); n > 6 {
-		lines = lines[n-6:]
+	_, ok := composerRow(lines)
+	return ok
+}
+
+// composerRow finds the input row and returns its draft. It is the ONE place
+// that decides which line that is: hasComposerRow, ComposerBusy and
+// ComposerDraft each used to carry their own six-line scan, and a status line
+// grown to four lines put the row eight lines up, past all three at once —
+// `restart` then refused every session on the node as "could not be read".
+//
+// It searches the last 20 lines from the BOTTOM, and accepts a row only when it
+// is framed the way the live input row is: boxed (│ … │), or with a horizontal
+// rule directly above or below it. Both layouts are real: the captured fixtures
+// have the footer above and a labelled rule below; a 2026-10 pane has rules on
+// both sides and a four-line status line under them. An earlier prompt echoed
+// into the transcript also starts with the marker at column 0, but it sits
+// between lines of conversation, and reading it as the input row would report
+// an old empty line as an empty composer.
+func composerRow(lines []string) (string, bool) {
+	if n := len(lines); n > 20 {
+		lines = lines[n-20:]
 	}
-	for _, l := range lines {
-		if _, ok := composerDraft(l); ok {
-			return true
+	for i := len(lines) - 1; i >= 0; i-- {
+		draft, ok := composerDraft(lines[i])
+		if !ok {
+			continue
+		}
+		boxed := strings.HasPrefix(strings.TrimLeft(lines[i], " \t"), "│")
+		above := i > 0 && isRule(lines[i-1])
+		below := i+1 < len(lines) && isRule(lines[i+1])
+		if boxed || above || below {
+			return draft, true
 		}
 	}
-	return false
+	return "", false
+}
+
+// isRule reports a horizontal rule: a line that opens with a run of box-drawing
+// dashes, which Claude Code draws around its unboxed input row. The rule may
+// carry a label part-way along ("──── homelab-wsl ─"), so only the opening run
+// is required, and three dashes are enough to rule out prose.
+func isRule(line string) bool {
+	return strings.HasPrefix(strings.TrimLeft(line, " "), "───")
 }
 
 // ComposerBusy reports whether the pane's input row already holds text.
@@ -423,18 +457,11 @@ func hasComposerRow(lines []string) bool {
 // purpose: there a false dialog refuses real messages, while here a false busy
 // costs only the promptness of a nudge whose mail is waiting anyway.
 func ComposerBusy(pane string) bool {
-	lines := strings.Split(strings.TrimRight(pane, "\n"), "\n")
-	if n := len(lines); n > 6 {
-		lines = lines[n-6:]
+	draft, ok := composerRow(strings.Split(strings.TrimRight(pane, "\n"), "\n"))
+	if !ok {
+		return true // no input row found — do not type here
 	}
-	for _, l := range lines {
-		draft, ok := composerDraft(l)
-		if !ok {
-			continue
-		}
-		return draft != ""
-	}
-	return true // no input row found — do not type here
+	return draft != ""
 }
 
 // composerDraft splits an input row into the prompt marker and whatever has
@@ -891,14 +918,5 @@ func SendCommandPreservingDraft(ctx context.Context, session string, window, pan
 // ComposerDraft returns the text currently in a pane's input row, and whether an
 // input row was found at all. Exported so a caller can preserve it.
 func ComposerDraft(pane string) (string, bool) {
-	lines := strings.Split(strings.TrimRight(pane, "\n"), "\n")
-	if n := len(lines); n > 6 {
-		lines = lines[n-6:]
-	}
-	for _, l := range lines {
-		if d, ok := composerDraft(l); ok {
-			return d, true
-		}
-	}
-	return "", false
+	return composerRow(strings.Split(strings.TrimRight(pane, "\n"), "\n"))
 }

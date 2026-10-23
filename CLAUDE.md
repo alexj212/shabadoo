@@ -1231,6 +1231,20 @@ than a pattern that could not fire. Latent rather than an outage — no mail was
 queued behind it — and `stuck.go` is the layer that catches it, retrying at two
 minutes and escalating at five.
 
+**One function decides which line is the input row: `composerRow`.** There
+were three copies of that decision (`hasComposerRow`, `ComposerBusy`,
+`ComposerDraft`), each scanning the last six lines. A status line grown to four
+lines put the row eight lines up, past all three at once, and every pane on the
+node read as "cannot tell", therefore busy: `restart` refused all seven
+sessions while each showed an empty composer (reported by the wsl core session,
+2026-10-23). It now scans the last 20 lines from the bottom up and accepts a row
+only when it is boxed or has a rule directly above or below it. Bottom-up plus
+the framing is what stops an earlier prompt in the scrollback, which also starts
+with the marker at column 0, passing for the live row. Pinned with a fixture
+captured from that pane, as a pair (empty and typed must differ), plus a pane
+with no input row and an old empty prompt in reach, which must read as busy.
+Each was seen to fail with its safeguard removed.
+
 **Do not "fix" it with the obvious heuristic.** Idle plus byte-identical across
 captures does not mean "not a draft": it fires identically on somebody who typed
 half a prompt and walked away, which is precisely the person the guard exists to
