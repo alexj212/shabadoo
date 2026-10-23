@@ -159,7 +159,10 @@ func (c *client) do(method, path string, body any) ([]byte, error) {
 		req.Header.Set("Authorization", "Bearer "+c.token)
 	}
 
-	resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
+	// Longer than the coordinator's own 30 s call timeout, so a slow agent
+	// produces the coordinator's error (which names the node and why) rather
+	// than this client hanging up first with a bare `context deadline exceeded`.
+	resp, err := (&http.Client{Timeout: 45 * time.Second}).Do(req)
 	if err != nil {
 		return nil, err
 	}

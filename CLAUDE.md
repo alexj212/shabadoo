@@ -1151,10 +1151,24 @@ normally, and only three short bursts in that hour.
 A short wake does bring a node back for a few seconds. That is true: during
 those seconds it can take a command.
 
-Not changed: the agent's stream reader has no idle timeout, so after a wake it
-notices a dead stream only when the read fails (the mac logged `connection
-reset by peer` and retried 51 s later). That delays reconnecting after a wake;
-it no longer misleads anyone about presence.
+**The agent notices too.** The coordinator writes a keepalive every 20 s, so
+an agent whose stream has been silent for 60 s drops it and reconnects. The
+silence is measured in wall-clock time, so time asleep counts. Before this, the
+agent noticed a dead stream only when a read failed. And a stream that stayed
+up for 30 s now resets the reconnect backoff: the retry counter used to grow
+for the agent's whole life, so the mac waited 51 s to retry after one drop.
+
+**A cancelled request still writes its audit row.** The CLI's timeout equalled
+the hub's 30 s call timeout, so the CLI hung up just as the hub gave up, the
+insert ran on a cancelled context, and the failed restart left no row, even
+though the command may already have reached the agent. `Tenant.Audit` now
+ignores cancellation, and the CLI waits 45 s so the hub's own error is what the
+operator sees.
+
+**A suppressed report failure is still counted.** Repeats of one error are
+logged once a minute, not every five seconds, and the next line that is
+logged now says how many were skipped and since when. The mac's log jumped
+from failure 1 to failure 8 with 21 minutes of nothing between them.
 
 ## An agent's report is one transaction
 

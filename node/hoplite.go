@@ -21,6 +21,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/crypto/ssh"
@@ -44,6 +45,18 @@ const (
 	// reportInterval that is roughly once a minute — often enough that a broken
 	// agent is visible in the log, rare enough not to drown it.
 	reportLogEvery = 12
+
+	// streamIdle is how long the command stream may stay silent before it is
+	// treated as dead. The coordinator writes a keepalive every 20 s, so this is
+	// three missed pings. Without it, a stream that died while the host slept
+	// was noticed only when a read failed, which on the mac took up to minutes.
+	streamIdle = 60 * time.Second
+
+	// streamStable is how long a stream must have stayed up for the next
+	// reconnect to start again from the shortest delay. Shorter-lived streams
+	// keep backing off, so a coordinator that accepts and drops at once is not
+	// hammered.
+	streamStable = 30 * time.Second
 )
 
 // Config is what a node needs to reach its coordinator.
@@ -105,6 +118,17 @@ type Client struct {
 	reportMu      sync.Mutex
 	reportFails   int
 	lastReportErr string
+	// reportUnlogged counts failures that were not logged, since
+	// reportUnloggedSince, so the next line that IS logged can say so. Without
+	// it a quiet log reads as "no failures" when it means "the same failure".
+	reportUnlogged      int
+	reportUnloggedSince time.Time
+
+	// streamOpened is when the current stream was accepted, zero if it never
+	// was. Run reads it to decide whether to reset the backoff.
+	streamOpened time.Time
+	// idle overrides streamIdle; tests set it.
+	idle time.Duration
 
 	// reauth is signalled when the coordinator rejects this session's token.
 	//
@@ -141,11 +165,16 @@ func (c *Client) Run(ctx context.Context) error {
 		if err := ctx.Err(); err != nil {
 			return nil
 		}
+		c.streamOpened = time.Time{}
 		err := c.session(ctx)
 		if ctx.Err() != nil {
 			return nil
 		}
-		attempt++
+		// A stream that stayed up was a success, so the next attempt starts
+		// from the shortest delay. The counter used to grow for the agent's
+		// whole life: after a few drops every reconnect, even one after a day
+		// of healthy streaming, waited 30-60 s.
+		attempt = nextAttempt(attempt, c.streamOpened, time.Now())
 		delay := backoff(attempt)
 		if err != nil {
 			log.Printf("node: %v; retrying in %s", err, delay.Round(time.Second))
@@ -156,6 +185,15 @@ func (c *Client) Run(ctx context.Context) error {
 		case <-time.After(delay):
 		}
 	}
+}
+
+// nextAttempt is the retry counter after a session ends: reset when its
+// stream stayed up for streamStable, otherwise one more than before.
+func nextAttempt(attempt int, opened, now time.Time) int {
+	if !opened.IsZero() && now.Sub(opened) >= streamStable {
+		return 1
+	}
+	return attempt + 1
 }
 
 // backoff grows exponentially with jitter, capped. Jitter matters when several
@@ -360,6 +398,18 @@ func (c *Client) stream(ctx context.Context) error {
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("stream: HTTP %d", resp.StatusCode)
 	}
+	c.streamOpened = time.Now()
+
+	idle := c.idle
+	if idle == 0 {
+		idle = streamIdle
+	}
+	// Wall-clock nanoseconds, deliberately: UnixNano carries no monotonic
+	// reading, so time spent asleep counts toward the silence. The point is to
+	// notice, on waking, that the stream went quiet while the host slept.
+	var lastRead atomic.Int64
+	lastRead.Store(time.Now().UnixNano())
+	var stalled atomic.Bool
 
 	// A dead credential has to break the read loop, which is blocked in
 	// Scan(). Closing the body is what unblocks it; the outer session loop then
@@ -367,18 +417,32 @@ func (c *Client) stream(ctx context.Context) error {
 	streamDone := make(chan struct{})
 	defer close(streamDone)
 	go func() {
-		select {
-		case <-c.reauth:
-			log.Printf("node: coordinator rejected our token; reconnecting")
-			resp.Body.Close()
-		case <-streamDone:
-		case <-ctx.Done():
+		tick := time.NewTicker(idle / 4)
+		defer tick.Stop()
+		for {
+			select {
+			case <-c.reauth:
+				log.Printf("node: coordinator rejected our token; reconnecting")
+				resp.Body.Close()
+				return
+			case <-tick.C:
+				if time.Duration(time.Now().UnixNano()-lastRead.Load()) > idle {
+					stalled.Store(true)
+					resp.Body.Close()
+					return
+				}
+			case <-streamDone:
+				return
+			case <-ctx.Done():
+				return
+			}
 		}
 	}()
 
 	sc := bufio.NewScanner(resp.Body)
 	sc.Buffer(make([]byte, 0, 64<<10), 8<<20)
 	for sc.Scan() {
+		lastRead.Store(time.Now().UnixNano())
 		data, found := strings.CutPrefix(sc.Text(), "data: ")
 		if !found {
 			continue // ": ping" keepalives and blank separators
@@ -394,6 +458,9 @@ func (c *Client) stream(ctx context.Context) error {
 		// Each command runs in its own goroutine so a slow capture does not
 		// stall the stream behind it.
 		go c.dispatch(ctx, cmd.ID, cmd.Op, cmd.Payload)
+	}
+	if stalled.Load() {
+		return fmt.Errorf("stream silent for over %s (no keepalive from the coordinator)", idle)
 	}
 	if err := sc.Err(); err != nil {
 		return err
@@ -530,11 +597,33 @@ func (c *Client) reportProblem(format string, args ...any) {
 	c.lastReportErr = msg
 	c.reportFails++
 	n := c.reportFails
+	logIt := first || n%reportLogEvery == 0
+	note := ""
+	if logIt {
+		note = c.takeUnlogged()
+	} else {
+		if c.reportUnlogged == 0 {
+			c.reportUnloggedSince = time.Now()
+		}
+		c.reportUnlogged++
+	}
 	c.reportMu.Unlock()
 
-	if first || n%reportLogEvery == 0 {
-		log.Printf("node: report failed (%d in a row): %s", n, msg)
+	if logIt {
+		log.Printf("node: report failed (%d in a row): %s%s", n, msg, note)
 	}
+}
+
+// takeUnlogged returns a note on failures that were counted but not logged,
+// and resets the count. Caller holds reportMu.
+func (c *Client) takeUnlogged() string {
+	if c.reportUnlogged == 0 {
+		return ""
+	}
+	note := fmt.Sprintf(" (%d earlier failure(s) since %s not logged)",
+		c.reportUnlogged, c.reportUnloggedSince.Format("15:04:05"))
+	c.reportUnlogged = 0
+	return note
 }
 
 // reportOK notes a recovery, so the log says when the sessions came back
@@ -544,10 +633,11 @@ func (c *Client) reportOK() {
 	n := c.reportFails
 	c.reportFails = 0
 	c.lastReportErr = ""
+	note := c.takeUnlogged()
 	c.reportMu.Unlock()
 
 	if n > 0 {
-		log.Printf("node: reporting recovered after %d failure(s)", n)
+		log.Printf("node: reporting recovered after %d failure(s)%s", n, note)
 	}
 }
 

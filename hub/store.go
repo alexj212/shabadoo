@@ -1416,7 +1416,16 @@ type AuditEntry struct {
 // Audit records an action. Every write that reaches a pane goes through here —
 // this is capability the flock never had: today nothing records who sent
 // keystrokes into which window.
+//
+// The row is written even when ctx is already cancelled. Callers pass the
+// request's context, and a client that gives up does not undo what it asked
+// for: a command already handed to an agent may still run. Measured
+// 2026-10-23: `restart` to a sleeping mac timed out in the CLI at the same 30 s
+// as the hub's call, the cancelled context failed the insert, and the failed
+// restart left no row at all.
 func (t *Tenant) Audit(ctx context.Context, e AuditEntry, now time.Time) error {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
 	_, err := t.s.db.ExecContext(ctx,
 		`INSERT INTO audit (tenant, at, actor, action, target, detail) VALUES (?, ?, ?, ?, ?, ?)`,
 		t.id, now.Unix(), e.Actor, e.Action, e.Target, e.Detail)

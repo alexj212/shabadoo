@@ -1060,3 +1060,22 @@ func TestMissionOwnerSurvivesTheRoundTrip(t *testing.T) {
 		t.Error("declared and undeclared arrived identical")
 	}
 }
+
+// A caller hanging up must not erase the record of what it asked for: the
+// command may already be on its way to the agent. The CLI and the hub used the
+// same 30 s timeout, so a restart to a sleeping node left no audit row.
+func TestAuditIsWrittenWhenTheRequestIsCancelled(t *testing.T) {
+	tn := testStore(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := tn.Audit(ctx, AuditEntry{Actor: "cli", Action: "restart", Target: "mac:x", Detail: "[failed: gone]"}, time.Now()); err != nil {
+		t.Fatalf("audit with a cancelled context: %v", err)
+	}
+	got, err := tn.AuditTail(context.Background(), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Target != "mac:x" {
+		t.Fatalf("want the restart row, got %+v", got)
+	}
+}
