@@ -218,11 +218,11 @@ func handleOp(ctx context.Context, op string, payload json.RawMessage) (any, err
 		// fires on that session's next prompt anyway. A nudge decides when mail
 		// is noticed, never whether it arrives — the same reasoning as an
 		// offline agent, where "the delivery row is the wait".
-		pane, err := tmux.Capture(ctx, a.Session, a.Window, a.pane(), 0, false)
+		colour, err := tmux.Capture(ctx, a.Session, a.Window, a.pane(), 0, true)
 		if err != nil {
 			return map[string]string{"nudged": "no", "reason": "capture failed"}, nil
 		}
-		if tmux.InputState(pane) != tmux.InputComposer {
+		if tmux.InputState(tmux.Plain(colour)) != tmux.InputComposer {
 			return map[string]string{"nudged": "no", "reason": "dialog"}, nil
 		}
 		// A draft no longer blocks the nudge — it is preserved and put back.
@@ -233,7 +233,9 @@ func handleOp(ctx context.Context, op string, payload json.RawMessage) (any, err
 		// that reached the session and was never noticed, behind a draft that
 		// had been sitting there for hours. A message a peer sent is not less
 		// important than a sentence somebody started and walked away from.
-		draft, found := tmux.ComposerDraft(pane)
+		// Typed, not Plain: a faint prompt suggestion is not a draft, and
+		// "restoring" one types it in as real text. See tmux.Plain.
+		draft, found := tmux.ComposerDraft(tmux.Typed(colour))
 		if !found {
 			// Still refuse when the input row cannot be read at all. That is
 			// the cannot-tell case, and typing into a pane whose state is
@@ -740,11 +742,17 @@ func opReopen(ctx context.Context, pattern string) (any, error) {
 // selected-window flag — "this is the window you are looking at" — and two
 // sessions on this fleet have already reported it as an activity measurement.
 // Gating on it would restart against whichever pane somebody last clicked.
+//
+// pane is a COLOUR capture (capture-pane -e), so a faint prompt suggestion can
+// be told from a draft; see tmux.Plain.
 func restartDecision(pane string) (ok bool, reason string) {
-	if tmux.InputState(pane) == "dialog" {
+	if tmux.InputState(tmux.Plain(pane)) == "dialog" {
 		return false, "waiting on a prompt — a restart discards the question rather than answering it"
 	}
-	if tmux.ComposerBusy(pane) {
+	if tmux.TurnRunning(tmux.Plain(pane)) {
+		return false, "a turn is running — a restart would kill the work in flight"
+	}
+	if tmux.ComposerBusy(tmux.Typed(pane)) {
 		return false, "composer is not empty, or could not be read — a half-typed prompt would be lost"
 	}
 	return true, ""
@@ -808,7 +816,7 @@ func opRestart(ctx context.Context, pattern string, force bool) (any, error) {
 		}
 		for _, p := range panes {
 			out, err := exec.CommandContext(ctx, "tmux", "capture-pane",
-				"-p", "-t", c.SessionName+":"+name+"."+p).Output()
+				"-p", "-e", "-t", c.SessionName+":"+name+"."+p).Output()
 			if err != nil {
 				return map[string]any{
 					"name": name, "restarted": false,

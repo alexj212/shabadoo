@@ -97,10 +97,15 @@ deploy: install
 #              vendoring them would embed stale copies in the binary.
 #   --exclude .git   skills/watch is its own git checkout; its .git has no
 #              business in this repo or in the embedded payload.
+#   --exclude /synced   skills/synced is Claude Code's own per-machine cache
+#              of synced skills (11 MB of opaque ids). Each machine fills its
+#              own; shipping one machine's copy to every node is 11 MB of
+#              somebody else's cache in every binary.
 # ---------------------------------------------------------------------------
 VENDOR_EXCLUDES := --exclude='.git' --exclude='.gitmodules' --exclude='*.bak.*' \
                    --exclude='__pycache__' --exclude='*.pyc' --exclude='.venv' \
-                   --exclude='node_modules' --exclude='.DS_Store'
+                   --exclude='node_modules' --exclude='.DS_Store' \
+                   --exclude='/synced'
 # CLAUDE.md is DELIBERATELY ABSENT. It is owned by config/ — the portable half,
 # the thing every machine is meant to receive improvements to — and vendoring the
 # live copy into config.local/ made a personal snapshot mask it permanently.

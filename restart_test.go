@@ -121,3 +121,31 @@ func TestRestartRefusesWhatItCannotRead(t *testing.T) {
 		}
 	}
 }
+
+// A grey prompt suggestion sits in an EMPTY composer, drawn faint. Read from a
+// plain capture it looked like a draft, and restart refused every idle pane
+// showing one. The pair: the same row, faint versus normal intensity.
+func TestRestartTreatsASuggestionAsEmptyButNotATypedDraft(t *testing.T) {
+	const rule = "\x1b[38;5;244m──────────────\x1b[39m\n"
+	frame := func(row string) string { return rule + row + "\n" + rule }
+	if ok, reason := restartDecision(frame("\x1b[39m❯ \x1b[2mcheck the mail\x1b[0m")); !ok {
+		t.Errorf("a pane showing only a suggestion must be restartable, got %q", reason)
+	}
+	if ok, _ := restartDecision(frame("\x1b[39m❯ check the mail")); ok {
+		t.Error("restart allowed over typed text")
+	}
+}
+
+// Mid-turn, the composer is drawn and EMPTY, so the composer check alone let a
+// restart through on a session ten minutes into a running tool. The pair: same
+// empty composer, spinner versus finished line.
+func TestRestartRefusesARunningTurn(t *testing.T) {
+	const tail = "────────────\n❯ \n────────────\n"
+	ok, reason := restartDecision("✢ Transfiguring… (4m 26s · ↓ 15.0k tokens)\n" + tail)
+	if ok || !strings.Contains(reason, "turn is running") {
+		t.Errorf("restart allowed mid-turn (ok=%v, %q)", ok, reason)
+	}
+	if ok, reason := restartDecision("✻ Churned for 14s · done 4:01 AM\n" + tail); !ok {
+		t.Errorf("a finished turn must be restartable, got %q", reason)
+	}
+}

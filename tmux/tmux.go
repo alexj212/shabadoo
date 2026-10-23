@@ -768,9 +768,9 @@ func awaitComposer(ctx context.Context, session string, window, pane int, cmd st
 	}
 	deadline := time.Now().Add(settleTimeout)
 	for {
-		if out, err := Capture(ctx, session, window, pane, 0, false); err != nil {
+		if out, err := Capture(ctx, session, window, pane, 0, true); err != nil {
 			return // cannot look: no better answer than today's
-		} else if composerHolds(out, probe) {
+		} else if composerHolds(Typed(out), probe) {
 			return
 		}
 		if time.Now().After(deadline) {

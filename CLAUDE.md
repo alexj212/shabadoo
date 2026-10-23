@@ -1245,6 +1245,25 @@ captured from that pane, as a pair (empty and typed must differ), plus a pane
 with no input row and an old empty prompt in reach, which must read as busy.
 Each was seen to fail with its safeguard removed.
 
+**A grey prompt suggestion is not a draft.** Claude Code draws its suggested
+next prompt inside the EMPTY input row, faint (SGR 2). A plain capture drops the
+attribute, so the suggestion parsed as a draft, and the nudge, which puts a
+draft back after typing `check inbox`, **typed it in as real text**. Audited on
+wsl 2026-10-23: `nudged; restored draft: retry adept-service-core-mac`, after
+which that pane genuinely held the text. Every decision about what somebody
+TYPED now reads a colour capture through `tmux.Typed`, which drops faint runs;
+`InputState` and dialog questions read `tmux.Plain`, because a dialog's footer
+may be faint too. Pinned as a pair from captured bytes (the same row faint and
+normal), plus `38;5;2`, a colour argument that is not the faint attribute.
+Measured on linux only.
+
+**An empty composer is not an idle session.** The row is drawn and empty while
+a turn runs, so `restart --all-idle` passed a session ten minutes into a running
+tool. `tmux.TurnRunning` reads the spinner line (`✢ Verbing… (4m 26s · …)`;
+the finished form is `✻ Verbed for 14s`) and `restartDecision` refuses on it.
+It fails toward running: a false "running" skips one restart, a false "idle"
+kills work in flight.
+
 **Do not "fix" it with the obvious heuristic.** Idle plus byte-identical across
 captures does not mean "not a draft": it fires identically on somebody who typed
 half a prompt and walked away, which is precisely the person the guard exists to
@@ -2416,8 +2435,8 @@ documentation, and a scanner that cries wolf gets ignored.
   the caller will not read.
 
 - **Heuristics over another program's UI are a category, and they all fail the
-  same way.** There are five: `InputState`, `DialogPrompt` and `ComposerBusy`
-  parse a captured pane; `staleToolPanes` parses a process table; `windowName`
+  same way.** There are six: `InputState`, `DialogPrompt`, `ComposerBusy` and
+  `TurnRunning` parse a captured pane; `staleToolPanes` parses a process table; `windowName`
   depends on a launcher's naming staying put. None of them errors when the thing
   they read changes shape — they return a confident wrong answer, and the caller
   has no way to tell.
