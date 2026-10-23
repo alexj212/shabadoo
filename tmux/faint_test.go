@@ -64,3 +64,12 @@ func TestPlainKeepsFaintFooters(t *testing.T) {
 		t.Errorf("Plain lost faint text: %q", got)
 	}
 }
+
+// Captured on the mac 2026-10-23 (task 281d6826), words replaced: the same
+// faint suggestion after U+00A0, cursor at column 2.
+func TestDarwinSuggestionIsDroppedToo(t *testing.T) {
+	row := "\x1b[39m❯ \x1b[2mlaunch it in the simulator\x1b[0m"
+	if d, ok := ComposerDraft(Typed(framed(row))); !ok || d != "" {
+		t.Errorf("darwin suggestion read as %q (found=%v)", d, ok)
+	}
+}

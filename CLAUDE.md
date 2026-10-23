@@ -1255,7 +1255,7 @@ TYPED now reads a colour capture through `tmux.Typed`, which drops faint runs;
 `InputState` and dialog questions read `tmux.Plain`, because a dialog's footer
 may be faint too. Pinned as a pair from captured bytes (the same row faint and
 normal), plus `38;5;2`, a colour argument that is not the faint attribute.
-Measured on linux only.
+Measured on linux and darwin; the mac's spinner glyph cycles and includes `·`.
 
 **An empty composer is not an idle session.** The row is drawn and empty while
 a turn runs, so `restart --all-idle` passed a session ten minutes into a running

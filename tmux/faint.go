@@ -16,7 +16,7 @@ import "strings"
 //
 // So a decision about what somebody TYPED reads Typed; anything else
 // (InputState, dialog questions) reads Plain, since a dialog's footer may well
-// be faint and must not vanish. Measured on linux only; a darwin build that
+// be faint and must not vanish. Measured on linux and darwin (2026-10-23); a build that
 // draws suggestions some other way would still read them as drafts, the busy
 // direction, which delays rather than destroys.
 func Plain(colour string) string { return sgrText(colour, false) }

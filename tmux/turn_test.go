@@ -43,3 +43,11 @@ func TestTurnRunningSeesTheSpinnerAndNotTheFinishedLine(t *testing.T) {
 		t.Error("a tool line without the spinner read as running")
 	}
 }
+
+// Captured on the mac 2026-10-23 (task 281d6826): the spinner glyph cycles,
+// and one frame is U+00B7, a middle dot.
+func TestDarwinSpinnerFrameWithAMiddleDot(t *testing.T) {
+	if !TurnRunning("· Onioning… (21s · ↓ 1.1k tokens)\n────\n❯ \n────\n") {
+		t.Error("darwin spinner frame read as idle")
+	}
+}
