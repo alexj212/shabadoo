@@ -762,3 +762,59 @@ func TestPaneWriteRefusedOnAnOldAgent(t *testing.T) {
 		}
 	}
 }
+
+// An open stream is not a running agent. A sleeping laptop keeps its
+// connection registered while answering nothing, so presence must also require
+// a recent report — and a call to a silent node must fail at once with the
+// reason, not after callTimeout (measured on the mac, 2026-10-23).
+//
+// The axis varied is time since the last report; the stream stays open
+// throughout, so the pair cannot pass by presence tracking the stream alone.
+func TestSilentAgentReadsOfflineAndRecoversOnReport(t *testing.T) {
+	f := newHubFixture(t)
+	token := f.login(t)
+	stop := f.fakeAgent(t, token, func(command) result { return result{OK: true, Payload: json.RawMessage(`{}`)} })
+	defer stop()
+
+	clock := time.Now()
+	f.hub.mu.Lock()
+	f.hub.now = func() time.Time { return clock }
+	f.hub.mu.Unlock()
+	f.hub.touch(f.hub.byNode[nodeKey(DefaultTenant, "wsl")])
+
+	ctx := context.Background()
+	if !f.hub.IsOnline(DefaultTenant, "wsl") || len(f.hub.Online(DefaultTenant)) != 1 {
+		t.Fatal("freshly heard-from agent should be online")
+	}
+	if _, err := f.hub.Call(ctx, DefaultTenant, "wsl", "capture", nil); err != nil {
+		t.Fatalf("call to a live agent: %v", err)
+	}
+
+	clock = clock.Add(silentAfter + time.Second)
+	if f.hub.IsOnline(DefaultTenant, "wsl") || len(f.hub.Online(DefaultTenant)) != 0 {
+		t.Fatal("agent silent past silentAfter still reads online")
+	}
+	start := time.Now()
+	_, err := f.hub.Call(ctx, DefaultTenant, "wsl", "capture", nil)
+	if !errors.Is(err, ErrAgentOffline) {
+		t.Fatalf("call to a silent agent: want ErrAgentOffline, got %v", err)
+	}
+	if time.Since(start) > 2*time.Second {
+		t.Fatalf("call to a silent agent took %s; it should fail at once", time.Since(start))
+	}
+
+	req, _ := http.NewRequest("POST", f.server.URL+"/agent/report", strings.NewReader(`{"sessions":[]}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := f.server.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("report: HTTP %d", resp.StatusCode)
+	}
+	if !f.hub.IsOnline(DefaultTenant, "wsl") {
+		t.Fatal("a report should bring a silent agent back online")
+	}
+}

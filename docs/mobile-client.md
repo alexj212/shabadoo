@@ -361,8 +361,10 @@ All JSON, all behind the bearer token unless noted.
 `node` field — it is how the coordinator decides which agent to route to, so a
 client should carry it around rather than reconstruct it.
 
-**`online`** is whether that node's agent currently holds its command stream
-open. It is the difference between a node whose panes can be driven and one that
+**`online`** is whether that node's agent holds its command stream open **and**
+has reported within the last 30 seconds (agents report every 5). A sleeping
+laptop keeps its stream registered while answering nothing, so the stream alone
+read as online for an hour while every command to it timed out. It is the difference between a node whose panes can be driven and one that
 can only be looked at: the sessions of an offline node are its last reported
 view, and any write aimed at it will fail. Show it; a stale session list that
 looks live is the thing this field exists to prevent.

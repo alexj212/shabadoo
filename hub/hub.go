@@ -84,9 +84,12 @@ type conn struct {
 	// clears on reconnect would outlive the fix by up to a day.
 	payload NodePayload
 	expires time.Time
-	out     chan command
-	closed  chan struct{}
-	once    sync.Once
+	// seen is when this agent last proved it is running: login, a report or a
+	// result. Guarded by Hub.mu. See silentAfter.
+	seen   time.Time
+	out    chan command
+	closed chan struct{}
+	once   sync.Once
 }
 
 func (c *conn) close() {
@@ -225,27 +228,52 @@ func (h *Hub) EnableBlockedNotifications() {
 // called "wsl"; without this they would share one connection slot.
 func nodeKey(tenant, node string) string { return tenant + "\x00" + node }
 
-// Online reports which of a tenant's agents currently hold a stream open. This
-// is the whole of presence — there is no heartbeat and no TTL to tune, because
-// a dropped TCP connection is the signal.
+// silentAfter is how long an agent may go without reporting before it reads
+// as offline. Agents report every 5 seconds, so this is six missed reports.
+//
+// An open stream is not proof of a running agent. A laptop that sleeps does
+// not close its connection; it stops answering, and the hub sits behind a
+// proxy that keeps its own half of the connection open. Measured 2026-10-23:
+// the mac slept on battery from 03:37 to 08:52, waking for a few seconds at a
+// time, and its stream stayed registered for an hour. It read as online
+// throughout, and `tail` and `restart` waited out the 30-second call timeout
+// and failed with `context deadline exceeded`.
+const silentAfter = 30 * time.Second
+
+// live reports whether c has been heard from recently. Caller holds h.mu.
+func (h *Hub) live(c *conn) bool {
+	return h.now().Sub(c.seen) < silentAfter
+}
+
+// touch records that an agent proved it is running.
+func (h *Hub) touch(c *conn) {
+	h.mu.Lock()
+	c.seen = h.now()
+	h.mu.Unlock()
+}
+
+// Online reports which of a tenant's agents hold a stream open AND have
+// reported within silentAfter. Both, because each fails alone: a closed stream
+// cannot carry commands, and an open one can belong to a machine that is
+// asleep.
 func (h *Hub) Online(tenant string) []string {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	out := []string{}
 	for _, c := range h.byNode {
-		if c.tenant == tenant {
+		if c.tenant == tenant && h.live(c) {
 			out = append(out, c.node)
 		}
 	}
 	return out
 }
 
-// IsOnline reports whether one agent is connected.
+// IsOnline reports whether one agent is connected and recently heard from.
 func (h *Hub) IsOnline(tenant, node string) bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	_, ok := h.byNode[nodeKey(tenant, node)]
-	return ok
+	c, ok := h.byNode[nodeKey(tenant, node)]
+	return ok && h.live(c)
 }
 
 // Call sends a command to an agent and waits for its result.
@@ -275,6 +303,13 @@ func (h *Hub) Call(ctx context.Context, tenant, node, op string, payload any) (j
 	if !ok {
 		h.mu.Unlock()
 		return nil, fmt.Errorf("%w: %s", ErrAgentOffline, node)
+	}
+	if !h.live(c) {
+		// Fail now, with the reason, rather than wait out callTimeout for an
+		// answer a sleeping machine will not send.
+		silent := h.now().Sub(c.seen).Round(time.Second)
+		h.mu.Unlock()
+		return nil, fmt.Errorf("%w: %s (no report for %s; asleep or unreachable)", ErrAgentOffline, node, silent)
 	}
 	cmd := command{ID: newID(), Op: op, Payload: raw}
 	reply := make(chan result, 1)
@@ -466,6 +501,7 @@ func (h *Hub) handleLogin(w http.ResponseWriter, r *http.Request) {
 		caps:     req.Capabilities,
 		protocol: req.Protocol,
 		expires:  now.Add(tokenTTL),
+		seen:     now,
 		out:      make(chan command, sendQueue),
 		closed:   make(chan struct{}),
 	}
@@ -577,10 +613,12 @@ func (h *Hub) handleStream(w http.ResponseWriter, r *http.Request) {
 
 // handleResult receives one command's reply and hands it to the waiting Call.
 func (h *Hub) handleResult(w http.ResponseWriter, r *http.Request) {
-	if _, ok := h.authed(r); !ok {
+	c, ok := h.authed(r)
+	if !ok {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
+	h.touch(c)
 	var res result
 	if !readJSON(w, r, &res) {
 		return
@@ -641,6 +679,7 @@ func (h *Hub) handleReport(w http.ResponseWriter, r *http.Request) {
 	}
 	now := h.now()
 	ctx := r.Context()
+	h.touch(c)
 
 	if req.Payload != nil {
 		h.mu.Lock()

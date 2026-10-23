@@ -17,7 +17,7 @@ shabadoo's.
 
 | Decision | Choice | Why |
 |---|---|---|
-| Connection direction | Agents dial the coordinator | Kills the peer list, gives presence for free, works off-tailnet, no inbound port anywhere |
+| Connection direction | Agents dial the coordinator | Kills the peer list, gives presence almost for free (stream open plus a report in the last 30 s, since a sleeping host keeps its stream), works off-tailnet, no inbound port anywhere |
 | Agent auth | SSH key via ssh-agent (SSHSIG) | Keys already exist and `claude.sh` already forwards `SSH_AUTH_SOCK` into every window; no private key on disk, no new PKI |
 | Human auth | Cloudflare Access | Zones + Tunnel already in use here; email-allowlist SSO with no auth code in the coordinator |
 | Coordinator role | **Classifier/router**, not orchestrator | It needs to know *who knows*, never *how*. Context stays small and stable — it never compacts |

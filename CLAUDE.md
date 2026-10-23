@@ -1132,6 +1132,30 @@ whose identity cannot be established, is **unknown** — never stale, never
 current. Collapsing that third state into the first is the defect being replaced,
 so it is not permitted to reappear one layer down.
 
+## An open stream is not a running agent
+
+A node is `online` when its stream is open **and** it has reported within
+`silentAfter` (30 s, six missed reports). A call to a node that is connected
+but silent fails at once with `no report for Ns; asleep or unreachable`
+instead of waiting out the 30-second call timeout.
+
+Presence used to be the stream alone, on the theory that a dropped connection
+is the signal. A sleeping laptop drops nothing. Measured 2026-10-23: the mac
+slept on battery from 03:37 to 08:52, waking for 5 to 40 seconds at a time
+(macOS DarkWake), and its stream stayed registered for an hour because the hub
+talks to Traefik, which kept its half of the connection open. `tail` and
+`restart` to it failed with `context deadline exceeded` while every surface
+said online. Traefik's access log showed the gap: about 12 reports a minute
+normally, and only three short bursts in that hour.
+
+A short wake does bring a node back for a few seconds. That is true: during
+those seconds it can take a command.
+
+Not changed: the agent's stream reader has no idle timeout, so after a wake it
+notices a dead stream only when the read fails (the mac logged `connection
+reset by peer` and retried 51 s later). That delays reconnecting after a wake;
+it no longer misleads anyone about presence.
+
 ## An agent's report is one transaction
 
 A node's session list is replaced wholesale on every report — the agent is the
