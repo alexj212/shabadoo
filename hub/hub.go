@@ -623,6 +623,10 @@ type NodePayload struct {
 	// copy was three and a half months stale, with nothing anywhere saying
 	// which. Pending stays the authoritative total.
 	Drift []string `json:"payload_drift,omitempty"`
+
+	// LocalNewer counts differing files that are newer on the node than its
+	// build, which `setup` would revert. See PayloadState in the agent.
+	LocalNewer int `json:"payload_local_newer,omitempty"`
 }
 
 func (h *Hub) handleReport(w http.ResponseWriter, r *http.Request) {

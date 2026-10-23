@@ -350,6 +350,7 @@ All JSON, all behind the bearer token unless noted.
         "payload_known": true,
         "payload_pending": 0,
         "payload_drift": [],
+        "payload_local_newer": 0,
       "sessions": [ … ]
     }
   ]
@@ -392,10 +393,19 @@ below). A count on its own is a question a reader defers forever: one stood at
 and nobody looked because nothing said which.
 
 **`payload_pending` is how many of that node's `~/.claude` files differ from the
-payload inside its own binary** — non-zero means somebody should run `shabadoo
-setup` on that machine. It exists because `upgrade` replaces a binary and never
-runs the config step, so a node can carry new guidance inside itself while the
-old copy sits on disk indefinitely, looking entirely healthy.
+payload inside its own binary.** It exists because a node can carry new guidance
+inside itself while an old copy sits on disk, looking entirely healthy. A
+difference runs one of two ways, and the advice is opposite for each:
+
+**`payload_local_newer` says which way.** It counts the differing files that are
+NEWER on disk than the node's build: edits made after the binary was built.
+`setup` would revert those, so for them the advice is to fold the edit into the
+next build (`make vendor` in the shabadoo repo), never "run setup". The rest,
+`payload_pending - payload_local_newer`, are stale copies that `setup` fixes.
+Absent when zero. A client that says "run setup" whenever `payload_pending` is
+non-zero gives the one instruction that destroys the edit in the first case:
+measured on a live node whose only difference was a settings file changed three
+weeks after its build, while the dashboard said "needs setup".
 
 **`payload_known` gates it, for the same reason `capabilities_known` gates the
 list above.** A node that could not perform the check reports `payload_known:

@@ -49,6 +49,16 @@ type PayloadState struct {
 	// a node whose whole ~/.claude differs must not make that report expensive
 	// for the nodes beside it. Pending stays authoritative for the total.
 	Drift []string `json:"payload_drift,omitempty"`
+
+	// LocalNewer is how many of the differing files are NEWER on disk than this
+	// build: edits made after the binary was built, which `setup` would revert
+	// and the startup install deliberately keeps. Without it the only advice a
+	// surface could give for a non-zero Pending was "run setup", which for these
+	// files is the one command that destroys the edit. Measured on wsl: the one
+	// differing file was a settings.json changed three weeks after the build, and
+	// every surface said "run setup". Pending - LocalNewer is what setup would
+	// update without losing anything.
+	LocalNewer int `json:"payload_local_newer,omitempty"`
 }
 
 // maxDrift bounds the named list. Six is a wrap-up's worth: past that the answer
@@ -91,10 +101,12 @@ func scanPayload(claudeDir string) PayloadState {
 	if err != nil {
 		return PayloadState{} // cannot tell; must not read as clean
 	}
-	n := 0
+	n, newer := 0, 0
 	var drift []string
+	built := buildTimeOrZero()
 	for rel, want := range payload {
-		got, err := os.ReadFile(filepath.Join(claudeDir, rel))
+		path := filepath.Join(claudeDir, rel)
+		got, err := os.ReadFile(path)
 		switch {
 		case errors.Is(err, fs.ErrNotExist):
 			n++ // absent: setup would install it
@@ -107,9 +119,14 @@ func scanPayload(claudeDir string) PayloadState {
 		case !bytes.Equal(got, want):
 			n++
 			drift = append(drift, rel)
+			// The same test installPayload uses to decide what to keep, so the
+			// report and the install cannot disagree about which way a file is.
+			if newerThanBuild(path, built) {
+				newer++
+			}
 		}
 	}
-	return PayloadState{Known: true, Pending: n, Drift: capDrift(drift, maxDrift)}
+	return PayloadState{Known: true, Pending: n, Drift: capDrift(drift, maxDrift), LocalNewer: newer}
 }
 
 // defaultClaudeDir is where setup installs by default, resolved the same way.

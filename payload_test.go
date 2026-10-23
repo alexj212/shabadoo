@@ -1,10 +1,15 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
+
+	"shabadoo/hub"
 )
 
 // "Nothing pending" and "could not look" must never render alike. This is the
@@ -199,5 +204,106 @@ func TestDriftNamesTheFilesAndKeepsTheTotal(t *testing.T) {
 	}
 	if len(clean.Drift) == len(dirty.Drift) {
 		t.Fatal("a clean tree and a dirty one must not name the same number of files")
+	}
+}
+
+// The direction of a difference decides the advice, so it is pinned as a pair:
+// the SAME edited file, dated once before the build and once after, must count
+// as local-newer in exactly one of the two. A scanner that always answered 0
+// (the old behaviour) or always answered Pending fails one side.
+func TestDriftSaysWhichCopyIsNewer(t *testing.T) {
+	payload, err := mergePayloads()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(payload) == 0 {
+		t.Skip("no embedded payload in this build")
+	}
+	saved := buildTime
+	t.Cleanup(func() { buildTime = saved })
+	built := time.Now().Add(-24 * time.Hour).Truncate(time.Second)
+	buildTime = built.Format(time.RFC3339)
+
+	install := func(t *testing.T) (dir, victim string) {
+		dir = t.TempDir()
+		for rel, body := range payload {
+			p := filepath.Join(dir, rel)
+			if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(p, body, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			victim = rel
+		}
+		if err := os.WriteFile(filepath.Join(dir, victim), []byte("edited by hand"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return dir, victim
+	}
+
+	for _, c := range []struct {
+		name      string
+		mtime     time.Time
+		wantNewer int
+	}{
+		{"edited before the build: stale, setup fixes it", built.Add(-time.Hour), 0},
+		{"edited after the build: an edit, setup would revert it", built.Add(time.Hour), 1},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			dir, victim := install(t)
+			if err := os.Chtimes(filepath.Join(dir, victim), c.mtime, c.mtime); err != nil {
+				t.Fatal(err)
+			}
+			st := scanPayload(dir)
+			if !st.Known || st.Pending != 1 {
+				t.Fatalf("want one known difference, got %+v", st)
+			}
+			if st.LocalNewer != c.wantNewer {
+				t.Fatalf("LocalNewer = %d, want %d", st.LocalNewer, c.wantNewer)
+			}
+		})
+	}
+}
+
+// The coordinator decodes agent reports with DisallowUnknownFields, so a field
+// the agent sends and the coordinator does not declare empties that node's whole
+// session list. Pinned here rather than remembered: everything the agent puts
+// in its payload facts must decode into the coordinator's type, and survive.
+func TestCoordinatorAcceptsEveryPayloadField(t *testing.T) {
+	sent := PayloadState{Known: true, Pending: 3, Drift: []string{"a", "b"}, LocalNewer: 2}
+	raw, err := json.Marshal(sent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.DisallowUnknownFields()
+	var got hub.NodePayload
+	if err := dec.Decode(&got); err != nil {
+		t.Fatalf("the coordinator would reject this report: %v", err)
+	}
+	if got.Known != sent.Known || got.Pending != sent.Pending || got.LocalNewer != sent.LocalNewer ||
+		len(got.Drift) != len(sent.Drift) {
+		t.Fatalf("lost in transit: sent %+v, coordinator holds %+v", sent, got)
+	}
+}
+
+// Three directions, three different pieces of advice. The one that matters is
+// that an edit made after the build is never answered with "run setup" alone.
+func TestPayloadAdviceFollowsTheDirection(t *testing.T) {
+	stale := payloadAdvice(1, 0)
+	edited := payloadAdvice(1, 1)
+	mixed := payloadAdvice(3, 1)
+	if !strings.Contains(stale, "shabadoo setup") || strings.Contains(stale, "vendor") {
+		t.Errorf("stale-only advice = %q", stale)
+	}
+	if !strings.Contains(edited, "make vendor") || !strings.Contains(edited, "revert") {
+		t.Errorf("edited-only advice = %q; it must say setup would revert the edit", edited)
+	}
+	if !strings.Contains(mixed, "2 older") || !strings.Contains(mixed, "1 edited") {
+		t.Errorf("mixed advice = %q", mixed)
+	}
+	if stale == edited || edited == mixed {
+		t.Error("different directions produced the same advice")
 	}
 }

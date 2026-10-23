@@ -1026,6 +1026,17 @@ question belongs to whoever publishes, and `upgrade` cannot answer it: it moves
 **published releases**, so a commit that was never published is `already
 current` by every honest reading the coordinator has.
 
+**And it says which way each difference runs.** `payload_local_newer` counts
+the differing files that are newer on disk than the build. Those are edits, and
+the advice for them is the opposite of the advice for a stale copy: fold them
+into the next build with `make vendor`, because `setup` would revert them.
+Before this, every surface said "run setup" for any difference, and the first
+time anyone acted on the iOS badge, the only differing file was a
+`settings.json` edited three weeks after the build. Following the advice would
+have quietly switched off a plugin enabled on purpose. Uses the same
+`newerThanBuild` the startup install uses to decide what to keep, so the report
+and the install cannot disagree about a file's direction.
+
 **The payload is a SNAPSHOT, and it can be older than the disk.** `make vendor`
 copies the live `~/.claude` into the overlay by hand, so a file edited *after*
 this binary was built is newer than the copy inside it — and installing then

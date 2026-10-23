@@ -407,8 +407,12 @@ type nodeView struct {
 	PayloadPending int  `json:"payload_pending,omitempty"`
 	// PayloadDrift names which files differ, so "1 pending" is actionable
 	// rather than a number somebody defers.
-	PayloadDrift []string  `json:"payload_drift,omitempty"`
-	Sessions     []Session `json:"sessions"`
+	PayloadDrift []string `json:"payload_drift,omitempty"`
+	// PayloadLocalNewer is how many of those files are newer on the node than
+	// its build. Those are edits, and `setup` would revert them: the fix is to
+	// vendor them into the next build, not to run setup.
+	PayloadLocalNewer int       `json:"payload_local_newer,omitempty"`
+	Sessions          []Session `json:"sessions"`
 }
 
 func (h *humanAPI) sessions(w http.ResponseWriter, r *http.Request) {
@@ -474,6 +478,7 @@ func (h *humanAPI) sessionsPayload(ctx context.Context) (map[string]any, error) 
 			PayloadKnown:      h.hub.NodeInstalledPayload(tenant, node).Known,
 			PayloadPending:    h.hub.NodeInstalledPayload(tenant, node).Pending,
 			PayloadDrift:      h.hub.NodeInstalledPayload(tenant, node).Drift,
+			PayloadLocalNewer: h.hub.NodeInstalledPayload(tenant, node).LocalNewer,
 			CapabilitiesKnown: h.hub.CapabilitiesKnown(tenant, node),
 			Sessions:          sessions,
 		})

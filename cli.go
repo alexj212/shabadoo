@@ -516,10 +516,11 @@ type cliNode struct {
 	// PayloadKnown separates "config is current" from "could not check" — a
 	// node that cannot look must not render as one that looked and found
 	// nothing.
-	PayloadKnown   bool     `json:"payload_known"`
-	PayloadPending int      `json:"payload_pending"`
-	PayloadDrift   []string `json:"payload_drift"`
-	Version        string   `json:"version"`
+	PayloadKnown      bool     `json:"payload_known"`
+	PayloadPending    int      `json:"payload_pending"`
+	PayloadLocalNewer int      `json:"payload_local_newer"`
+	PayloadDrift      []string `json:"payload_drift"`
+	Version           string   `json:"version"`
 	// Capabilities is what this host can do — a curated toolchain vocabulary,
 	// detected. Reported since the day capabilities shipped and rendered by
 	// NOTHING until now, which is the third measured-and-discarded value found
@@ -718,8 +719,7 @@ func runSessions(args []string) {
 			// Named, not counted. A number here stood for months while the
 			// file behind it was months stale, and nobody looked because
 			// nothing said which file it was.
-			cfg = fmt.Sprintf(", %d config file%s pending — run `shabadoo setup` there",
-				n.PayloadPending, plural(n.PayloadPending))
+			cfg = payloadAdvice(n.PayloadPending, n.PayloadLocalNewer)
 			if len(n.PayloadDrift) > 0 {
 				more := ""
 				if n.PayloadPending > len(n.PayloadDrift) {
@@ -2437,4 +2437,33 @@ func waitForSession(c *client, node, path string) {
 		}
 		time.Sleep(tick)
 	}
+}
+
+// payloadAdvice says what to do about a node whose ~/.claude differs from the
+// payload in its binary, and the direction decides the answer.
+//
+// A file that is OLDER on disk than the build is stale guidance, and `setup`
+// fixes it. A file that is NEWER is an edit made after the build, and `setup`
+// would revert it: the fix is to vendor it into the next build. This used to
+// say "run setup" for both, which for the second case is the one command that
+// destroys the edit.
+func payloadAdvice(pending, localNewer int) string {
+	older := pending - localNewer
+	switch {
+	case localNewer <= 0:
+		return fmt.Sprintf(", %d config file%s pending — run `shabadoo setup` there",
+			pending, plural(pending))
+	case older <= 0:
+		return fmt.Sprintf(", %d config file%s edited after this build — vendor %s into the next build (`make vendor`); `setup` would revert %s",
+			localNewer, plural(localNewer), them(localNewer), them(localNewer))
+	}
+	return fmt.Sprintf(", %d config file%s differ: %d older (run `shabadoo setup` there), %d edited after this build (`make vendor` first, or setup reverts %s)",
+		pending, plural(pending), older, localNewer, them(localNewer))
+}
+
+func them(n int) string {
+	if n == 1 {
+		return "it"
+	}
+	return "them"
 }
