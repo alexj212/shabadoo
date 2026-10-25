@@ -68,7 +68,7 @@ needs) and nightly borg coverage came along with it.
 publishes it to ghcr.io in about eight minutes:
 
 ```bash
-git tag v0.4.11 && git push origin main --follow-tags   # the step that publishes anything at all
+git tag -a v0.4.11 -m v0.4.11 && git push origin main --follow-tags   # the step that publishes anything at all
 gh run watch $(gh run list --workflow=release.yml --branch v0.4.11 --limit 1 \
   --json databaseId -q '.[0].databaseId')   # empty = not started yet; re-run in a few seconds
 ssh user@coordinator "cd /docker/shabadoo && cp .env .env.bak.\$(date +%s) && \
@@ -78,6 +78,10 @@ ssh user@coordinator "cd /docker/shabadoo && cp .env .env.bak.\$(date +%s) && \
 make install                   # rebuild the local binary + ~/bin (agents, CLI)
 make dist && shabadoo publish dist/ && shabadoo upgrade --all   # then the nodes
 ```
+
+**The tag must be annotated (`-a`).** `--follow-tags` pushes annotated tags
+only, so a plain `git tag` stays local and the push reports success with no
+release started (found cutting v0.4.96).
 
 **A local `git tag` publishes nothing.** The pin names an image that does not
 exist until CI has run. `compose pull` then fails rather than quietly keeping
