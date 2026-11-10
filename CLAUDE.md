@@ -578,10 +578,20 @@ signature, because an arm64 Mac will not run a binary whose pages do not match
 it and `upgrade` runs the new binary before re-signing it. The tests check that
 signature against the Go linker's own output, before and after.
 
-**UNVERIFIED on darwin at the time of writing:** that `codesign` binds the
-section, that macOS then prompts, and whether a grant reaches the tmux server
-already running. That server was started by an earlier binary, and restarting
-it ends every session on the Mac, so it needs the user's OK.
+**Measured on the mac, 2026-11-10:** `codesign` binds it (`Info.plist
+entries=4`, same identifier and team). **A grant does not reach a tmux server
+that is already running.** macOS keys a session's Local Network decision to the
+process that started its tmux server, recorded by pid and Mach-O UUID when the
+server started. The mac's server was started in September by a `boot` that has
+since exited, from a build no longer on disk, so the lookup finds no bundle ID
+(`did not find bundle ID for UUID`), shows no prompt, and blocks. Replacing the
+binary cannot reach it; only a server started by a build carrying the plist
+can.
+
+**Not yet established:** whether a server started that way gets the prompt
+while the launcher that started it has exited (as `boot` does), and whether a
+grant survives the next upgrade, which changes the UUID. Restarting the real
+server ends every session on the Mac, so it waits for the user.
 
 ## Versions
 
