@@ -315,6 +315,8 @@ dist: vet
 	  GOOS=$$os GOARCH=$$arch $(GOBUILD) -o dist/$(BIN)-$$os-$$arch . || exit 1; \
 	  echo "  dist/$(BIN)-$$os-$$arch"; \
 	done
+	@# macOS Local Network privacy needs an embedded Info.plist; see machoplist.
+	@go run ./machoplist/embed machoplist/Info.plist dist/$(BIN)-darwin-arm64 dist/$(BIN)-darwin-amd64
 
 clean:
 	rm -rf $(BIN) dist

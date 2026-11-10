@@ -335,6 +335,7 @@ typing a code becomes annoying.
 | `setup.go`           | Installer: the `binary`/`path`/`deps`/`env`/`config` steps, plus the `installFile` backup-and-replace primitive everything writes through. |
 | `service.go`         | Platform-specific steps: systemd (linux) / launchd (darwin) service + boot launcher, and the linux-only Caddy vhost. |
 | `assets.go`          | The two `go:embed` trees (`static/`, `config/`).                |
+| `machoplist/`        | Embeds `machoplist/Info.plist` into the darwin builds after linking (`make dist`), and repairs Go's ad hoc signature. See Local Network privacy. |
 | `tmux/tmux.go`       | Shells out to `tmux` (list / select-window / send-keys / kill-window / capture-pane), parses it. |
 | `claudelog/`         | Reads Claude Code's own session transcripts (`~/.claude/projects/*/*.jsonl`) and summarizes them. Pure file I/O — no tmux, no HTTP. |
 | `static/index.html`  | Embedded single-page dashboard (`go:embed`, no build step).     |
@@ -557,6 +558,30 @@ needs a rebuild, a re-sign and a restart of the session tree on a Mac. It is
 written down as unverified rather than assumed, for the same reason
 `AbandonProcessGroup` was: the last time a darwin fix was reasoned about from
 here rather than run, it was inert.
+
+## Local Network privacy on darwin: the binary carries an Info.plist
+
+Every session shabadoo launches on a Mac counts shabadoo as its responsible
+code, and launchd agents are not exempt from Local Network privacy (Apple
+TN3179: daemons, root and tools run from Terminal or SSH are; agents are not).
+The binary had no Info.plist, and non-Apple tools in those sessions were refused
+LAN access with no prompt: Homebrew curl and adb failed while Apple's `nc`
+connected from the same shell. tccd named `com.github.alexj212.shabadoo` as
+responsible 13 times in 3 minutes (reported by the mac, 2026-11-10).
+
+TN3179's fix for a standalone executable is an Info.plist embedded as
+`__TEXT,__info_plist`. Linking with `-sectcreate` needs a darwin linker, and the
+darwin builds are cross-compiled on linux, so `make dist` adds the section after
+linking (`machoplist`). It uses the free space Go leaves after the load
+commands (about 1.2 KB), moves nothing, and rehashes the linker's ad hoc
+signature, because an arm64 Mac will not run a binary whose pages do not match
+it and `upgrade` runs the new binary before re-signing it. The tests check that
+signature against the Go linker's own output, before and after.
+
+**UNVERIFIED on darwin at the time of writing:** that `codesign` binds the
+section, that macOS then prompts, and whether a grant reaches the tmux server
+already running. That server was started by an earlier binary, and restarting
+it ends every session on the Mac, so it needs the user's OK.
 
 ## Versions
 
